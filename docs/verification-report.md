@@ -2,6 +2,20 @@
 
 验证日期：2026-10-18（北京时间）
 
+# 2026-10-18 第 287 阶段第二片：bounded 输入序列与 context snapshot
+
+- 主线：第 3 点 Context/Memory 第二片完成有界模型输入持久化；第一片 Memory CAS 已提交。下一片为压缩，随后进程恢复和后台整理；整个第 3 点仍未收口，详见[输入快照契约](agent-context-snapshot.md)与[路线图](personal-agent-roadmap.md)。
+- 实现：生产 OpenAI adapter 在 client 前捕获同一份 PLAN/SUMMARIZE 文本，Reporting Ledger 转发 Room；每 Run 连续序号从 1 起，1 MiB/帧、64 帧/16 MiB、32 verified ToolCall IDs。事务拒绝 pending ToolCall、终态/取消 Run、错误 Step、覆盖、损坏和超限，完整前缀不截断/淘汰。设备输入历史整条正文省略；鉴权字段/附件原文不保存，原模型请求不变。
+- 复核与修正：两路只读复核发现总结保存超时被展示兜底吞掉、有限转义替换可能留下嵌套输入、payload 摘要未绑定 header/Step，以及 REPLACE 父 Run 会 CASCADE 丢帧。已分别改为保存超时固定异常停止并冻结预算、全部正文省略投影、domain/长度前缀 record 摘要加真实 Step 关联校验，以及 `@Upsert`。第二轮两路静态复核没有发现实质缺陷，竞争测试补同正文幂等和不同 Step 连续序号。
+- JVM/构建：JDK 21 wrapper 执行 `:app:testDebugUnitTest --tests '*AgentContextSnapshotTest' --tests '*MinimalAgentRuntimeTest' --tests '*MultiStepAgentRuntimeTest' --tests '*AgentRunResumePolicyTest' --tests '*AgentRunRecoveryEvidencePolicyTest' :app:assembleDebug :app:assembleDebugAndroidTest --console=plain`，最终 `BUILD SUCCESSFUL in 3s`，五类 `152 tests / 0 failures / 0 errors / 0 skipped`。新 codec/adapter 6 项加 Runtime 总结持久化超时回归，覆盖 UTF-8、拒绝截断、wire 文本相等、等待期间参数变化、多层 JSON 原文省略、捕获失败/取消零网络与消耗预算；原总结网络超时兜底及恢复门禁不回归。
+- 失败审计：早期 AndroidTest 编译误用不存在的 `evaluate/getAllRuns`，已改真实 `assess/getRecentRuns`；加固回归漏传 `arguments/approvals` 必填参数，已补齐；随后 JUnit 报嵌套 JSON 测试 `should be void`，改显式 Unit 后通过。所有失败与修复日志保留，没有把未运行的新测试计入通过。
+- Redmi：仅 `wsvwypiz7xwslvl7 / begonia / SDK 36`，主 APK 与测试 APK `install -r` 成功，保留设备数据与权限。快照 9 项、新迁移 1 项、既有 Run Repository 56 项和迁移类 35 项合计 `OK (101 tests)`、`88.969s`，逐项 status 核对为 101 passed、0 failed/skipped。使用 UUID/内存隔离数据库，不读取正式 Provider 或清理 Memory undo。
+- 真实联动：默认 `OpenAiCompatibleClient`、生产 `OpenAiAgentLlm`/Runtime/Room 与手机 loopback MockWebServer 完成 3 次请求；逐帧正文与 wire 相等，verified ToolCall ID/ToolResult PASSED 对齐。数据库插入 trigger 故障让 PLAN FAILED 且请求数 0。另验双 Room 连接竞争、重开冻结、同 ID Run 更新保帧、显式删除 CASCADE、插入失败前缀/序号、终态/取消、pending 工具、摘要/Step 关联损坏与完整容量上限。
+- 迁移：Room 41→42 保留旧 Run、Step、Memory version=4，新表初始为空；新帧写入前后原 Resume Policy 评估相等，显式删除 Run 清帧，不扩大旧恢复资格。
+- 文档：新增独立输入快照契约，同步 requirements、implementation-notes、路线图、索引及根 README。六份长期文档的 `RoomKnowledgeDocumentStoreInstrumentedTest#projectDocumentationCorpusMeetsGoldenQueryRecallGate` 首轮为 `OK (1 test)`、`3.677s`；本报告写回后重新打包并复验，最终记录保存为 `corpus-final.log`。独立契约和根 README 不在该六份语料门禁内，链接及差异另行核对。
+- 证据边界：本片是输入序列，不是完整往返 transcript 或 wire 附件副本，设备省略投影不能重放。关闭重开只证明持久化；loopback 不代表真实 Provider/API 联合验收或自然进程恢复。未运行完整 JVM/Lint/全量 instrumentation/Release，也未实现压缩、自动重放或后台整理。
+- 交付：发布版本保持 `0.1.22 (23)`，开发数据库 Room v42。忽略的 `outputs/verification/stage287-context-snapshot/` 保存官方正文、构建/失败日志、JVM/设备摘要与制品审计；凭据仅在内存读取检查，源码/文档/证据及 APK 解压条目 0 命中。只做中文本地提交，不推送、不发版；无关 `refs/` 保留。
+
 # 2026-10-18 第 287 阶段第一片：Memory CAS
 
 - 主线：第 2 点 MCP 已收口，当前推进第 3 点 Context/Memory。本片收口显式 Memory version/CAS、冲突草稿、版本化删除与撤销；下一片进入 bounded transcript/context snapshot，其后是压缩、进程恢复和后台整理。整个第 3 点仍未完成，详见[Memory CAS](memory-cas.md)与[路线图](personal-agent-roadmap.md)。

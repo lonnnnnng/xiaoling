@@ -24,4 +24,11 @@ interface AgentRunLedger {
     suspend fun updateStep(stepId: String, status: AgentStepStatus, detail: String? = null)
     suspend fun appendEvent(runId: String, type: String, message: String, metadata: RunEventMetadata? = null)
     suspend fun snapshot(runId: String): AgentRunSnapshot
+
+    /** long: 捕获模型输入的 Ledger 必须真正接收快照，缺少实现时拒绝发送，不能静默丢失输入序列。 */
+    suspend fun appendContextSnapshot(runId: String, stepId: String, input: AgentContextInput) {
+        error("当前 Ledger 不支持上下文快照")
+    }
+
+    suspend fun contextTranscript(runId: String): List<AgentContextSnapshotRecord> = emptyList()
 }

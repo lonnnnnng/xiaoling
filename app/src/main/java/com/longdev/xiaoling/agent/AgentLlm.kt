@@ -45,6 +45,14 @@ interface AgentLlm {
         telemetry = null,
     )
 
+    /** long: 不支持输入捕获的旧模型保持原行为，不能由 Runtime 猜造完整 prompt；生产 OpenAI adapter 在发送前调用 capture。 */
+    suspend fun proposeNextActionWithContext(
+        goal: String,
+        tools: List<ToolDefinition>,
+        completedTools: List<AgentToolExecution>,
+        capture: suspend (AgentContextInput) -> Unit,
+    ): AgentLlmCallResult<AgentPlanDecision> = proposeNextActionWithTelemetry(goal, tools, completedTools)
+
     suspend fun summarize(goal: String, toolCall: ToolCall, toolResult: ToolExecutionResult): String
 
     suspend fun summarize(goal: String, completedTools: List<AgentToolExecution>): String {
@@ -59,6 +67,12 @@ interface AgentLlm {
         value = summarize(goal, completedTools),
         telemetry = null,
     )
+
+    suspend fun summarizeWithContext(
+        goal: String,
+        completedTools: List<AgentToolExecution>,
+        capture: suspend (AgentContextInput) -> Unit,
+    ): AgentLlmCallResult<String> = summarizeWithTelemetry(goal, completedTools)
 }
 
 interface ApprovalGate {

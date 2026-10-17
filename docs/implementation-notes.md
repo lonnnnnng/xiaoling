@@ -1,5 +1,13 @@
 # 当前实现说明
 
+## 2026-10-18 第 287 阶段第二片：模型输入序列与存储边界
+
+- `AgentContextSnapshotCodec` v1 严格校验两条文本消息、UTF-8、枚举/字段、工具 ID 与附件计数，冻结编码正文；SHA-256 以 domain/长度前缀绑定 Run、Step、sequence 和 payload。
+- `OpenAiAgentLlm` 新 capture 接口在 client 前等待 Ledger，再发送同份消息；旧接口桥接不猜造输入。含 `device.type_text` 时所有快照正文省略，避免嵌套 JSON 泄漏，网络仍使用原输入。
+- `RoomAgentRunRepository` 在事务中检查 active/cancel、RUNNING 模型 Step、完整 PASSED 工具历史、旧序列/Step 关联与限额，然后分配序号并 ABORT 插入。同 Step 同正文幂等，覆盖/损坏/超限拒绝且不丢前缀。Reporting Ledger 已转发。
+- 总结 capture 失败与保存超时固定异常停止，并持久化消耗预算；只有保存成功后的模型超时才保留样式兜底。取消继续原结算，adapter 发送前复核协程状态。
+- Room v42 创建空快照表；Run `@Upsert` 防止同 ID 更新触发 CASCADE，显式删除仍清关联帧。本片只保存输入序列，不保存原始响应、附件或鉴权配置，也不扩大恢复资格，详见[输入快照契约](agent-context-snapshot.md)。
+
 ## 2026-10-18 第 287 阶段第一片：版本化 Memory 与冲突草稿
 
 - `AgentMemoryRecord.version`、`AgentMemoryVersionConflictException(current)` 与管理 API 的必填 `expectedVersion` 接入 Room v41。DAO 以 ABORT 创建、条件 UPDATE/DELETE 修改；Store 的有效写入递增一次，并与 FTS 同事务，同值和引用时间不递增。

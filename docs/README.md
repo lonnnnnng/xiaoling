@@ -1,8 +1,8 @@
 # 文档索引
 
-## 当前阶段：第 287 阶段 Context/Memory（第一片 Memory CAS）
+## 当前阶段：第 287 阶段 Context/Memory（第二片输入快照）
 
-- 正式 Memory 已接入版本/CAS、当前内容冲突返回、管理页旧草稿保留、版本化删除与撤销，以及 Room 40→41 兼容迁移。详见[Memory CAS](memory-cas.md)与[验证报告](verification-report.md)。后续为 context snapshot、压缩、进程恢复和后台整理，整个第 3 点仍在推进。
+- 正式 Memory CAS 已完成；第二片保存有界实际模型输入，绑定 Run/Step/连续序号，Room 41→42、完整性/容量门禁和设备正文省略投影已实现。详见[Memory CAS](memory-cas.md)、[输入快照契约](agent-context-snapshot.md)与[验证报告](verification-report.md)。后续为压缩、进程恢复和后台整理，整个第 3 点仍在推进。
 
 ## 第 286 阶段 MCP（已收口）
 

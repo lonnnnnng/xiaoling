@@ -3295,6 +3295,43 @@ class MinimalAgentRuntimeTest {
         assertEquals(AgentStepStatus.FAILED, snapshot.steps.single().status)
     }
 
+    @OptIn(ExperimentalCoroutinesApi::class)
+    @Test
+    fun summaryContextPersistenceTimeoutFailsRunBeforeNetworkAndKeepsConsumedBudget() = runTest {
+        val base = InMemoryAgentRunLedger()
+        val ledger = object : AgentRunLedger by base {
+            override suspend fun appendContextSnapshot(runId: String, stepId: String, input: AgentContextInput) {
+                delay(2_000)
+                base.appendContextSnapshot(runId, stepId, input)
+            }
+        }
+        val server = MockWebServer()
+        server.start()
+        try {
+            val production = OpenAiAgentLlm(OpenAiCompatibleClient(),
+                ProviderRequestConfig(server.url("/v1").toString(), "fixture-key", "fixture", httpDebugLoggingEnabled = false), "选择样式")
+            val llm = object : AgentLlm by FakeAgentLlm() {
+                override suspend fun summarizeWithContext(goal: String, completedTools: List<AgentToolExecution>,
+                    capture: suspend (AgentContextInput) -> Unit) = production.summarizeWithContext(goal, completedTools, capture)
+            }
+            val runtime = MinimalAgentRuntime(ledger, llm = llm,
+                options = AgentRuntimeOptions(runTimeoutMs = 5_000, modelStepTimeoutMs = 1_000),
+                monotonicClock = MonotonicClock { testScheduler.currentTime })
+            val error = runCatching { runtime.run("conversation", "message", "总结持久化超时") }.exceptionOrNull()
+            assertTrue(error is AgentContextSnapshotException)
+            assertEquals(0, server.requestCount)
+            val runId = requireNotNull(base.lastRunId)
+            val snapshot = base.snapshot(runId)
+            assertEquals(AgentRunStatus.FAILED, snapshot.run.status)
+            assertEquals(AgentStepStatus.FAILED, snapshot.steps.single { it.type == AgentStepTypes.LLM_SUMMARIZE }.status)
+            assertTrue(base.contextTranscript(runId).isEmpty())
+            assertFalse(snapshot.events.any { it.type == "llm.summarize.fallback" })
+            assertTrue(snapshot.events.any { it.type == "tool.verify" && (it.metadata as? RunEventMetadata.ToolVerification)?.status == ToolVerificationStatus.PASSED })
+            val budget = AgentExecutionBudgetEvidencePolicy.read(AgentRunDetailRecord(snapshot, emptyList())) as AgentExecutionBudgetEvidenceAssessment.Available
+            assertEquals(1_000L, budget.snapshot.consumedMs)
+        } finally { server.shutdown() }
+    }
+
     @Test
     fun summaryTimeoutAfterVerifiedToolUsesFallbackResponse() = runTest {
         val ledger = InMemoryAgentRunLedger()
@@ -4094,6 +4131,18 @@ private class FakeAgentLlm : AgentLlm {
 }
 
 internal class InMemoryAgentRunLedger : AgentRunLedger {
+    private val contexts = mutableListOf<AgentContextSnapshotRecord>()
+
+    override suspend fun appendContextSnapshot(runId: String, stepId: String, input: AgentContextInput) {
+        val payload = AgentContextSnapshotCodec.encode(input)
+        val sequence = contexts.count { it.runId == runId } + 1
+        contexts += AgentContextSnapshotRecord(runId, stepId, sequence,
+            AgentContextSnapshotCodec.decode(payload), AgentContextSnapshotCodec.recordHash(runId, stepId, sequence, payload),
+            AgentContextSnapshotCodec.utf8Size(payload), System.currentTimeMillis())
+    }
+
+    override suspend fun contextTranscript(runId: String): List<AgentContextSnapshotRecord> = contexts.filter { it.runId == runId }
+
     private val runs = linkedMapOf<String, AgentRunRecord>()
     private val steps = linkedMapOf<String, AgentStepRecord>()
     private val events = linkedMapOf<String, RunEventRecord>()

@@ -6,6 +6,7 @@ import androidx.room.OnConflictStrategy
 import androidx.room.Query
 import androidx.room.RawQuery
 import androidx.room.Update
+import androidx.room.Upsert
 import androidx.sqlite.db.SupportSQLiteQuery
 
 @Dao
@@ -105,7 +106,14 @@ interface ConversationDao {
 
 @Dao
 interface AgentRunDao {
-    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    @Insert(onConflict = OnConflictStrategy.ABORT)
+    suspend fun insertContextSnapshot(snapshot: AgentContextSnapshotEntity)
+
+    @Query("SELECT * FROM agent_context_snapshots WHERE runId = :runId ORDER BY sequence ASC")
+    suspend fun getContextSnapshots(runId: String): List<AgentContextSnapshotEntity>
+
+    // long: 同 ID 更新不能先删除父 Run，否则上下文外键会级联删除已冻结的输入序列。
+    @Upsert
     suspend fun upsertRun(run: AgentRunEntity)
 
     @Query(

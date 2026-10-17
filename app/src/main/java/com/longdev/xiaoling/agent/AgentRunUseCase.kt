@@ -737,6 +737,11 @@ private class ReportingAgentRunLedger(
 
     override suspend fun snapshot(runId: String): AgentRunSnapshot = delegate.snapshot(runId)
 
+    override suspend fun appendContextSnapshot(runId: String, stepId: String, input: AgentContextInput) =
+        delegate.appendContextSnapshot(runId, stepId, input)
+
+    override suspend fun contextTranscript(runId: String): List<AgentContextSnapshotRecord> = delegate.contextTranscript(runId)
+
     private suspend fun emit(runId: String) {
         // long: 运行时间线依赖 Room 里的真实审计记录，而不是 UI 自己猜状态；每次落库后回读快照，保证界面展示和可追溯数据一致。
         onSnapshot(delegate.snapshot(runId))

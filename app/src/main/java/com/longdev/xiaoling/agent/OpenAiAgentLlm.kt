@@ -9,6 +9,8 @@ import com.longdev.xiaoling.network.RequestMessage
 import org.json.JSONArray
 import org.json.JSONObject
 import java.math.BigDecimal
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
 
 class OpenAiAgentLlm(
     private val client: OpenAiCompatibleClient,
@@ -47,14 +49,24 @@ class OpenAiAgentLlm(
         return requestPlan(goal, tools, completedTools)
     }
 
+    override suspend fun proposeNextActionWithContext(
+        goal: String,
+        tools: List<ToolDefinition>,
+        completedTools: List<AgentToolExecution>,
+        capture: suspend (AgentContextInput) -> Unit,
+    ): AgentLlmCallResult<AgentPlanDecision> = requestPlan(goal, tools, completedTools, capture)
+
     private suspend fun requestPlan(
         goal: String,
         tools: List<ToolDefinition>,
         completedTools: List<AgentToolExecution>,
+        capture: (suspend (AgentContextInput) -> Unit)? = null,
     ): AgentLlmCallResult<AgentPlanDecision> {
-        val response = client.sendMessage(
-            config = config.copy(streamingEnabled = false, temperature = 0.0),
-            messages = listOf(
+        val frozenTools = completedTools.map { execution ->
+            execution.copy(toolCall = execution.toolCall.copy(arguments = execution.toolCall.arguments.toMap()),
+                toolResult = execution.toolResult.copy(knowledgeReferences = execution.toolResult.knowledgeReferences.toList()))
+        }
+        val messages = listOf(
                 RequestMessage(
                     role = "system",
                     content = """
@@ -84,13 +96,16 @@ class OpenAiAgentLlm(
                         ${selectedSkills.toModelPromptBlock()}
 
                         已执行并验证的工具历史：
-                        ${completedTools.toPlannerHistoryJson()}
+                        ${frozenTools.toPlannerHistoryJson()}
                     """.trimIndent(),
                     images = userAttachments.image?.let(::listOf).orEmpty(),
                     documents = userAttachments.document?.let(::listOf).orEmpty(),
                 ),
-            ),
         )
+        capture?.invoke(contextInput(AgentLlmPhase.PLAN, messages, frozenTools))
+        // long: 持久化期间取消的请求不能进入网络层；保存输入只表示请求意图，不表示远端已收到。
+        currentCoroutineContext().ensureActive()
+        val response = client.sendMessage(config = config.copy(streamingEnabled = false, temperature = 0.0), messages = messages)
         val telemetry = response.toAgentTelemetry()
         val decision = try {
             AgentToolCallParser.parseDecision(response.responseText, tools)
@@ -143,10 +158,10 @@ class OpenAiAgentLlm(
 
     private suspend fun requestSummary(
         executions: List<AgentExecutionSummary>,
+        capture: (suspend (AgentContextInput) -> Unit)? = null,
+        completedTools: List<AgentToolExecution> = emptyList(),
     ): AgentLlmCallResult<String> {
-        val response = client.sendMessage(
-            config = config.copy(streamingEnabled = false, temperature = 0.0),
-            messages = listOf(
+        val messages = listOf(
                 RequestMessage(
                     role = "system",
                     content = agentProfile?.composeSummarySystemPrompt(summarySystemPrompt) ?: summarySystemPrompt,
@@ -161,11 +176,38 @@ class OpenAiAgentLlm(
                         {"style":"compact","tone":"neutral"}
                     """.trimIndent(),
                 ),
-            ),
         )
+        capture?.invoke(contextInput(AgentLlmPhase.SUMMARIZE, messages, completedTools))
+        currentCoroutineContext().ensureActive()
+        val response = client.sendMessage(config = config.copy(streamingEnabled = false, temperature = 0.0), messages = messages)
         return AgentLlmCallResult(
             value = response.responseText,
             telemetry = response.toAgentTelemetry(),
+        )
+    }
+
+    override suspend fun summarizeWithContext(
+        goal: String,
+        completedTools: List<AgentToolExecution>,
+        capture: suspend (AgentContextInput) -> Unit,
+    ): AgentLlmCallResult<String> = requestSummary(
+        completedTools.map { AgentExecutionSummary(it.toolCall.name, it.toolResult.content.length) }, capture, completedTools,
+    )
+
+    private fun contextInput(
+        phase: AgentLlmPhase,
+        messages: List<RequestMessage>,
+        completedTools: List<AgentToolExecution>,
+    ): AgentContextInput {
+        val containsDeviceInput = completedTools.any { it.toolCall.name == DeviceTypeTextAuditPolicy.TOOL_NAME }
+        val frozenMessages = messages.map { message ->
+            // long: 输入原文可经多层 JSON、目标或工具结果回流；整条正文省略才能避免转义层数绕过脱敏，网络请求仍使用原冻结文本。
+            AgentContextMessage(message.role, if (containsDeviceInput) "[含设备输入历史，正文未持久化]" else message.content)
+        }
+        return AgentContextInput(
+            phase, config.model, config.providerId, config.apiMode.name, frozenMessages, completedTools.map { it.toolCall.id },
+            if (containsDeviceInput) AgentContextProjection.DEVICE_INPUT_REDACTED else AgentContextProjection.EXACT_TEXT,
+            messages.sumOf { it.images.size }, messages.sumOf { it.documents.size },
         )
     }
 }

@@ -18,6 +18,7 @@ import org.json.JSONObject
         AgentStepEntity::class,
         ApprovalRequestEntity::class,
         RunEventEntity::class,
+        AgentContextSnapshotEntity::class,
         AgentToolCallEntity::class,
         AgentToolResultEntity::class,
         AgentMemoryEntity::class,
@@ -42,7 +43,7 @@ import org.json.JSONObject
         ProcessExitObservationEntity::class,
         KnowledgeAnswerabilityShadowObservationEntity::class,
     ],
-    version = 41,
+    version = 42,
     exportSchema = true,
 )
 abstract class XiaoLingDatabase : RoomDatabase() {
@@ -59,7 +60,7 @@ abstract class XiaoLingDatabase : RoomDatabase() {
     abstract fun knowledgeAnswerabilityShadowObservationDao(): KnowledgeAnswerabilityShadowObservationDao
 
     companion object {
-        const val CURRENT_VERSION = 41
+        const val CURRENT_VERSION = 42
         const val DATABASE_NAME = "xiaoling.db"
 
         @Volatile
@@ -956,6 +957,20 @@ abstract class XiaoLingDatabase : RoomDatabase() {
             }
         }
 
+        private val MIGRATION_41_42 = object : Migration(41, 42) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                // long: 历史 Run 没有完整模型输入，迁移只建空表，不能把旧事件猜造成可恢复上下文。
+                db.execSQL("""CREATE TABLE IF NOT EXISTS `agent_context_snapshots` (
+                    `runId` TEXT NOT NULL, `sequence` INTEGER NOT NULL, `stepId` TEXT NOT NULL,
+                    `payloadJson` TEXT NOT NULL, `recordSha256` TEXT NOT NULL,
+                    `payloadBytes` INTEGER NOT NULL, `createdAt` INTEGER NOT NULL,
+                    PRIMARY KEY(`runId`, `sequence`),
+                    FOREIGN KEY(`runId`) REFERENCES `agent_runs`(`id`) ON UPDATE NO ACTION ON DELETE CASCADE
+                )""".trimIndent())
+                db.execSQL("CREATE UNIQUE INDEX IF NOT EXISTS `index_agent_context_snapshots_runId_stepId` ON `agent_context_snapshots` (`runId`, `stepId`)")
+            }
+        }
+
         fun migrations(): Array<Migration> = arrayOf(
             MIGRATION_1_2,
             MIGRATION_2_3,
@@ -997,6 +1012,7 @@ abstract class XiaoLingDatabase : RoomDatabase() {
             MIGRATION_38_39,
             MIGRATION_39_40,
             MIGRATION_40_41,
+            MIGRATION_41_42,
         )
 
         private fun createAgentNotesTable(db: SupportSQLiteDatabase) {

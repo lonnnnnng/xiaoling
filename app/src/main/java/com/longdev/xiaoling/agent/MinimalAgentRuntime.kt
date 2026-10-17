@@ -574,6 +574,17 @@ class MinimalAgentRuntime internal constructor(
         }
     }
 
+    private suspend fun persistContextSnapshot(runId: String, stepId: String, input: AgentContextInput) {
+        try {
+            currentCoroutineContext().ensureActive()
+            ledger.appendContextSnapshot(runId, stepId, input)
+        } catch (error: CancellationException) {
+            throw error
+        } catch (error: Throwable) {
+            throw AgentContextSnapshotException(error)
+        }
+    }
+
     private suspend fun continuePlanning(
         run: AgentRunRecord,
         goal: String,
@@ -599,11 +610,11 @@ class MinimalAgentRuntime internal constructor(
             }
             val planCall = try {
                 runTimedStep("模型规划", options.modelStepTimeoutMs, state.executionBudget) {
-                    llm.proposeNextActionWithTelemetry(
+                    llm.proposeNextActionWithContext(
                         planningGoal,
                         toolRegistry.availableTools(),
                         state.completedTools.toList(),
-                    )
+                    ) { input -> persistContextSnapshot(run.id, thinking.id, input) }
                 }
             } catch (error: AgentLlmResponseException) {
                 appendLlmRequestEvent(run.id, AgentLlmPhase.PLAN, error.telemetry)
@@ -901,14 +912,25 @@ class MinimalAgentRuntime internal constructor(
         )
         state.activeStepId = summaryStep.id
         var summaryFallbackReason: String? = null
+        var contextPersistenceInProgress = false
         val summaryCall = try {
             runTimedStep("模型总结", options.modelStepTimeoutMs, state.executionBudget) {
-                llm.summarizeWithTelemetry(goal, state.completedTools)
+                llm.summarizeWithContext(goal, state.completedTools) { input ->
+                    contextPersistenceInProgress = true
+                    persistContextSnapshot(run.id, summaryStep.id, input)
+                    contextPersistenceInProgress = false
+                }
             }
+        } catch (error: AgentContextSnapshotException) {
+            // long: 输入未能持久化不能借总结样式兜底绕过边界；已验证工具事实仍由原账本保留。
+            persistExecutionBudget(run.id, "总结上下文保存失败后的执行预算", state.executionBudget)
+            throw error
         } catch (error: AgentTimeoutException) {
+            persistExecutionBudget(run.id, "模型总结超时后的执行预算", state.executionBudget)
+            // long: Room 等待也受模型步骤时限约束；快照尚未落库时超时必须停止，只有已保存输入后的模型超时才可使用样式兜底。
+            if (contextPersistenceInProgress) throw AgentContextSnapshotException(error)
             // long: 工具已经执行并验证成功时，最终总结只是展示层增强；上游总结超时不应把已经完成的本地写入任务改判失败。
             summaryFallbackReason = error.message ?: "模型总结超时"
-            persistExecutionBudget(run.id, "模型总结超时后的执行预算", state.executionBudget)
             null
         } catch (error: AgentLlmResponseException) {
             appendLlmRequestEvent(run.id, AgentLlmPhase.SUMMARIZE, error.telemetry)

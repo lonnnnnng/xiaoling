@@ -4,6 +4,7 @@ import androidx.room.ColumnInfo
 import androidx.room.Entity
 import androidx.room.Fts4
 import androidx.room.FtsOptions
+import androidx.room.ForeignKey
 import androidx.room.Index
 import androidx.room.PrimaryKey
 
@@ -167,6 +168,23 @@ data class RunEventEntity(
     val type: String,
     val message: String,
     val metadataJson: String?,
+    val createdAt: Long,
+)
+
+@Entity(
+    tableName = "agent_context_snapshots",
+    primaryKeys = ["runId", "sequence"],
+    indices = [Index(value = ["runId", "stepId"], unique = true)],
+    foreignKeys = [ForeignKey(entity = AgentRunEntity::class, parentColumns = ["id"],
+        childColumns = ["runId"], onDelete = ForeignKey.CASCADE)],
+)
+data class AgentContextSnapshotEntity(
+    val runId: String,
+    val sequence: Int,
+    val stepId: String,
+    val payloadJson: String,
+    val recordSha256: String,
+    val payloadBytes: Int,
     val createdAt: Long,
 )
 

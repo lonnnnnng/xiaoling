@@ -6,6 +6,10 @@ import com.longdev.xiaoling.agent.APPROVAL_REQUEST_NO_EXPIRY_AT
 import com.longdev.xiaoling.agent.ApprovalRequestRecord
 import com.longdev.xiaoling.agent.ApprovalRequestStatus
 import com.longdev.xiaoling.agent.AgentRunLedger
+import com.longdev.xiaoling.agent.AgentContextInput
+import com.longdev.xiaoling.agent.AgentContextSnapshotCodec
+import com.longdev.xiaoling.agent.AgentContextSnapshotRecord
+import com.longdev.xiaoling.agent.AgentLlmPhase
 import com.longdev.xiaoling.agent.AgentRunDetailRecord
 import com.longdev.xiaoling.agent.AgentRunRecord
 import com.longdev.xiaoling.agent.AgentRunSnapshot
@@ -38,6 +42,7 @@ import com.longdev.xiaoling.agent.DeviceTypeTextAuditPolicy
 import com.longdev.xiaoling.agent.isWaitingForInteractiveApprovalDecision
 import com.longdev.xiaoling.agent.isTerminal
 import com.longdev.xiaoling.data.AgentRunEntity
+import com.longdev.xiaoling.data.AgentContextSnapshotEntity
 import com.longdev.xiaoling.data.AgentStepEntity
 import com.longdev.xiaoling.data.AgentToolCallEntity
 import com.longdev.xiaoling.data.AgentToolResultEntity
@@ -266,6 +271,59 @@ class RoomAgentRunRepository(
                 metadata is RunEventMetadata.ToolVerification && type == TOOL_VERIFICATION_EVENT_TYPE ->
                     persistToolVerification(event, metadata)
             }
+        }
+    }
+
+    override suspend fun appendContextSnapshot(runId: String, stepId: String, input: AgentContextInput) {
+        // long: 在等待 Room 锁前编码成不可变文本，调用方修改集合不能改变这次已冻结的请求输入。
+        val payload = AgentContextSnapshotCodec.encode(input)
+        val frozen = AgentContextSnapshotCodec.decode(payload)
+        val bytes = AgentContextSnapshotCodec.utf8Size(payload)
+        database.withTransaction {
+            val dao = database.agentRunDao()
+            val run = checkNotNull(dao.getRun(runId)) { "上下文所属 Run 不存在" }
+            check(run.status !in TERMINAL_RUN_STATUS_NAMES && run.cancelRequestedAt == null) { "Run 已结束或取消，拒绝迟到上下文" }
+            val step = checkNotNull(dao.getStep(stepId)) { "上下文所属 Step 不存在" }
+            val expectedType = if (frozen.phase == AgentLlmPhase.PLAN) AgentStepTypes.LLM_PLAN else AgentStepTypes.LLM_SUMMARIZE
+            check(step.runId == runId && step.type == expectedType && step.status == AgentStepStatus.RUNNING.name) { "上下文 Step 身份或状态不匹配" }
+            // long: 所有进入规划/总结的历史必须已有成功且 PASSED 的结果，未完成响应不能混入上下文或被默默遗漏。
+            val verifiedIds = dao.getToolResults(runId).filter { it.success && it.verificationStatus == ToolVerificationStatus.PASSED.name }.map { it.toolCallId }
+            check(verifiedIds.toSet() == frozen.verifiedToolCallIds.toSet()) { "上下文与已验证工具账本不一致" }
+            check(dao.getToolCalls(runId).map { it.id }.toSet() == verifiedIds.toSet()) { "存在尚未验证的工具响应，拒绝冻结下一次模型输入" }
+            val frames = dao.getContextSnapshots(runId)
+            validateContextTranscript(runId, frames)
+            frames.singleOrNull { it.stepId == stepId }?.let { existing ->
+                check(existing.payloadJson == payload && existing.recordSha256 == AgentContextSnapshotCodec.recordHash(runId, stepId, existing.sequence, payload)) { "同一模型步骤的上下文已冻结，禁止覆盖" }
+                return@withTransaction
+            }
+            check(frames.size < AgentContextSnapshotCodec.MAX_FRAMES) { "上下文请求序列已满" }
+            check(frames.sumOf { it.payloadBytes.toLong() } + bytes <= AgentContextSnapshotCodec.MAX_RUN_BYTES) { "Run 上下文已超过字节限额" }
+            val sequence = frames.size + 1
+            val hash = AgentContextSnapshotCodec.recordHash(runId, stepId, sequence, payload)
+            dao.insertContextSnapshot(AgentContextSnapshotEntity(runId, sequence, stepId, payload, hash, bytes, System.currentTimeMillis()))
+        }
+    }
+
+    override suspend fun contextTranscript(runId: String): List<AgentContextSnapshotRecord> = database.withTransaction {
+        val frames = database.agentRunDao().getContextSnapshots(runId)
+        validateContextTranscript(runId, frames)
+        frames.map { frame -> AgentContextSnapshotRecord(frame.runId, frame.stepId, frame.sequence,
+            AgentContextSnapshotCodec.decode(frame.payloadJson), frame.recordSha256, frame.payloadBytes, frame.createdAt) }
+    }
+
+    private suspend fun validateContextTranscript(runId: String, frames: List<AgentContextSnapshotEntity>) {
+        check(frames.size <= AgentContextSnapshotCodec.MAX_FRAMES)
+        check(frames.sumOf { it.payloadBytes.toLong() } <= AgentContextSnapshotCodec.MAX_RUN_BYTES)
+        check(frames.map { it.stepId }.distinct().size == frames.size) { "上下文 Step 重复" }
+        frames.forEachIndexed { index, frame ->
+            check(frame.runId == runId && frame.sequence == index + 1 && frame.stepId.isNotBlank()) { "上下文归属或请求序号不匹配" }
+            check(frame.payloadBytes == AgentContextSnapshotCodec.utf8Size(frame.payloadJson)) { "上下文字节计数不匹配" }
+            check(frame.recordSha256 == AgentContextSnapshotCodec.recordHash(runId, frame.stepId, frame.sequence, frame.payloadJson)) { "上下文摘要不匹配" }
+            val input = AgentContextSnapshotCodec.decode(frame.payloadJson)
+            val step = checkNotNull(database.agentRunDao().getStep(frame.stepId)) { "上下文 Step 不存在" }
+            val expectedType = if (input.phase == AgentLlmPhase.PLAN) AgentStepTypes.LLM_PLAN else AgentStepTypes.LLM_SUMMARIZE
+            // long: 历史 Step 可已结束，但它仍须属于原 Run 和同一模型阶段；不能靠重算摘要把异 Run/工具 Step 当作模型输入。
+            check(step.runId == runId && step.type == expectedType) { "上下文 Step 关联不匹配" }
         }
     }
 
