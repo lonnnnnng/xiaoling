@@ -1,5 +1,12 @@
 # 当前实现说明
 
+## 2026-10-17 第 285 阶段第三片：有界后台调度与收件通知
+
+- `RemoteChannelBackgroundRegistry` 在独立偏好保存严格 schema v1 的许可代次、地址指纹、通知摘要与最近结果；每次重读、全进程锁协调，损坏或写失败冻结。`RemoteChannelBackgroundController` 串行管理许可/系统任务，先停用后取消，前台重建对账只修复原已授权任务。
+- `WorkManagerRemoteChannelScheduler` 用每来源唯一 15 分钟联网周期请求；`RemoteChannelReceiveWorker` 标准构造器恢复，单次调用 `RemoteChannelBackgroundSynchronizer`，复用签名/游标/加密 outbox 与持久退避。瞬时故障单周期最多 3 次重试；取消向 HTTPS 协程传播，不调用 ViewModel、Agent 或模型。
+- `RemoteChannelPullService.synchronize(operationAllowed)` 与 Gateway 提交前许可门禁阻断停用后的迟到正文/ACK。通知许可与停用共用锁；固定隐私文本、身份摘要去重、独立通知渠道和私有 one-shot 导航令牌在 MainActivity 原子消费后只路由到待确认列表，复用 Activity 时重读快照。
+- 生产库/密文 schema 沿用第二片，系统调度与许可存储的跨库间隙由配对页对账补齐。WorkManager TestDriver 的受控周期与公网合成来源证据不等同自然周期、Doze、LMK、系统重启或生产发送方。协议与边界见[后台收件说明](remote-channel-background.md)。
+
 ## 2026-10-17 第 285 阶段第二片：原子批次收件与 ACK outbox
 
 - `RemoteChannelBatchProtocol` 固化 v1 外层签名、cursor/receiverId/expiry 绑定、消息数和响应体上限；ACK 回执逐字段核对并用当前 P-256 公钥验签。`RemoteChannelHttpsPuller` 复用原 DNS/HTTPS/取消和有界 JSON 读取，在同一登记 URL 上 GET 批次、POST ACK，不接受响应派生网络目标。

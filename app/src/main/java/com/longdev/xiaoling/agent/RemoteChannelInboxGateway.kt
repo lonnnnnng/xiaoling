@@ -2,6 +2,7 @@ package com.longdev.xiaoling.agent
 
 import org.json.JSONObject
 import java.util.UUID
+import kotlinx.coroutines.CancellationException
 
 sealed interface RemoteChannelInboxStatus {
     data class Ready(val pending: List<RemoteChannelPendingDraft>) : RemoteChannelInboxStatus
@@ -50,7 +51,7 @@ class RemoteChannelInboxGateway(
         loadSnapshot().batchStates.firstOrNull { it.sourceIdentity == identity && it.endpointSha256 == endpoint }
     }
 
-    fun receiveBatch(source: RemoteChannelPullSource, peer: RemoteChannelPeerCandidate, batch: RemoteChannelSignedBatch): RemoteChannelBatchReceiveResult =
+    fun receiveBatch(source: RemoteChannelPullSource, peer: RemoteChannelPeerCandidate, batch: RemoteChannelSignedBatch, operationAllowed: () -> Boolean = { true }): RemoteChannelBatchReceiveResult =
         synchronized(STATE_LOCK) {
             val original = loadSnapshot()
             val identity = RemoteChannelPullReliabilityPolicy.sourceIdentity(peer)
@@ -86,6 +87,8 @@ class RemoteChannelInboxGateway(
                 }
             }
             val nextState = state.copy(cursor = batch.nextCursor, pendingAck = RemoteChannelBatchProtocol.receipt(batch))
+            // long: 后台任务在逐条验签期间也可能停用；提交前最后核对许可，取消的批次不写正文或推进游标。
+            if (!operationAllowed()) throw CancellationException("后台收件许可已撤销")
             require(pairingRegistry.active(peer.channelId, peer.senderId, peer.keyId) == peer) { "配对身份已停用或变化" }
             saveSnapshot(staged.copy(batchStates = staged.batchStates.map { if (it == state) nextState else it }))
             RemoteChannelBatchReceiveResult(accepted, duplicates)

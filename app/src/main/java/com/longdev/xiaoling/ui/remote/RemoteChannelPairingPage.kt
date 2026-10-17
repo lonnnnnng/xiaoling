@@ -43,6 +43,12 @@ import com.longdev.xiaoling.agent.RemoteChannelPullService
 import com.longdev.xiaoling.agent.RemoteChannelPullSourceRegistry
 import com.longdev.xiaoling.agent.RemoteChannelPullSyncResult
 import com.longdev.xiaoling.agent.RemoteChannelSignedEnvelopeCodec
+import com.longdev.xiaoling.agent.RemoteChannelBackgroundController
+import com.longdev.xiaoling.agent.RemoteChannelBackgroundOutcome
+import androidx.compose.runtime.DisposableEffect
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -55,6 +61,9 @@ internal fun RemoteChannelPairingPage(
     inboxGateway: RemoteChannelInboxGateway? = null,
     pullSources: RemoteChannelPullSourceRegistry? = null,
     pullService: RemoteChannelPullService? = null,
+    backgroundController: RemoteChannelBackgroundController? = null,
+    onRequestNotificationPermission: () -> Unit = {},
+    refreshRequest: String? = null,
     onOpenPending: suspend (RemoteChannelDraft) -> Boolean = { false },
     onIgnorePending: suspend (RemoteChannelDraft) -> Boolean = { false },
 ) {
@@ -75,12 +84,41 @@ internal fun RemoteChannelPairingPage(
     var inboxBusy by remember { mutableStateOf(false) }
     var signedEnvelopeJson by remember { mutableStateOf("") }
     var sourceBusy by remember { mutableStateOf(false) }
+    val lifecycleOwner = LocalLifecycleOwner.current
+    DisposableEffect(lifecycleOwner) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_RESUME) { revision += 1; inboxRevision += 1 }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+    }
+    LaunchedEffect(refreshRequest) {
+        // long: 通知点击可能复用已停留在收件页的 Activity，必须重读加密快照，不能继续显示后台入箱前的空列表。
+        if (refreshRequest != null) { revision += 1; inboxRevision += 1 }
+    }
     val loaded = remember(registry, revision) { runCatching { registry.list() } }
     val peers = loaded.getOrNull().orEmpty()
     val stateFailure = loaded.exceptionOrNull()?.message
     val sourcesLoaded = remember(pullSources, revision) { runCatching { pullSources?.list().orEmpty() } }
     val sources = sourcesLoaded.getOrNull().orEmpty()
     val sourceFailure = sourcesLoaded.exceptionOrNull()?.message
+    LaunchedEffect(backgroundController) {
+        if (backgroundController != null) {
+            val result = withContext(Dispatchers.IO) { runCatching { backgroundController.reconcile() } }
+            if (result.isFailure) notice = "后台任务对账失败：${result.exceptionOrNull()?.message}"
+            revision += 1
+        }
+    }
+    fun performSourceAction(block: suspend () -> String, onSuccess: () -> Unit = {}) {
+        sourceBusy = true
+        scope.launch {
+            val result = withContext(Dispatchers.IO) { runCatching { block() } }
+            notice = result.getOrElse { it.message ?: "后台收件设置失败" }
+            sourceBusy = false
+            revision += 1
+            if (result.isSuccess) onSuccess()
+        }
+    }
     LaunchedEffect(inboxGateway, inboxRevision) {
         inboxStatus = inboxGateway?.let { gateway ->
             withContext(Dispatchers.IO) { gateway.status() }
@@ -98,7 +136,7 @@ internal fun RemoteChannelPairingPage(
             Text("远端身份配对", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
         }
         Text(
-            "从可信来源取得发送方公钥，并在另一可信渠道核对 SHA-256 指纹。配对后默认停用；启用只允许验签。HTTPS 收件需要另行登记地址并由用户主动拉取，不会自动运行 Agent。",
+            "从可信来源取得发送方公钥，并在另一可信渠道核对 SHA-256 指纹。配对后默认停用；启用只允许验签。HTTPS 地址和后台收件需要分别登记、启用；收件不会自动运行 Agent。",
             style = MaterialTheme.typography.bodySmall,
         )
         if (stateFailure != null) {
@@ -276,6 +314,8 @@ internal fun RemoteChannelPairingPage(
                 it.senderId == identity.senderId && it.keyId == identity.keyId &&
                 it.fingerprintSha256 == identity.fingerprintSha256 }
             var sourceUrl by remember(tag, savedSource?.url) { mutableStateOf(savedSource?.url.orEmpty()) }
+            val backgroundLoaded = remember(backgroundController, revision, tag) { runCatching { backgroundController?.entry(identity) } }
+            val background = backgroundLoaded.getOrNull()
             Card(modifier = Modifier.fillMaxWidth().testTag("remote-peer-$tag")) {
                 Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                     Text(identity.sourceLabel, fontWeight = FontWeight.SemiBold)
@@ -298,11 +338,13 @@ internal fun RemoteChannelPairingPage(
                         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                             TextButton(
                                 onClick = {
-                                    notice = runCatching { pullSources.save(identity, sourceUrl) }.fold(
-                                        onSuccess = { "HTTPS 收件来源已登记" },
-                                        onFailure = { it.message ?: "HTTPS 来源登记失败" },
-                                    )
-                                    revision += 1
+                                    performSourceAction({
+                                        val normalized = com.longdev.xiaoling.agent.RemoteChannelPullPolicy.endpoint(sourceUrl).toString()
+                                        // long: 改地址先撤销旧后台许可；新 URL 必须由用户重新启用，不能自动继承旧收件授权。
+                                        if (normalized != savedSource?.url) backgroundController?.setEnabled(identity, false)
+                                        pullSources.save(identity, sourceUrl)
+                                        "HTTPS 收件来源已登记；新地址的后台收件默认关闭"
+                                    })
                                 },
                                 enabled = !sourceBusy && sourceFailure == null && stateFailure == null && sourceUrl.isNotBlank(),
                                 modifier = Modifier.testTag("remote-source-save-$tag"),
@@ -334,15 +376,53 @@ internal fun RemoteChannelPairingPage(
                             ) { Text("同步收件") }
                             TextButton(
                                 onClick = {
-                                    notice = runCatching { pullSources.remove(identity) }.fold(
-                                        onSuccess = { if (it) "HTTPS 来源已移除" else "没有已登记来源" },
-                                        onFailure = { it.message ?: "HTTPS 来源移除失败" },
-                                    )
-                                    revision += 1
+                                    performSourceAction({
+                                        backgroundController?.setEnabled(identity, false)
+                                        if (pullSources.remove(identity)) "HTTPS 来源已移除" else "没有已登记来源"
+                                    })
                                 },
                                 enabled = !sourceBusy && savedSource != null && sourceFailure == null,
                                 modifier = Modifier.testTag("remote-source-remove-$tag"),
                             ) { Text("移除来源") }
+                        }
+                        if (backgroundController != null) {
+                            if (backgroundLoaded.isFailure) Text("后台收件账本不可用，设置与收件已冻结",
+                                color = MaterialTheme.colorScheme.error, modifier = Modifier.testTag("remote-background-state-error-$tag"))
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Text("后台收件", modifier = Modifier.weight(1f))
+                                Switch(checked = background?.enabled == true, onCheckedChange = { enabled ->
+                                    performSourceAction({
+                                        backgroundController.setEnabled(identity, enabled)
+                                        if (enabled) "后台收件已启用；新消息仍需前台确认" else "后台收件已停用"
+                                    })
+                                }, enabled = !sourceBusy && backgroundLoaded.isSuccess && peer.enabled && savedSource != null && sourceFailure == null && stateFailure == null,
+                                    modifier = Modifier.testTag("remote-background-enabled-$tag"))
+                            }
+                            Text("联网时定期检查此地址，间隔至少 15 分钟，系统可能延后。停用验签、撤销配对或更改地址会停止后台收件。",
+                                style = MaterialTheme.typography.bodySmall)
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Text("送达通知", modifier = Modifier.weight(1f))
+                                Switch(checked = background?.notificationsEnabled == true, onCheckedChange = { enabled ->
+                                    performSourceAction({
+                                        backgroundController.setNotifications(identity, enabled)
+                                        if (enabled) "送达通知已开启；系统拒绝通知权限时仍保留待确认消息" else "送达通知已关闭"
+                                    }, onSuccess = { if (enabled) onRequestNotificationPermission() })
+                                }, enabled = !sourceBusy && background?.enabled == true && peer.enabled && backgroundLoaded.isSuccess,
+                                    modifier = Modifier.testTag("remote-background-notifications-$tag"))
+                            }
+                            Text("通知不显示消息正文，只打开待确认列表。未授予系统通知权限时不会发送通知。", style = MaterialTheme.typography.bodySmall)
+                            background?.lastOutcome?.let { outcome ->
+                                val detail = when (outcome) {
+                                    RemoteChannelBackgroundOutcome.SYNCED -> "最近同步已完成"
+                                    RemoteChannelBackgroundOutcome.ACK_PENDING -> "已入箱，送达回执待补发"
+                                    RemoteChannelBackgroundOutcome.DEFERRED -> "正在等待重试间隔"
+                                    RemoteChannelBackgroundOutcome.RETRYABLE_ERROR -> "网络暂不可用，将有界重试"
+                                    RemoteChannelBackgroundOutcome.REJECTED -> "收件被拒绝，请检查来源或存储"
+                                    RemoteChannelBackgroundOutcome.INVALIDATED -> "来源或配对已变化，请重新启用"
+                                    RemoteChannelBackgroundOutcome.DISABLED -> "后台收件已停用"
+                                }
+                                Text(detail, modifier = Modifier.testTag("remote-background-outcome-$tag"), style = MaterialTheme.typography.bodySmall)
+                            }
                         }
                     }
                     Row(verticalAlignment = Alignment.CenterVertically) {
@@ -350,15 +430,14 @@ internal fun RemoteChannelPairingPage(
                         Switch(
                             checked = peer.enabled,
                             onCheckedChange = { enabled ->
-                                notice = runCatching {
-                                    registry.setEnabled(identity.channelId, identity.senderId, identity.keyId, enabled)
-                                }.fold(
-                                    onSuccess = { if (it) "已${if (enabled) "启用" else "停用"}验签" else "身份不存在" },
-                                    onFailure = { it.message ?: "启停失败" },
-                                )
-                                revision += 1
+                                performSourceAction({
+                                    val cancelled = if (!enabled) runCatching { backgroundController?.setEnabled(identity, false) } else null
+                                    val changed = registry.setEnabled(identity.channelId, identity.senderId, identity.keyId, enabled)
+                                    if (cancelled?.isFailure == true) "验签已停用；后台任务取消失败，后续消息仍会被拒绝"
+                                    else if (changed) "已${if (enabled) "启用" else "停用"}验签" else "身份不存在"
+                                })
                             },
-                            enabled = stateFailure == null,
+                            enabled = stateFailure == null && !sourceBusy,
                             modifier = Modifier.testTag("remote-peer-enabled-$tag"),
                         )
                     }
@@ -377,16 +456,14 @@ internal fun RemoteChannelPairingPage(
             confirmButton = {
                 TextButton(onClick = {
                     // long: 撤销先移除这把公钥登记的拉取地址，避免同一身份重新配对后沿用旧来源；即使来源账本不可用，验签撤销仍优先执行。
-                    val sourceRemoval = runCatching { pullSources?.remove(identity) }
-                    notice = runCatching {
-                        registry.revoke(identity.channelId, identity.senderId, identity.keyId)
-                    }.fold(onSuccess = { if (it) {
-                        if (sourceRemoval.isFailure) "配对已撤销；HTTPS 来源清理失败：${sourceRemoval.exceptionOrNull()?.message}"
-                        else "配对已撤销"
-                    } else "身份不存在" },
-                        onFailure = { it.message ?: "撤销失败" })
+                    performSourceAction({
+                        val cancellation = runCatching { backgroundController?.setEnabled(identity, false) }
+                        val sourceRemoval = runCatching { pullSources?.remove(identity) }
+                        if (registry.revoke(identity.channelId, identity.senderId, identity.keyId)) {
+                            if (sourceRemoval.isFailure || cancellation.isFailure) "配对已撤销；来源或任务取消失败，后续消息仍会被拒绝" else "配对已撤销"
+                        } else "身份不存在"
+                    })
                     revoke = null
-                    revision += 1
                 }, modifier = Modifier.testTag("remote-pairing-confirm-revoke")) { Text("撤销") }
             },
             dismissButton = { TextButton(onClick = { revoke = null }) { Text("取消") } },

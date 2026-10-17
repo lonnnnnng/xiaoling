@@ -104,7 +104,7 @@ Release 签名从未跟踪文件 `local-signing/xiaoling-release.env` 读取。�
 
 ## 当前状态
 
-开发源码第 285 阶段已增加前台签名批次、cursor、同址签名 ACK 与原子加密 outbox；用户在配对页点“同步收件”后才收件，ACK 失败保留并优先补发，草稿继续前台确认。该切片尚未发布，后台送达与通知待后续；协议见 [批次协议 v1](docs/remote-channel-batch-v1.md)，实测范围见 [验证报告](docs/verification-report.md)。
+开发源码第 285 阶段已增加签名批次、cursor、同址签名 ACK 与原子加密 outbox，并支持按来源单独启用后台收件和送达通知，两个开关均默认关闭。后台每次有界同步，ACK 失败保留并优先补发；通知只打开待确认列表，草稿继续前台确认。该切片尚未发布，自然系统恢复和稳定生产发送方仍待验收；详见[批次协议](docs/remote-channel-batch-v1.md)、[后台收件说明](docs/remote-channel-background.md)和[验证报告](docs/verification-report.md)。
 
 | 项目 | 状态 |
 | --- | --- |

@@ -1,6 +1,6 @@
 # Remote Channel 签名消息收件
 
-当前前台来源是“设置 → 远端身份配对”中的手动 JSON 导入，或为已配对公钥登记地址后主动 HTTPS 同步。开发源码已在第 285 阶段增加[签名批次/cursor/ACK 协议](remote-channel-batch-v1.md)，兼容下述九字段单条响应；正式 `v0.1.22` 仍只有单条拉取。应用不会后台轮询、读取 Telegram/Webhook 或自动启动 Agent。发送方通过独立可信渠道交付公钥指纹；用户核对完整 SHA-256 并显式启用对应 `channelId / senderId / keyId` 后才能收件。
+当前前台来源是“设置 → 远端身份配对”中的手动 JSON 导入，或为已配对公钥登记地址后主动 HTTPS 同步。开发源码已在第 285 阶段增加[签名批次/cursor/ACK 协议](remote-channel-batch-v1.md)与[单独启用的后台收件/通知](remote-channel-background.md)，兼容下述九字段单条响应；正式 `v0.1.22` 仍只有前台单条拉取。应用不读取 Telegram/Webhook，也不自动启动 Agent。发送方通过独立可信渠道交付公钥指纹；用户核对完整 SHA-256 并显式启用对应 `channelId / senderId / keyId` 后才能验签。
 
 ## HTTPS 单条响应
 

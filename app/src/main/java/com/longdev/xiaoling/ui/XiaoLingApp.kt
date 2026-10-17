@@ -120,7 +120,7 @@ import kotlinx.coroutines.launch
 
 @Suppress("DEPRECATION")
 @Composable
-fun XiaoLingApp(viewModel: XiaoLingViewModel = viewModel()) {
+fun XiaoLingApp(viewModel: XiaoLingViewModel = viewModel(), remoteInboxNavigationRequest: String? = null) {
     val state = viewModel.uiState
     LaunchedEffect(viewModel) {
         // long: 先让 Compose 交付可见首帧并结束系统 Splash，再启动 Room、Agent 与 Workflow 恢复；恢复仍只启动一次并继续处理冷启动分享队列。
@@ -131,6 +131,7 @@ fun XiaoLingApp(viewModel: XiaoLingViewModel = viewModel()) {
         XiaoLingContent(
             state = state,
             viewModel = viewModel,
+            remoteInboxNavigationRequest = remoteInboxNavigationRequest,
         )
     }
 }
@@ -140,8 +141,13 @@ fun XiaoLingApp(viewModel: XiaoLingViewModel = viewModel()) {
 private fun XiaoLingContent(
     state: XiaoLingUiState,
     viewModel: XiaoLingViewModel,
+    remoteInboxNavigationRequest: String?,
 ) {
     val navigation = rememberXiaoLingNavigationController()
+    LaunchedEffect(remoteInboxNavigationRequest) {
+        // long: 通知令牌只改变可见页面，不装载正文为会话草稿，更不创建 Agent Run。
+        if (remoteInboxNavigationRequest != null) navigation.openSettingsPane(SettingsPane.REMOTE_CHANNEL_PAIRING)
+    }
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
     val contactOpenScope = rememberCoroutineScope()
@@ -485,6 +491,7 @@ private fun XiaoLingContent(
                     SettingsPage(
                         state = state,
                         viewModel = viewModel,
+                        remoteInboxNavigationRequest = remoteInboxNavigationRequest,
                         pane = navigation.settingsPane,
                         onOpenProviderManagement = { navigation.openSettingsPane(SettingsPane.PROVIDER_MANAGEMENT) },
                         onOpenNetworkRequest = { navigation.openSettingsPane(SettingsPane.NETWORK_REQUEST) },
@@ -1011,6 +1018,7 @@ private fun XiaoLingUiState.toSettingsRootUiState(): SettingsRootUiState {
 private fun SettingsPage(
     state: XiaoLingUiState,
     viewModel: XiaoLingViewModel,
+    remoteInboxNavigationRequest: String?,
     pane: SettingsPane,
     onOpenProviderManagement: () -> Unit,
     onOpenNetworkRequest: () -> Unit,
@@ -1229,6 +1237,9 @@ private fun SettingsPage(
                 inboxGateway = (LocalContext.current.applicationContext as XiaoLingApplication).remoteChannelInboxGateway,
                 pullSources = (LocalContext.current.applicationContext as XiaoLingApplication).remoteChannelPullSourceRegistry,
                 pullService = (LocalContext.current.applicationContext as XiaoLingApplication).remoteChannelPullService,
+                backgroundController = (LocalContext.current.applicationContext as XiaoLingApplication).remoteChannelBackgroundController,
+                onRequestNotificationPermission = onRequestNotificationPermission,
+                refreshRequest = remoteInboxNavigationRequest,
                 onOpenPending = viewModel::stagePersistedRemoteChannelDraft,
                 onIgnorePending = viewModel::ignorePersistedRemoteChannelDraft,
                 onBack = onBackToSettings,

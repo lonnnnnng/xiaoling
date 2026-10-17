@@ -13,6 +13,12 @@ import com.longdev.xiaoling.storage.SharedPreferencesAgentPluginStateStore
 import com.longdev.xiaoling.storage.SharedPreferencesRemoteChannelPairingStateStore
 import com.longdev.xiaoling.storage.SharedPreferencesRemoteChannelPullSourceStateStore
 import com.longdev.xiaoling.storage.SharedPreferencesRemoteChannelPullCheckpointStateStore
+import com.longdev.xiaoling.agent.RemoteChannelBackgroundRegistry
+import com.longdev.xiaoling.agent.RemoteChannelBackgroundController
+import com.longdev.xiaoling.agent.RemoteChannelBackgroundSynchronizer
+import com.longdev.xiaoling.storage.SharedPreferencesRemoteChannelBackgroundStateStore
+import com.longdev.xiaoling.remote.AndroidRemoteChannelInboxNotifier
+import com.longdev.xiaoling.remote.WorkManagerRemoteChannelScheduler
 
 class XiaoLingApplication : Application(), Configuration.Provider {
     /**
@@ -54,6 +60,18 @@ class XiaoLingApplication : Application(), Configuration.Provider {
     /** long: 网络失败后的退避和待 ACK 身份跨进程重建保留；正文仍只在独立 Keystore 收件箱中保存。 */
     val remoteChannelPullCheckpointRegistry: RemoteChannelPullCheckpointRegistry by lazy {
         RemoteChannelPullCheckpointRegistry(SharedPreferencesRemoteChannelPullCheckpointStateStore(this))
+    }
+
+    val remoteChannelBackgroundRegistry by lazy { RemoteChannelBackgroundRegistry(SharedPreferencesRemoteChannelBackgroundStateStore(this)) }
+    private val remoteChannelInboxNotifier by lazy { AndroidRemoteChannelInboxNotifier(this) }
+    val remoteChannelBackgroundController by lazy {
+        RemoteChannelBackgroundController(remoteChannelBackgroundRegistry, remoteChannelPairingRegistry, remoteChannelPullSourceRegistry,
+            WorkManagerRemoteChannelScheduler(this), remoteChannelInboxNotifier)
+    }
+    val remoteChannelBackgroundSynchronizer by lazy {
+        // long: Worker 只构建 Remote Channel 对象图，不加载 Agent/Room 执行运行时，也不触发模型 API。
+        RemoteChannelBackgroundSynchronizer(remoteChannelBackgroundRegistry, remoteChannelPairingRegistry, remoteChannelPullSourceRegistry,
+            remoteChannelInboxGateway, { peer, allowed -> remoteChannelPullService.synchronize(peer, allowed) }, remoteChannelInboxNotifier, remoteChannelPullCheckpointRegistry)
     }
 
     override val workManagerConfiguration: Configuration

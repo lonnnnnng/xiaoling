@@ -2,6 +2,19 @@
 
 验证日期：2026-10-17（北京时间）
 
+# 2026-10-17 第 285 阶段第三片：显式后台收件与独立送达通知
+
+- 当前开发基线：每来源默认关闭的后台许可绑定配对身份、公钥指纹、HTTPS 地址摘要及 UUID 代次；一个联网约束的 15 分钟 WorkManager 周期任务，每轮只调用一次既有同步服务，瞬时故障至多 3 次重试。停用先持久撤销再取消，旧响应在批次提交及 ACK 清除前复核；旧 Worker 的失效撤销也不能覆盖重新启用的新代次。正文、cursor 和 outbox 继续由原加密快照持有。独立通知默认关闭，只打开待确认列表，不创建 Agent Run、不调用模型、不自动打开草稿或授予工具权限。细则见[后台收件说明](remote-channel-background.md)。
+- 最终本地命令：`JAVA_HOME=$(/usr/libexec/java_home -v 21) ./gradlew :app:testDebugUnitTest --tests '*RemoteChannel*' :app:assembleDebug :app:assembleDebugAndroidTest --console=plain` 为 `BUILD SUCCESSFUL in 10s`。八个聚焦 JVM 类合计 `71 tests / 0 failures / 0 errors / 0 skipped`，后台类 11 项、批次类 15 项；新增许可默认关闭/换代、损坏/写失败冻结、入队失败撤销、对账、停用与取消顺序、通知恢复/去重、有限重试，以及旧代次失效和新代次启用交错测试。GET 后撤销许可拒绝提交，入箱后或 ACK 响应后撤销保留 outbox；并发/撤销和网络错误仍包含 JVM 注入证据。
+- Redmi `wsvwypiz7xwslvl7 / begonia`，实际 SDK `36`：Debug 主包和 AndroidTest APK 均 `install -r` 成功，保留用户数据；`dumpsys package` 确认为 `0.1.22 (23)`，Room 保持 v40。本轮不构建或发布新 Release、不推送，未使用模拟器或模型 API。
+- 最终后台门禁：`RemoteChannelBackgroundInstrumentedTest` 为 `OK (4 tests)`、`10.964s`，无 assumption skip。默认工厂可以经标准构造器构造 Worker，并对缺失输入返回 failure；真实设置页显式启用后只有一个来源任务，停用后任务取消且没有 fetch；未知/重放/过期及 URI 授权导航令牌拒绝。测试使用独立 WorkManager 测试数据库、UUID 偏好和 Keystore 别名，不取消正式用户任务。
+- 受控 Worker 公网门禁：WorkManager TestDriver 显式满足联网约束及第二周期延迟，实际 CoroutineWorker 经生产 DNS/TLS/transport 接收独立 Python/OpenSSL 合成签名批次，2 条正文、`cursor-1` 与签名 ACK 完成；第二周期接收空批次并保持 2 条正文。Worker 中通知次数由隔离测试 notifier 计数，首轮 1 次、第二轮仍 1 次，不把它记作真实 Android 通知。官方 `cloudflared 2026.10.1` 临时地址为 `https://goat-fioricet-sequence-memory.trycloudflare.com`；私钥只保留在仓库外临时目录，未复制进审计输出。门禁完成后停止本轮服务与隧道，临时目录保留。
+- 真实 Android 通知与导航单独验收：`RemoteChannelInboxNotificationInstrumentedTest#notificationOnlyOpensInboxWithOneShotPrivateTokenAndNoMessagePayload` 为 `OK (1 test)`、`3.882s`。断言系统 activeNotification 的固定标题/正文及 PRIVATE 可见性，调用其实际 PendingIntent 后通过 `UiAutomation` 确认真实 MainActivity 显示“远端身份配对”和“待确认消息”；导航令牌已消费并从 Intent 移除，第二次 send 为 `PendingIntent.CanceledException`。测试没有在系统通知栏模拟用户点击，也没有接收正文进入会话。为此临时授予通知权限，测试明确结束后恢复，最终为 `POST_NOTIFICATIONS: granted=false`、原 `USER_SENSITIVE_WHEN_GRANTED|USER_SENSITIVE_WHEN_DENIED` 标志及 `Uid mode: POST_NOTIFICATION: ignore`，未清权限标志。
+- 受影响回归：后台 4 项与既有配对页 3 项、加密收件箱重建/损坏 2 项合并 `OK (9 tests)`、`29.604s`；批次真实 UI 和旧 v1 密文迁移另为 `OK (2 tests)`、`14.599s`。分别覆盖显式配对/撤销、单条兼容同步、手动导入、打开/忽略、损坏冻结，以及原密文正文/重放身份升级后继续批次收件。
+- 失败与跳过记录：首次 AndroidTest 编译因匿名 notifier 的 `delivered` 属性类型不可见失败，改为夹具计数器；首轮 Worker 4 项中第二周期未启动而失败，核对精确 `work-testing 2.11.2` 的 TestScheduler 后，在设置周期延迟后重新满足约束。随后 Runner 的 `OK (5 tests)` 实为 4 通过及通知权限未授予的 1 个 assumption skip，不能算 5 项通过。首次单独通知测试因过早恢复权限而 `Process crashed`；下一轮为 30 秒 Compose 页面等待超时。改用 MainActivity Compose 规则仍出现 30 秒页面超时和 `Activity never becomes requested state "[DESTROYED]"`（一个测试有两个 failure），设备可见页面已正确导航；ActivityScenario 日志确认通知更新 Intent 后生命周期因 Intent 不匹配而被过滤。最终用项目既有 UiAutomation 读取真实窗口，测试收尾恢复启动 Intent 后通过，生产导航代码未因此变更。两次只读子代理上游 503 失败，后续核查由主代理完成；早期若干不存在路径的只读定位已更正。
+- 审计输出：`outputs/verification/stage285-background/` 保存最终 `build.log / jvm-summary.json`、`background-final.log`、`background-regression.log / batch-regression.log`、`notification-visible-ui.log`、此前失败/跳过日志、`server.log / tunnel.log` 及 `device-permission-final.log`。报告和长期文档保存后重新打包 AndroidTest，再在同一 Redmi 运行 `RoomKnowledgeDocumentStoreInstrumentedTest#projectDocumentationCorpusMeetsGoldenQueryRecallGate`，实际结果以同目录 `corpus.log` 为准。任务文件 diff 检查及凭据扫描通过，输出保持忽略，无关 `refs/` 保留。
+- 未验证边界：TestDriver 的受控周期不证明自然 15 分钟执行、Doze、自然 LMK、系统重启、厂商后台策略或稳定生产发送方；许可提交与系统入队间隙仍需下一次打开配对页对账。正文打开/忽略/过期的独立审计、自然恢复与生产队列/认证继续下一片，第 285 阶段整体退出标准尚未满足。完整 JVM、Lint、Release 和全量 instrumentation 按分级策略后置。
+
 # 2026-10-17 第 285 阶段第二片：前台签名批次、cursor 与原子 ACK outbox
 
 - 当前开发基线：已登记、已启用的 P-256 来源经设置页“同步收件”接收至多 8 条签名消息；外层签名绑定 receiverId、请求/下一游标、有效期及所有消息签名，每条消息继续独立验签。正文、去重身份、cursor 与单批 receipt/outbox 同次 AES-GCM 提交，整批失败不推进游标；ACK 固定 POST 同一登记 URL，签名回执确认后才清除 outbox。草稿继续前台确认，不创建 Agent Run。协议见[批次协议 v1](remote-channel-batch-v1.md)。

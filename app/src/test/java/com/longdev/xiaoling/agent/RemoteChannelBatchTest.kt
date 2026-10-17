@@ -262,6 +262,34 @@ class RemoteChannelBatchTest {
     }
 
     private fun gateway() = RemoteChannelInboxGateway(store, pairings) { now }
+    @Test fun revokedBackgroundPermitAfterGetCannotCommitOrAck() = runBlocking {
+        var allowed = true
+        var requests = 0
+        val service = service { request ->
+            requests++
+            allowed = false
+            response(request, batchJson(batch(listOf(message("late")))))
+        }
+        assertTrue(runCatching { service.synchronize(peer) { allowed } }.exceptionOrNull() is kotlinx.coroutines.CancellationException)
+        assertEquals(1, requests)
+        assertTrue((inbox.status() as RemoteChannelInboxStatus.Ready).pending.isEmpty())
+        assertEquals(null, inbox.batchState(source, peer).pendingAck)
+    }
+
+    @Test fun revokedBackgroundPermitAfterCommitPreservesAckOutbox() = runBlocking {
+        var allowed = true
+        val service = service { request ->
+            if (request.method == "GET") response(request, batchJson(batch(listOf(message("committed")))))
+            else {
+                allowed = false
+                response(request, ackJson(inbox.batchState(source, peer)))
+            }
+        }
+        assertTrue(runCatching { service.synchronize(peer) { allowed } }.exceptionOrNull() is kotlinx.coroutines.CancellationException)
+        assertEquals(1, (inbox.status() as RemoteChannelInboxStatus.Ready).pending.size)
+        assertEquals("cursor-1", inbox.batchState(source, peer).cursor)
+        assertNotNull(inbox.batchState(source, peer).pendingAck)
+    }
     private fun message(id: String, nonce: String = "nonce-$id-1234567890123456"): RemoteChannelEnvelope {
         val envelope = RemoteChannelEnvelope(peer.channelId, id, peer.senderId, "conversation", "合成正文-$id", now, nonce, peer.keyId)
         return envelope.copy(signature = sign(RemoteChannelPolicy.canonicalBytes(envelope)))

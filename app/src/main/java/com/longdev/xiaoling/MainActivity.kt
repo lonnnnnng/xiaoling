@@ -5,6 +5,11 @@ import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.viewModels
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
+import com.longdev.xiaoling.remote.RemoteChannelInboxNavigationIntent
+import com.longdev.xiaoling.remote.RemoteChannelInboxNavigationStore
 import com.longdev.xiaoling.automation.ScheduledTaskResultNavigationIntent
 import com.longdev.xiaoling.automation.ScheduledTaskResultNavigationTokenStore
 import com.longdev.xiaoling.share.AndroidShareIntentReader
@@ -14,6 +19,7 @@ import com.longdev.xiaoling.ui.XiaoLingViewModel
 
 class MainActivity : ComponentActivity() {
     private val viewModel: XiaoLingViewModel by viewModels()
+    private var remoteInboxNavigationRequest by mutableStateOf<String?>(null)
     private val scheduledTaskNavigationStore by lazy {
         ScheduledTaskResultNavigationTokenStore(applicationContext)
     }
@@ -25,9 +31,10 @@ class MainActivity : ComponentActivity() {
             handleShareIntent(intent)
         }
         handleScheduledTaskResultIntent(intent)
+        handleRemoteInboxIntent(intent)
         setContent {
             // long: Android 已提供系统启动画面，首帧直接进入应用，避免重复品牌页额外阻塞启动流程。
-            XiaoLingApp(viewModel)
+            XiaoLingApp(viewModel, remoteInboxNavigationRequest)
         }
         if (savedInstanceState != null) {
             // long: 配置重建可能复用同一个 ViewModel；显式从 Room 重新绑定待审批 Run，避免旧内存状态掩盖持久化审批事实。
@@ -44,6 +51,13 @@ class MainActivity : ComponentActivity() {
     private fun handleIncomingIntent(intent: Intent) {
         handleShareIntent(intent)
         handleScheduledTaskResultIntent(intent)
+        handleRemoteInboxIntent(intent)
+    }
+
+    private fun handleRemoteInboxIntent(intent: Intent) {
+        val token = RemoteChannelInboxNavigationIntent.read(intent) ?: return
+        if (RemoteChannelInboxNavigationStore(applicationContext).consume(token)) remoteInboxNavigationRequest = token
+        intent.removeExtra(RemoteChannelInboxNavigationIntent.TOKEN)
     }
 
     private fun handleScheduledTaskResultIntent(intent: Intent) {

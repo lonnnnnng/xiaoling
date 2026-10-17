@@ -318,23 +318,23 @@ class RemoteChannelPullService(
         result
     }
 
-    suspend fun synchronize(peer: RemoteChannelPeerCandidate): RemoteChannelPullSyncResult = pullMutex.withLock {
+    suspend fun synchronize(peer: RemoteChannelPeerCandidate, operationAllowed: () -> Boolean = { true }): RemoteChannelPullSyncResult = pullMutex.withLock {
         val source = sources.sourceFor(peer) ?: throw IllegalArgumentException("该身份尚未登记 HTTPS 来源")
         val identity = RemoteChannelPullReliabilityPolicy.sourceIdentity(peer)
         checkpoints?.beforeAttempt(identity)
-        requireCurrentSource(source, peer)
+        requireCurrentSource(source, peer, operationAllowed)
         val state = inbox.batchState(source, peer)
         try {
             if (state.pendingAck != null) {
                 // long: 恢复时先补已持久入箱的 ACK，不拉新批次；请求次数有界，也不会再次展示旧正文。
-                acknowledge(source, peer, state)
+                acknowledge(source, peer, state, operationAllowed)
                 checkpoints?.recordDuplicate(identity, state.pendingAck.messageIds.lastOrNull() ?: state.pendingAck.batchId)
                 return@withLock RemoteChannelPullSyncResult.Batch(0, 0, false)
             }
             when (val response = puller.fetchBatchOrSingle(source.url, state)) {
                 is RemoteChannelPullResponse.Single -> {
                     require(state.cursor == null) { "已启用批次游标的来源不能退回单条协议" }
-                    requireCurrentSource(source, peer)
+                    requireCurrentSource(source, peer, operationAllowed)
                     val envelope = response.envelope
                     if (envelope.channelId != peer.channelId || envelope.senderId != peer.senderId || envelope.keyId != peer.keyId) {
                         throw RemoteChannelPullIdentityMismatchException()
@@ -349,11 +349,11 @@ class RemoteChannelPullService(
                     RemoteChannelPullSyncResult.Single(result)
                 }
                 is RemoteChannelPullResponse.Batch -> {
-                    requireCurrentSource(source, peer)
-                    val result = inbox.receiveBatch(source, peer, response.batch)
+                    requireCurrentSource(source, peer, operationAllowed)
+                    val result = inbox.receiveBatch(source, peer, response.batch, operationAllowed)
                     val committed = inbox.batchState(source, peer)
                     try {
-                        acknowledge(source, peer, committed)
+                        acknowledge(source, peer, committed, operationAllowed)
                     } catch (cancelled: CancellationException) { throw cancelled
                     } catch (error: Exception) {
                         recordFailure(identity, error)
@@ -371,15 +371,17 @@ class RemoteChannelPullService(
         }
     }
 
-    private suspend fun acknowledge(source: RemoteChannelPullSource, peer: RemoteChannelPeerCandidate, state: RemoteChannelBatchState) {
-        requireCurrentSource(source, peer)
+    private suspend fun acknowledge(source: RemoteChannelPullSource, peer: RemoteChannelPeerCandidate, state: RemoteChannelBatchState, operationAllowed: () -> Boolean) {
+        requireCurrentSource(source, peer, operationAllowed)
         puller.acknowledge(source.url, peer, state)
-        requireCurrentSource(source, peer)
+        requireCurrentSource(source, peer, operationAllowed)
         inbox.acknowledgeBatch(source, peer, state.pendingAck ?: error("没有待 ACK 批次"))
     }
 
-    private suspend fun requireCurrentSource(source: RemoteChannelPullSource, peer: RemoteChannelPeerCandidate) {
+    private suspend fun requireCurrentSource(source: RemoteChannelPullSource, peer: RemoteChannelPeerCandidate, operationAllowed: () -> Boolean) {
         currentCoroutineContext().ensureActive()
+        // long: 后台许可可能在响应读取期间被撤销；网络返回、入箱和 ACK 清除前都重新核对，不因排队时有许可而继续。
+        if (!operationAllowed()) throw CancellationException("后台收件许可已撤销")
         require(sources.sourceFor(peer) == source) { "HTTPS 来源在同步期间已变化" }
         require(pairings.active(peer.channelId, peer.senderId, peer.keyId) == peer) { "配对身份已停用或变化" }
     }
