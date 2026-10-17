@@ -9,10 +9,10 @@ import java.security.spec.ECGenParameterSpec
 import java.util.Base64
 
 /** long: 接收端 P-256 私钥只由 Keystore 使用；签名和导出公钥都禁止因密钥丢失而自动生成替代身份。 */
-class AndroidKeystoreRemoteChannelReceiverSigner(private val aliasPrefix: String = "xiaoling_remote_receiver_v1_") {
+class AndroidKeystoreRemoteChannelReceiverSigner(private val aliasPrefix: String = "xiaoling_remote_receiver_v1_") : RemoteChannelReceiverIdentity {
     init { require(Regex("[A-Za-z0-9_-]{1,100}").matches(aliasPrefix)) }
 
-    fun create(peer: RemoteChannelPeerCandidate, source: RemoteChannelPullSource, state: RemoteChannelBatchState): RemoteChannelReceiverAuthorization =
+    override fun create(peer: RemoteChannelPeerCandidate, source: RemoteChannelPullSource, state: RemoteChannelBatchState): RemoteChannelReceiverAuthorization =
         synchronized(LOCK) {
             val alias = alias(peer, source, state)
             require(!keyStore().containsAlias(alias)) { "接收签名身份已经存在，不能覆盖" }
@@ -25,13 +25,16 @@ class AndroidKeystoreRemoteChannelReceiverSigner(private val aliasPrefix: String
             export(peer, source, state)
         }
 
-    fun export(peer: RemoteChannelPeerCandidate, source: RemoteChannelPullSource, state: RemoteChannelBatchState): RemoteChannelReceiverAuthorization =
+    override fun export(peer: RemoteChannelPeerCandidate, source: RemoteChannelPullSource, state: RemoteChannelBatchState): RemoteChannelReceiverAuthorization =
         synchronized(LOCK) {
             val entry = keyStore().getEntry(alias(peer, source, state), null) as? KeyStore.PrivateKeyEntry
                 ?: error("接收签名身份不可用")
             require(entry.privateKey.encoded == null) { "接收私钥必须不可导出" }
             RemoteChannelReceiverAuthProtocol.authorization(peer, source, state, Base64.getEncoder().encodeToString(entry.certificate.publicKey.encoded))
         }
+
+    override fun sign(authorization: RemoteChannelReceiverAuthorization, request: org.json.JSONObject, now: Long): String =
+        sign(authorization, request, now, java.util.UUID.randomUUID().toString().replace("-", ""))
 
     fun sign(authorization: RemoteChannelReceiverAuthorization, request: org.json.JSONObject, now: Long,
              nonce: String = java.util.UUID.randomUUID().toString().replace("-", "")): String = synchronized(LOCK) {

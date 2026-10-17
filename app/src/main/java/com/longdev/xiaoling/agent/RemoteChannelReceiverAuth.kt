@@ -23,7 +23,14 @@ fun interface RemoteChannelReceiverSigner {
     fun sign(content: ByteArray): ByteArray
 }
 
-/** long: 生成独立接收端签名请求；现有 HTTPS puller 尚未接此协议，不能据此宣称 HTTP 认证已经启用。 */
+/** long: 显式登记、导出和 HTTPS 请求共用同一接收身份，网络失败不得生成替代密钥。 */
+interface RemoteChannelReceiverIdentity {
+    fun create(peer: RemoteChannelPeerCandidate, source: RemoteChannelPullSource, state: RemoteChannelBatchState): RemoteChannelReceiverAuthorization
+    fun export(peer: RemoteChannelPeerCandidate, source: RemoteChannelPullSource, state: RemoteChannelBatchState): RemoteChannelReceiverAuthorization
+    fun sign(authorization: RemoteChannelReceiverAuthorization, request: JSONObject, now: Long): String
+}
+
+/** long: 每次网络请求重签完整逻辑请求；证明持有接收私钥，不表示用户批准执行正文。 */
 object RemoteChannelReceiverAuthProtocol {
     const val VERSION = 1
     const val TTL_MILLIS = 60_000L
@@ -64,6 +71,15 @@ object RemoteChannelReceiverAuthProtocol {
             .put("keyId", value.keyId).put("senderFingerprintSha256", value.senderFingerprintSha256)
             .put("endpointSha256", value.endpointSha256).put("receiverId", value.receiverId)
             .put("publicKeySpkiBase64", value.publicKeySpkiBase64).put("receiverFingerprintSha256", value.receiverFingerprintSha256).toString()
+    }
+
+    fun decodeManifest(json: JSONObject): RemoteChannelReceiverAuthorization {
+        RemoteChannelBatchProtocol.keys(json, PEER_FIELDS + setOf("authVersion", "senderFingerprintSha256", "endpointSha256",
+            "receiverId", "publicKeySpkiBase64", "receiverFingerprintSha256"))
+        require(integer(json, "authVersion") == VERSION.toLong()) { "接收登记版本无效" }
+        return RemoteChannelReceiverAuthorization(string(json, "channelId"), string(json, "senderId"), string(json, "keyId"),
+            string(json, "senderFingerprintSha256"), string(json, "endpointSha256"), string(json, "receiverId"),
+            string(json, "publicKeySpkiBase64"), string(json, "receiverFingerprintSha256")).also(::validate)
     }
 
     fun pullRequest(peer: RemoteChannelPeerCandidate, state: RemoteChannelBatchState): JSONObject {

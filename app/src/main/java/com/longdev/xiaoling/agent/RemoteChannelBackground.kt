@@ -19,6 +19,7 @@ data class RemoteChannelBackgroundEntry(
     val notifiedDigest: String? = null,
     val lastAttemptAtMillis: Long = 0,
     val lastOutcome: RemoteChannelBackgroundOutcome? = null,
+    val receiverBindingSha256: String? = null,
 )
 
 interface RemoteChannelBackgroundStateStore {
@@ -44,7 +45,8 @@ class RemoteChannelBackgroundRegistry(
 
     fun enable(peer: RemoteChannelPeerCandidate, source: RemoteChannelPullSource): RemoteChannelBackgroundEntry = synchronized(LOCK) {
         val identity = RemoteChannelPullReliabilityPolicy.sourceIdentity(peer)
-        val entry = RemoteChannelBackgroundEntry(identity, RemoteChannelBatchProtocol.endpointHash(source), UUID.randomUUID().toString())
+        val entry = RemoteChannelBackgroundEntry(identity, RemoteChannelBatchProtocol.endpointHash(source), UUID.randomUUID().toString(),
+            receiverBindingSha256 = receiverBinding(source))
         val retained = list().filterNot { it.sourceIdentity == identity }
         save(retained + entry)
         entry
@@ -99,16 +101,25 @@ class RemoteChannelBackgroundRegistry(
         fun digest(value: String): String = MessageDigest.getInstance("SHA-256").digest(value.toByteArray(Charsets.UTF_8))
             .joinToString("") { "%02x".format(it.toInt() and 0xff) }
 
+        fun receiverBinding(source: RemoteChannelPullSource): String? = if (!source.receiverAuthRequired) null else
+            digest(RemoteChannelReceiverAuthProtocol.manifest(source.receiverAuthorization ?: error("接收公钥尚未完成登记")))
+
+        fun matchesSource(entry: RemoteChannelBackgroundEntry, source: RemoteChannelPullSource): Boolean =
+            RemoteChannelBatchProtocol.endpointHash(source) == entry.endpointSha256 &&
+                runCatching { receiverBinding(source) == entry.receiverBindingSha256 }.getOrDefault(false)
+
         fun encode(entries: List<RemoteChannelBackgroundEntry>): String {
             require(entries.size <= RemoteChannelBatchProtocol.MAX_STATES && entries.map { it.sourceIdentity }.distinct().size == entries.size) { "后台来源过多或重复" }
-            val raw = JSONObject().put("schemaVersion", 1).put("entries", JSONArray().apply { entries.forEach { entry ->
+            val raw = JSONObject().put("schemaVersion", 2).put("entries", JSONArray().apply { entries.forEach { entry ->
                 RemoteChannelPullReliabilityPolicy.validate(RemoteChannelPullCheckpoint(entry.sourceIdentity))
                 require(HASH.matches(entry.endpointSha256) && runCatching { UUID.fromString(entry.generation).toString() == entry.generation }.getOrDefault(false) &&
-                    entry.lastAttemptAtMillis >= 0 && (entry.notifiedDigest == null || HASH.matches(entry.notifiedDigest))) { "后台来源状态无效" }
+                    entry.lastAttemptAtMillis >= 0 && (entry.notifiedDigest == null || HASH.matches(entry.notifiedDigest)) &&
+                    (entry.receiverBindingSha256 == null || HASH.matches(entry.receiverBindingSha256))) { "后台来源状态无效" }
                 put(JSONObject().put("sourceIdentity", entry.sourceIdentity).put("endpointSha256", entry.endpointSha256)
                     .put("generation", entry.generation).put("enabled", entry.enabled).put("notificationsEnabled", entry.notificationsEnabled)
                     .put("notifiedDigest", entry.notifiedDigest ?: JSONObject.NULL).put("lastAttemptAtMillis", entry.lastAttemptAtMillis)
-                    .put("lastOutcome", entry.lastOutcome?.name ?: JSONObject.NULL))
+                    .put("lastOutcome", entry.lastOutcome?.name ?: JSONObject.NULL)
+                    .put("receiverBindingSha256", entry.receiverBindingSha256 ?: JSONObject.NULL))
             } }).toString()
             require(raw.toByteArray(Charsets.UTF_8).size <= 64 * 1024) { "后台收件状态过大" }
             return raw
@@ -119,17 +130,20 @@ class RemoteChannelBackgroundRegistry(
             require(raw.toByteArray(Charsets.UTF_8).size <= 64 * 1024) { "后台收件状态过大" }
             val root = JSONObject(raw)
             RemoteChannelBatchProtocol.keys(root, setOf("schemaVersion", "entries"))
-            require(root.opt("schemaVersion") == 1) { "后台收件版本无效" }
+            require(root.opt("schemaVersion") in setOf(1, 2)) { "后台收件版本无效" }
+            val version = root.getInt("schemaVersion")
             val array = root.getJSONArray("entries")
             require(array.length() <= RemoteChannelBatchProtocol.MAX_STATES) { "后台来源过多" }
             val entries = (0 until array.length()).map { i ->
                 val item = array.getJSONObject(i)
-                RemoteChannelBatchProtocol.keys(item, setOf("sourceIdentity", "endpointSha256", "generation", "enabled", "notificationsEnabled", "notifiedDigest", "lastAttemptAtMillis", "lastOutcome"))
+                RemoteChannelBatchProtocol.keys(item, setOf("sourceIdentity", "endpointSha256", "generation", "enabled", "notificationsEnabled", "notifiedDigest", "lastAttemptAtMillis", "lastOutcome") +
+                    if (version == 1) emptySet() else setOf("receiverBindingSha256"))
                 fun str(key: String) = RemoteChannelBatchProtocol.string(item, key)
                 fun bool(key: String) = item.opt(key) as? Boolean ?: error("后台 $key 必须是布尔值")
                 RemoteChannelBackgroundEntry(str("sourceIdentity"), str("endpointSha256"), str("generation"), bool("enabled"), bool("notificationsEnabled"),
                     RemoteChannelBatchProtocol.nullableString(item, "notifiedDigest"), RemoteChannelBatchProtocol.integer(item, "lastAttemptAtMillis"),
-                    RemoteChannelBatchProtocol.nullableString(item, "lastOutcome")?.let(RemoteChannelBackgroundOutcome::valueOf))
+                    RemoteChannelBatchProtocol.nullableString(item, "lastOutcome")?.let(RemoteChannelBackgroundOutcome::valueOf),
+                    if (version == 1) null else RemoteChannelBatchProtocol.nullableString(item, "receiverBindingSha256"))
             }
             encode(entries)
             return entries
@@ -182,7 +196,7 @@ class RemoteChannelBackgroundController(
         for (entry in registry.list()) {
             val peer = peers.singleOrNull { it.enabled && RemoteChannelPullReliabilityPolicy.sourceIdentity(it.candidate) == entry.sourceIdentity }?.candidate
             val source = peer?.let(sources::sourceFor)
-            if (entry.enabled && source != null && RemoteChannelBatchProtocol.endpointHash(source) == entry.endpointSha256) {
+            if (entry.enabled && source != null && RemoteChannelBackgroundRegistry.matchesSource(entry, source)) {
                 // long: 许可提交与系统入队不在同一个数据库；启动或配对页对账只补同一已授权代次的缺失任务，不替新地址创建许可。
                 scheduler.ensureScheduled(entry)
             } else {
@@ -215,12 +229,13 @@ class RemoteChannelBackgroundSynchronizer(
         if (entry == null || !entry.enabled || entry.generation != generation) return RemoteChannelBackgroundOutcome.DISABLED
         val peer = pairings.list().singleOrNull { it.enabled && RemoteChannelPullReliabilityPolicy.sourceIdentity(it.candidate) == identity }?.candidate
         val source = peer?.let(sources::sourceFor)
-        if (peer == null || source == null || RemoteChannelBatchProtocol.endpointHash(source) != entry.endpointSha256) {
+        if (peer == null || source == null || !RemoteChannelBackgroundRegistry.matchesSource(entry, source)) {
             registry.invalidate(identity, generation) { notifier.cancel(identity) }
             return RemoteChannelBackgroundOutcome.INVALIDATED
         }
         val outcome = try {
-            when (val result = synchronize(peer) { registry.permits(identity, generation) }) {
+            // long: 许可代次和认证绑定一起复核；同地址启用接收认证后，旧裸请求任务也不能继续入箱或清回执。
+            when (val result = synchronize(peer) { registry.permits(identity, generation) && sources.sourceFor(peer) == source }) {
                 is RemoteChannelPullSyncResult.Batch -> if (!result.ackPending) RemoteChannelBackgroundOutcome.SYNCED
                     else if (checkpoints?.get(identity)?.lastErrorCode?.let { it !in setOf("NETWORK", "TIMEOUT", "SERVER_5XX") } == true)
                         RemoteChannelBackgroundOutcome.REJECTED else RemoteChannelBackgroundOutcome.ACK_PENDING
@@ -235,6 +250,10 @@ class RemoteChannelBackgroundSynchronizer(
                 RemoteChannelBackgroundOutcome.RETRYABLE_ERROR else RemoteChannelBackgroundOutcome.REJECTED
         }
         registry.record(identity, generation, outcome)
+        if (sources.sourceFor(peer) != source) {
+            registry.invalidate(identity, generation) { notifier.cancel(identity) }
+            return RemoteChannelBackgroundOutcome.INVALIDATED
+        }
         val current = registry.get(identity)
         if (current?.enabled == true && current.generation == generation && current.notificationsEnabled) {
             val pending = (inbox.status() as? RemoteChannelInboxStatus.Ready)?.pending ?: error("加密收件箱不可用")

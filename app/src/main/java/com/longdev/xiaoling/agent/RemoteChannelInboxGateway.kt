@@ -99,7 +99,8 @@ class RemoteChannelInboxGateway(
             RemoteChannelBatchReceiveResult(accepted, duplicates)
         }
 
-    fun acknowledgeBatch(source: RemoteChannelPullSource, peer: RemoteChannelPeerCandidate, receipt: RemoteChannelBatchReceipt) =
+    fun acknowledgeBatch(source: RemoteChannelPullSource, peer: RemoteChannelPeerCandidate, receipt: RemoteChannelBatchReceipt,
+                         operationAllowed: () -> Boolean = { true }) =
         synchronized(STATE_LOCK) {
             val snapshot = loadSnapshot()
             val identity = RemoteChannelPullReliabilityPolicy.sourceIdentity(peer)
@@ -107,6 +108,9 @@ class RemoteChannelInboxGateway(
             val state = snapshot.batchStates.single { it.sourceIdentity == identity && it.endpointSha256 == endpoint }
             // long: 迟到回执只能清除它对应的 outbox，不能清除新批次或另一 URL 的待确认回执。
             require(state.pendingAck == receipt) { "待 ACK 批次已变化" }
+            // long: 等待收件箱锁期间可能撤销许可；清除 durable outbox 前再核对，不能把锁外的旧许可当作提交许可。
+            if (!operationAllowed()) throw CancellationException("收件许可或来源已变化")
+            require(pairingRegistry.active(peer.channelId, peer.senderId, peer.keyId) == peer) { "配对身份已停用或变化" }
             saveSnapshot(snapshot.copy(batchStates = snapshot.batchStates.map { if (it == state) state.copy(pendingAck = null) else it }))
         }
 

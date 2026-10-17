@@ -6,7 +6,7 @@
 
 本片提供接收端 P-256 签名协议、Android Keystore 签名器及本地发送方授权入口。`tools/remote_channel_receiver_auth.py` 的 `AuthenticatedSender` 在验证接收公钥、许可和完整请求后调用原持久队列；nonce 消费与队列操作在同一 SQLite 事务提交。
 
-Android `RemoteChannelReceiverAuthProtocol` 和 `AndroidKeystoreRemoteChannelReceiverSigner` 已在生产源集，当前只由隔离门禁调用。没有接入配对页的创建/导出入口，也没有接入现有 HTTPS puller、后台 Worker 或 HTTP listener。用户当前的网络收件流程继续使用原协议，不能声称本片已经给该流程启用认证。稳定 HTTPS 适配、注册 UI 和部署属于后续切片。
+第七片只提供核心和隔离门禁。第八片已将显式创建/导出、来源认证标记、认证 POST 与后台许可绑定接入生产客户端，见[接收公钥登记与认证 HTTPS](remote-channel-receiver-https.md)。旧来源保留兼容协议，必须由用户显式创建接收身份才启用认证；HTTP listener、稳定服务端适配与部署尚未提供。
 
 本协议是应用自定义二进制签名协议，不是 RFC 9421 HTTP Message Signatures 的实现。未来适配层仍须按实际 method/path/query/body 映射完整逻辑请求、拒绝额外字段，并从可信服务配置取得登记地址摘要；不能直接相信请求自报的 endpointSha256。TLS、请求限流及部署验收不能由本片的离线签名测试替代。
 
@@ -92,7 +92,7 @@ Python 合计 35 项（原队列 19、认证 16），JVM 聚焦 97 项（含认�
 
 Redmi `wsvwypiz7xwslvl7 / begonia`、SDK 36 三轮显式 instrumentation 分别 OK (1 test)，PID `14620 → 14666 → 14699`。真实 Keystore 私钥在新进程导出同一公钥、签生产 pull/ACK，主机验签、缓存重试、撤销拒绝和重新授权；手机新进程验签回复/清 outbox，保留两条 pending 正文。成功后只清 UUID preferences/AES/P-256 alias，断言缺钥 sign/export 拒绝且无重建；恢复流程失败不触发清理。批次和请求都通过 instrumentation 参数离线转交，没有 DNS/HTTP/TLS。
 
-完整证据见[验证报告](verification-report.md)与忽略目录 `outputs/verification/stage285-receiver-auth/`。下一片接入显式注册/导出产品入口及经过认证的 HTTPS 请求适配，再独立推进稳定部署、长期保留和自然系统恢复；第 285 阶段仍进行中。
+第七片证据见[验证报告](verification-report.md)与忽略目录 `outputs/verification/stage285-receiver-auth/`。第八片补产品入口与认证 HTTPS 客户端；下一片推进服务端 HTTP 映射和稳定部署，长期保留和自然系统恢复分别验收，第 285 阶段仍进行中。
 
 ## 官方正文依据
 

@@ -2,6 +2,19 @@
 
 验证日期：2026-10-17（北京时间）
 
+# 2026-10-17 第 285 阶段第八片：显式接收公钥登记与认证 HTTPS 客户端
+
+- 开发源码保持 `0.1.22 (23)`、Room v40，未推送、未发版。配对页增加创建二次确认、接收指纹与公开 JSON 文件导出；Application 的统一同步服务接 Keystore 身份，前台和后台共用同址认证 pull/ACK POST。完整边界见[认证 HTTPS 客户端](remote-channel-receiver-https.md)。
+- 认证标记先于密钥生成 commit；必须认证的来源缺清单/缺钥/换钥时停止，移除后保留公开绑定，重新登记不降级。创建中断前尚无密钥时可显式重试，已有 alias 则拒绝覆盖并导出原公钥。来源与后台许可 schema v2 兼容 v1；新认证不能继承旧裸请求的后台许可。ACK 清除在收件箱锁内再次复核许可/来源/公钥和当前配对。
+- 本机 Python：`python3 -W error::ResourceWarning -m unittest discover -s tools -p 'test_remote_channel*.py'`，35 项通过，7.299s，无 ResourceWarning。工具脚本行为未变。
+- JVM/构建：`JAVA_HOME=$(/usr/libexec/java_home -v 21) ./gradlew :app:testDebugUnitTest --tests 'com.longdev.xiaoling.agent.RemoteChannel*' :app:assembleDebug :app:assembleDebugAndroidTest`，最终代码构建 `BUILD SUCCESSFUL in 12s`；12 个 RemoteChannel 测试类、105 项，0 failures/errors/skipped。新增 9 项覆盖生产 POST 与独立 Python/OpenSSL 发送队列、丢 ACK 后恢复/重签、撤销 403 不回退、创建两类中断、登记写失败、缺钥、严格 schema、认证绑定和锁内 ACK 许可。
+- Redmi `wsvwypiz7xwslvl7 / begonia / SDK 36`：使用 `android install --device=... --apks=<单个APK> --install-options=-r --use-delta-install=false` 分别无损覆盖 Debug 与 AndroidTest 包。配对页最终整类 `OK (5 tests)`，20.996s：包含旧收件/确认流程、新建公钥停后台与 403 拒绝，以及通过受控 ActivityResultRegistry 模拟选择器返回前保存状态恢复、由生产 ContentResolver 回调写入独立缓存文件并严格读回公开清单。成功后只删除本轮 UUID 缓存文件和 receiver alias；未操作实际 DocumentsProvider/系统选择器。
+- Redmi 三轮生产同步门禁分别 `OK (1 test)`，PID `15947 → 15985 → 16025`，0.804 / 0.939 / 0.998s。真实 Keystore 和来源/密文/outbox 跨进程恢复，生产 OkHttp 拦截器捕获 pull/ACK；主机独立授权、验签、幂等回复。新进程仅补同一 durable ACK，以新 nonce 重签，清 outbox 后仍保留一条 pending 合成正文。删除夹具私钥后同步/导出/旧单条调用均停止，没有网络请求或替代密钥生成。
+- 主机最终队列：1 receiver、1 issuedReceipt、1 acknowledgedMessage、0 pendingDelivery/queuedMessage；私钥与原 SQLite 留在仓库外 `/var/folders/8b/_k4z7q5n4kg7sq5g800_mcs00000gn/T/xiaoling-https-auth-device-p39bjfbo/state`。手机成功后只删 UUID 三组 preferences/AES/receiver alias，断言偏好为空与 alias 不存在；失败不自动清理。审计目录 `outputs/verification/stage285-receiver-https/` 忽略，不提交。
+- 失败记录保留：首次 AndroidTest 新测试缺少 assertFalse 导入；导出恢复测试误导入接受 ComposeUiTest 的 StateRestorationTester，改为项目 JUnit4 接口后通过。android-cli 首次把两个独立 APK 当作 splits，返回 `INSTALL_FAILED_INVALID_APK: Split null was defined multiple times`；随后对旧测试包的调用只跑 0 tests，不计通过；分别安装后重新验收。没有卸载、清数据、升级 CLI 或修改安全设置。
+- 最终文档重新打包后执行单项 `RoomKnowledgeDocumentStoreInstrumentedTest#projectDocumentationCorpusMeetsGoldenQueryRecallGate`；提交门禁结果保存在 `outputs/verification/stage285-receiver-https/docs-corpus-final.log`。通知权限最终仍为 `POST_NOTIFICATIONS granted=false`、AppOps `ignore`，未读取或更改用户模型配置、未调用模型 API，保留无关 `refs/`。
+- 未完成边界：本片验证的是生产客户端与真实 Keystore 的拦截器/离线互通，没有 DNS/socket/TLS、HTTP listener 或稳定生产部署。真实文档提供方、服务端可信地址与 HTTP wire 映射、长期保留/容量回收、自然周期/Doze/LMK/系统重启及正式 Release 验收后续分别推进；第 285 阶段整体仍进行中。全量 JVM、Lint 和全量 instrumentation 按既有分级策略后置。
+
 # 2026-10-17 第 285 阶段第七片：接收端签名认证与本地授权核心
 
 - 当前开发基线：`RemoteChannelReceiverAuthProtocol` 生成自定义 v1 请求摘要与 P-256 proof；精确绑定发送方身份/公钥指纹、登记地址 hash、receiver、公钥指纹、pull/ack、完整 payload（含有序 messageIds）、nonce 及最多 60 秒有效期/5 秒未来偏差。`AndroidKeystoreRemoteChannelReceiverSigner` 显式 create，export/sign 读取原不可导出私钥引用，缺钥/换钥不自动创建；alias 绑定同一作用域。见[接收端认证说明](remote-channel-receiver-auth.md)。

@@ -3,7 +3,7 @@ package com.longdev.xiaoling.storage
 import android.content.Context
 import com.longdev.xiaoling.agent.RemoteChannelPullSourceStateStore
 
-/** long: 只保存 HTTPS 地址及公钥身份绑定，不保存独立认证头；响应正文始终进入独立 Keystore 加密收件箱。 */
+/** long: 来源账本只保存地址、认证模式与公开登记绑定；接收私钥留在 Keystore，正文仍由独立加密收件箱保存。 */
 class SharedPreferencesRemoteChannelPullSourceStateStore(
     context: Context,
     preferencesName: String = "xiaoling_remote_channel_pull_sources",

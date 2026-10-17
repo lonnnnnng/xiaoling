@@ -26,9 +26,13 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.platform.LocalContext
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -45,6 +49,8 @@ import com.longdev.xiaoling.agent.RemoteChannelPullSyncResult
 import com.longdev.xiaoling.agent.RemoteChannelSignedEnvelopeCodec
 import com.longdev.xiaoling.agent.RemoteChannelBackgroundController
 import com.longdev.xiaoling.agent.RemoteChannelBackgroundOutcome
+import com.longdev.xiaoling.agent.RemoteChannelReceiverAuthProtocol
+import org.json.JSONObject
 import androidx.compose.runtime.DisposableEffect
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
@@ -84,6 +90,33 @@ internal fun RemoteChannelPairingPage(
     var inboxBusy by remember { mutableStateOf(false) }
     var signedEnvelopeJson by remember { mutableStateOf("") }
     var sourceBusy by remember { mutableStateOf(false) }
+    var receiverCreate by remember { mutableStateOf<RemoteChannelPeerCandidate?>(null) }
+    // long: 文件选择期间 Activity 可重建；只保存公开清单，返回后仍须从当前账本重新核对，不能保存私钥或复用旧授权。
+    var pendingReceiverExport by rememberSaveable { mutableStateOf<String?>(null) }
+    val context = LocalContext.current
+    val receiverExportLauncher = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/json")) { uri ->
+        val pending = pendingReceiverExport
+        pendingReceiverExport = null
+        if (uri != null && pending != null && pullService != null) {
+            sourceBusy = true
+            scope.launch {
+                val result = withContext(Dispatchers.IO) { runCatching {
+                    // long: 文件选择器可能停留很久；写入前重新导出同一公钥，不能把已移除或改变的来源当作当前登记。
+                    val expected = RemoteChannelReceiverAuthProtocol.decodeManifest(JSONObject(pending))
+                    val peer = registry.list().singleOrNull { it.candidate.channelId == expected.channelId &&
+                        it.candidate.senderId == expected.senderId && it.candidate.keyId == expected.keyId &&
+                        it.candidate.fingerprintSha256 == expected.senderFingerprintSha256 }?.candidate ?: error("配对身份已变化")
+                    val current = pullService.exportReceiver(peer)
+                    require(current == expected) { "接收登记已变化，请重新导出" }
+                    val bytes = RemoteChannelReceiverAuthProtocol.manifest(current).toByteArray(Charsets.UTF_8)
+                    (context.contentResolver.openOutputStream(uri, "w") ?: error("无法打开导出文件")).use { it.write(bytes) }
+                } }
+                notice = if (result.isSuccess) "接收公钥清单已导出；请让发送方管理员独立核对指纹并授权" else "接收公钥清单导出失败"
+                sourceBusy = false
+                revision += 1
+            }
+        } else if (uri != null) notice = "原导出登记不可用，请重新导出"
+    }
     val lifecycleOwner = LocalLifecycleOwner.current
     DisposableEffect(lifecycleOwner) {
         val observer = LifecycleEventObserver { _, event ->
@@ -336,6 +369,33 @@ internal fun RemoteChannelPairingPage(
                         )
                         Text("地址会保存在本机配置中，请勿把令牌写入 URL 路径。支持单条签名消息或有界签名批次；同步不会自动运行 Agent。",
                             style = MaterialTheme.typography.bodySmall)
+                        if (savedSource != null) {
+                            val auth = savedSource.receiverAuthorization
+                            Text(if (!savedSource.receiverAuthRequired) "接收请求：兼容模式" else if (auth == null)
+                                "接收认证尚未完成，同步已冻结；尚无私钥可继续创建，已有私钥请导出原公钥" else
+                                "接收请求已启用认证；发送方仍须独立核对公钥指纹并授权", modifier = Modifier.testTag("remote-receiver-status-$tag"),
+                                style = MaterialTheme.typography.bodySmall)
+                            auth?.let { Text("接收公钥 SHA-256：${it.receiverFingerprintSha256.chunked(4).joinToString(" ")}",
+                                modifier = Modifier.testTag("remote-receiver-fingerprint-$tag"), style = MaterialTheme.typography.bodySmall) }
+                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                TextButton(onClick = { receiverCreate = identity },
+                                    enabled = !sourceBusy && !inboxBusy && savedSource.receiverAuthorization == null && stateFailure == null && sourceFailure == null,
+                                    modifier = Modifier.testTag("remote-receiver-create-$tag")) { Text(if (savedSource.receiverAuthRequired) "继续创建接收公钥" else "创建接收公钥") }
+                                TextButton(onClick = {
+                                    sourceBusy = true
+                                    scope.launch {
+                                        val result = withContext(Dispatchers.IO) { runCatching { pullService.exportReceiver(identity) } }
+                                        sourceBusy = false
+                                        revision += 1
+                                        result.fold(onSuccess = { auth ->
+                                            pendingReceiverExport = RemoteChannelReceiverAuthProtocol.manifest(auth)
+                                            receiverExportLauncher.launch("xiaoling-receiver-${auth.receiverId}.json")
+                                        }, onFailure = { notice = it.message ?: "接收公钥不可用" })
+                                    }
+                                }, enabled = !sourceBusy && !inboxBusy && savedSource.receiverAuthRequired && stateFailure == null && sourceFailure == null,
+                                    modifier = Modifier.testTag("remote-receiver-export-$tag")) { Text("导出公钥清单") }
+                            }
+                        }
                         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                             TextButton(
                                 onClick = {
@@ -371,6 +431,7 @@ internal fun RemoteChannelPairingPage(
                                     }
                                 },
                                 enabled = !sourceBusy && !inboxBusy && peer.enabled && savedSource != null &&
+                                    (!savedSource.receiverAuthRequired || savedSource.receiverAuthorization != null) &&
                                     sourceFailure == null && stateFailure == null &&
                                     inboxStatus is RemoteChannelInboxStatus.Ready,
                                 modifier = Modifier.testTag("remote-source-pull-$tag"),
@@ -396,7 +457,8 @@ internal fun RemoteChannelPairingPage(
                                         backgroundController.setEnabled(identity, enabled)
                                         if (enabled) "后台收件已启用；新消息仍需前台确认" else "后台收件已停用"
                                     })
-                                }, enabled = !sourceBusy && backgroundLoaded.isSuccess && peer.enabled && savedSource != null && sourceFailure == null && stateFailure == null,
+                                }, enabled = !sourceBusy && backgroundLoaded.isSuccess && peer.enabled && savedSource != null &&
+                                    (!savedSource.receiverAuthRequired || savedSource.receiverAuthorization != null) && sourceFailure == null && stateFailure == null,
                                     modifier = Modifier.testTag("remote-background-enabled-$tag"))
                             }
                             Text("联网时定期检查此地址，间隔至少 15 分钟，系统可能延后。停用验签、撤销配对或更改地址会停止后台收件。",
@@ -447,6 +509,20 @@ internal fun RemoteChannelPairingPage(
                 }
             }
         }
+    }
+
+    receiverCreate?.let { identity ->
+        AlertDialog(onDismissRequest = { receiverCreate = null }, title = { Text("创建接收签名身份？") },
+            text = { Text("将为此地址创建不可导出的私钥，并永久启用接收请求认证。后台收件会停用，旧服务须支持认证批次；导出公钥后还需发送方管理员独立核对指纹并授权。中断前已有私钥时拒绝覆盖，请改为导出原公钥。已登记身份缺钥或认证失败时同步停止，更换地址或密钥需要新的 keyId。") },
+            confirmButton = { TextButton(onClick = {
+                receiverCreate = null
+                performSourceAction({
+                    backgroundController?.setEnabled(identity, false)
+                    pullService?.createReceiver(identity) ?: error("接收服务不可用")
+                    "接收公钥已创建；请导出清单并由发送方管理员核对、授权。后台收件需另行启用"
+                })
+            }, modifier = Modifier.testTag("remote-receiver-confirm-create")) { Text("创建并启用认证") } },
+            dismissButton = { TextButton(onClick = { receiverCreate = null }) { Text("取消") } })
     }
 
     revoke?.let { identity ->

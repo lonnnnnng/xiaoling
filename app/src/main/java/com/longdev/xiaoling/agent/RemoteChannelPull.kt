@@ -34,6 +34,9 @@ data class RemoteChannelPullSource(
     val keyId: String,
     val fingerprintSha256: String,
     val url: String,
+    val receiverAuthRequired: Boolean = false,
+    val receiverAuthorization: RemoteChannelReceiverAuthorization? = null,
+    val registered: Boolean = true,
 )
 
 interface RemoteChannelPullSourceStateStore {
@@ -96,7 +99,7 @@ object RemoteChannelPullPolicy {
         require(sources.size <= MAX_SOURCES && sources.map { it.identity() }.distinct().size == sources.size) {
             "HTTPS 收件来源数量或身份无效"
         }
-        val root = JSONObject().put("schemaVersion", 1).put("sources", JSONArray().apply {
+        val root = JSONObject().put("schemaVersion", 2).put("sources", JSONArray().apply {
             sources.forEach { source ->
                 require(source.channelId.length in 1..200 && source.channelId == source.channelId.trim() &&
                     source.senderId.length in 1..200 && source.senderId == source.senderId.trim() &&
@@ -107,9 +110,18 @@ object RemoteChannelPullPolicy {
                 require(source.fingerprintSha256.matches(Regex("[0-9a-f]{64}"))) { "收件来源指纹无效" }
                 val url = endpoint(source.url)
                 require(url.toString() == source.url) { "收件地址未规范化" }
+                require(source.receiverAuthRequired || (source.receiverAuthorization == null && source.registered)) { "收件认证状态无效" }
+                source.receiverAuthorization?.let { auth ->
+                    RemoteChannelReceiverAuthProtocol.validate(auth)
+                    require(auth.channelId == source.channelId && auth.senderId == source.senderId && auth.keyId == source.keyId &&
+                        auth.senderFingerprintSha256 == source.fingerprintSha256 && auth.endpointSha256 == RemoteChannelBatchProtocol.endpointHash(source)) {
+                        "接收登记与来源不匹配"
+                    }
+                }
                 put(JSONObject().put("channelId", source.channelId).put("senderId", source.senderId)
                     .put("keyId", source.keyId).put("fingerprintSha256", source.fingerprintSha256)
-                    .put("url", source.url))
+                    .put("url", source.url).put("receiverAuthRequired", source.receiverAuthRequired).put("registered", source.registered)
+                    .put("receiverAuthorization", source.receiverAuthorization?.let { JSONObject(RemoteChannelReceiverAuthProtocol.manifest(it)) } ?: JSONObject.NULL))
             }
         })
         return root.toString().also { require(it.toByteArray(Charsets.UTF_8).size <= MAX_STATE_BYTES) { "收件来源状态过大" } }
@@ -118,20 +130,27 @@ object RemoteChannelPullPolicy {
     fun decode(raw: String): List<RemoteChannelPullSource> {
         require(raw.toByteArray(Charsets.UTF_8).size <= MAX_STATE_BYTES) { "收件来源状态过大" }
         val root = JSONObject(raw)
-        require(root.keys().asSequence().toSet() == setOf("schemaVersion", "sources") && root.opt("schemaVersion") == 1) {
+        require(root.keys().asSequence().toSet() == setOf("schemaVersion", "sources") && root.opt("schemaVersion") in setOf(1, 2)) {
             "收件来源状态版本或字段无效"
         }
         val array = root.getJSONArray("sources")
         require(array.length() <= MAX_SOURCES) { "收件来源过多" }
         val sources = (0 until array.length()).map { index ->
             val item = array.getJSONObject(index)
-            require(item.keys().asSequence().toSet() == setOf("channelId", "senderId", "keyId", "fingerprintSha256", "url")) {
+            val version = root.getInt("schemaVersion")
+            val fields = setOf("channelId", "senderId", "keyId", "fingerprintSha256", "url")
+            require(item.keys().asSequence().toSet() == if (version == 1) fields else fields +
+                setOf("receiverAuthRequired", "receiverAuthorization", "registered")) {
                 "收件来源字段无效"
             }
             fun field(name: String, max: Int): String = (item.opt(name) as? String)?.takeIf { it.length in 1..max }
                 ?: throw IllegalArgumentException("收件来源 $name 无效")
+            fun bool(name: String) = item.opt(name) as? Boolean ?: error("收件来源 $name 必须是布尔值")
             RemoteChannelPullSource(field("channelId", 200), field("senderId", 200), field("keyId", 64),
-                field("fingerprintSha256", 64), field("url", MAX_URL_CHARS))
+                field("fingerprintSha256", 64), field("url", MAX_URL_CHARS),
+                if (version == 1) false else bool("receiverAuthRequired"),
+                if (version == 1 || item.isNull("receiverAuthorization")) null else RemoteChannelReceiverAuthProtocol.decodeManifest(item.getJSONObject("receiverAuthorization")),
+                if (version == 1) true else bool("registered"))
         }
         require(sources.map { it.identity() }.distinct().size == sources.size) { "收件来源身份重复" }
         // long: 读盘也走写入校验，损坏账本不能被当成空白来源列表继续收件。
@@ -147,8 +166,13 @@ class RemoteChannelPullSourceRegistry(
     private val store: RemoteChannelPullSourceStateStore,
     private val pairings: RemoteChannelPairingRegistry,
 ) {
-    @Synchronized fun list(): List<RemoteChannelPullSource> =
-        store.loadState()?.let(RemoteChannelPullPolicy::decode).orEmpty()
+    private var unavailable = false
+    @Synchronized private fun stored(): List<RemoteChannelPullSource> {
+        check(!unavailable) { "HTTPS 来源账本已冻结" }
+        return store.loadState()?.let(RemoteChannelPullPolicy::decode).orEmpty()
+    }
+
+    @Synchronized fun list(): List<RemoteChannelPullSource> = stored().filter { it.registered }
 
     @Synchronized fun sourceFor(peer: RemoteChannelPeerCandidate): RemoteChannelPullSource? =
         list().firstOrNull { it.channelId == peer.channelId && it.senderId == peer.senderId &&
@@ -157,18 +181,53 @@ class RemoteChannelPullSourceRegistry(
     @Synchronized fun save(peer: RemoteChannelPeerCandidate, rawUrl: String): RemoteChannelPullSource {
         require(pairings.list().any { it.candidate == peer }) { "配对身份已变化，请重新核对公钥" }
         val url = RemoteChannelPullPolicy.endpoint(rawUrl).toString()
-        val next = RemoteChannelPullSource(peer.channelId, peer.senderId, peer.keyId, peer.fingerprintSha256, url)
-        val current = list().filterNot { it.channelId == peer.channelId && it.senderId == peer.senderId && it.keyId == peer.keyId }
-        store.saveState(RemoteChannelPullPolicy.encode(current + next))
+        val all = stored()
+        val previous = all.singleOrNull { it.channelId == peer.channelId && it.senderId == peer.senderId && it.keyId == peer.keyId }
+        // long: 认证地址和公钥不能被登记操作降级；换来源须使用新的发送方 keyId 并重新核对配对。
+        require(previous?.receiverAuthRequired != true || (previous.url == url && previous.fingerprintSha256 == peer.fingerprintSha256)) {
+            "认证来源不能更换地址或公钥，请使用新的 keyId 重新配对"
+        }
+        val next = if (previous?.url == url && previous.fingerprintSha256 == peer.fingerprintSha256) previous.copy(registered = true)
+            else RemoteChannelPullSource(peer.channelId, peer.senderId, peer.keyId, peer.fingerprintSha256, url)
+        val current = all.filterNot { it.channelId == peer.channelId && it.senderId == peer.senderId && it.keyId == peer.keyId }
+        persist(current + next)
         return next
     }
 
     @Synchronized fun remove(peer: RemoteChannelPeerCandidate): Boolean {
-        val current = list()
-        val next = current.filterNot { it.channelId == peer.channelId && it.senderId == peer.senderId && it.keyId == peer.keyId }
-        if (next.size == current.size) return false
-        store.saveState(RemoteChannelPullPolicy.encode(next))
+        val current = stored()
+        val source = current.singleOrNull { it.registered && it.channelId == peer.channelId && it.senderId == peer.senderId && it.keyId == peer.keyId } ?: return false
+        // long: 移除只停止网络登记，认证标记保留；重新登记同一身份不能无意绕过已有接收公钥绑定。
+        val next = if (source.receiverAuthRequired) current.map { if (it == source) it.copy(registered = false) else it }
+            else current - source
+        persist(next)
         return true
+    }
+
+    @Synchronized fun requireReceiverAuth(peer: RemoteChannelPeerCandidate): RemoteChannelPullSource {
+        val source = sourceFor(peer) ?: error("请先登记 HTTPS 来源")
+        val next = source.copy(receiverAuthRequired = true)
+        persist(stored().map { if (it == source) next else it })
+        return next
+    }
+
+    @Synchronized fun registerReceiver(peer: RemoteChannelPeerCandidate, expected: RemoteChannelPullSource,
+                                      auth: RemoteChannelReceiverAuthorization): RemoteChannelPullSource {
+        require(pairings.list().any { it.candidate == peer }) { "配对身份已变化" }
+        require(sourceFor(peer) == expected && expected.receiverAuthRequired) { "HTTPS 认证来源已变化" }
+        require(expected.receiverAuthorization == null || expected.receiverAuthorization == auth) { "接收公钥不能替换原登记" }
+        val next = expected.copy(receiverAuthorization = auth)
+        persist(stored().map { if (it == expected) next else it })
+        return next
+    }
+
+    private fun persist(sources: List<RemoteChannelPullSource>) {
+        val raw = RemoteChannelPullPolicy.encode(sources)
+        try { store.saveState(raw) } catch (error: Exception) {
+            // long: 落盘失败不能继续使用旧裸来源；冻结直到重建后重新核对磁盘，避免创建密钥与配置分歧。
+            unavailable = true
+            throw IllegalStateException("HTTPS 来源无法提交，已冻结", error)
+        }
     }
 }
 
@@ -214,6 +273,22 @@ class RemoteChannelHttpsPuller(
             .post(RemoteChannelBatchProtocol.ackRequest(peer, state).toRequestBody("application/json".toMediaType())).build()
         RemoteChannelBatchProtocol.verifyAck(executeJson(request), peer, state)
     }
+
+    suspend fun authenticatedPull(url: String, envelope: String): RemoteChannelPullResponse {
+        val response = RemoteChannelBatchProtocol.decodeResponse(executeJson(authenticatedRequest(url, envelope)))
+        // long: 认证发送队列只返回签名批次；拒绝九字段响应，避免服务端错误或降级混入兼容路径。
+        require(response is RemoteChannelPullResponse.Batch) { "认证来源必须返回签名批次" }
+        return response
+    }
+
+    suspend fun authenticatedAck(url: String, envelope: String, peer: RemoteChannelPeerCandidate, state: RemoteChannelBatchState) {
+        RemoteChannelBatchProtocol.verifyAck(executeJson(authenticatedRequest(url, envelope)), peer, state)
+    }
+
+    private fun authenticatedRequest(url: String, envelope: String): Request =
+        Request.Builder().url(RemoteChannelPullPolicy.endpoint(url))
+            .header("Accept", "application/json").header("Cache-Control", "no-store").header("X-Xiaoling-Receiver-Auth", "1")
+            .post(envelope.toRequestBody("application/json".toMediaType())).build()
 
     private suspend fun executeJson(request: Request): String {
         val call = client.newCall(request)
@@ -267,12 +342,37 @@ class RemoteChannelPullService(
     private val inbox: RemoteChannelInboxGateway,
     private val puller: RemoteChannelHttpsPuller = RemoteChannelHttpsPuller(),
     private val checkpoints: RemoteChannelPullCheckpointRegistry? = null,
+    private val receiverIdentity: RemoteChannelReceiverIdentity? = null,
+    private val clock: () -> Long = System::currentTimeMillis,
 ) {
     private val pullMutex = Mutex()
+
+    suspend fun createReceiver(peer: RemoteChannelPeerCandidate): RemoteChannelReceiverAuthorization = pullMutex.withLock {
+        val identity = receiverIdentity ?: error("接收签名器不可用")
+        require(pairings.list().any { it.candidate == peer }) { "配对身份已变化" }
+        // long: 先落盘认证标记再生成密钥；中断前已有私钥时只能显式导出修复，无钥也须重新确认创建，不能裸请求或自动换钥。
+        val source = sources.requireReceiverAuth(peer)
+        require(source.receiverAuthorization == null) { "接收身份已登记，请导出原公钥" }
+        val auth = identity.create(peer, source, inbox.batchState(source, peer))
+        sources.registerReceiver(peer, source, auth)
+        auth
+    }
+
+    suspend fun exportReceiver(peer: RemoteChannelPeerCandidate): RemoteChannelReceiverAuthorization = pullMutex.withLock {
+        val identity = receiverIdentity ?: error("接收签名器不可用")
+        val source = sources.sourceFor(peer) ?: error("请先登记 HTTPS 来源")
+        require(source.receiverAuthRequired) { "请先显式创建接收身份" }
+        require(pairings.list().any { it.candidate == peer }) { "配对身份已变化" }
+        val state = inbox.existingBatchState(source, peer) ?: error("原接收队列不可用")
+        val auth = identity.export(peer, source, state)
+        sources.registerReceiver(peer, source, auth)
+        auth
+    }
 
     // long: 前台服务串行消费单条响应，后一个请求必须看到前一个请求已提交的退避，避免并发点击绕过账本。
     suspend fun pull(peer: RemoteChannelPeerCandidate): RemoteChannelReceiveResult = pullMutex.withLock {
         val source = sources.sourceFor(peer) ?: throw IllegalArgumentException("该身份尚未登记 HTTPS 来源")
+        require(!source.receiverAuthRequired) { "认证来源请使用同步收件" }
         val sourceIdentity = RemoteChannelPullReliabilityPolicy.sourceIdentity(peer)
         checkpoints?.beforeAttempt(sourceIdentity)
         require(pairings.active(peer.channelId, peer.senderId, peer.keyId) == peer) { "请先启用当前配对身份" }
@@ -325,13 +425,17 @@ class RemoteChannelPullService(
         requireCurrentSource(source, peer, operationAllowed)
         val state = inbox.batchState(source, peer)
         try {
+            receiverAuthorization(source, peer, state)
             if (state.pendingAck != null) {
                 // long: 恢复时先补已持久入箱的 ACK，不拉新批次；请求次数有界，也不会再次展示旧正文。
                 acknowledge(source, peer, state, operationAllowed)
                 checkpoints?.recordDuplicate(identity, state.pendingAck.messageIds.lastOrNull() ?: state.pendingAck.batchId)
                 return@withLock RemoteChannelPullSyncResult.Batch(0, 0, false)
             }
-            when (val response = puller.fetchBatchOrSingle(source.url, state)) {
+            val signedPull = signedRequest(source, peer, state, ack = false)
+            requireCurrentSource(source, peer, operationAllowed)
+            when (val response = if (signedPull == null) puller.fetchBatchOrSingle(source.url, state)
+                else puller.authenticatedPull(source.url, signedPull)) {
                 is RemoteChannelPullResponse.Single -> {
                     require(state.cursor == null) { "已启用批次游标的来源不能退回单条协议" }
                     requireCurrentSource(source, peer, operationAllowed)
@@ -350,7 +454,9 @@ class RemoteChannelPullService(
                 }
                 is RemoteChannelPullResponse.Batch -> {
                     requireCurrentSource(source, peer, operationAllowed)
-                    val result = inbox.receiveBatch(source, peer, response.batch, operationAllowed)
+                    val result = inbox.receiveBatch(source, peer, response.batch) {
+                        commitAllowed(source, peer, state, operationAllowed)
+                    }
                     val committed = inbox.batchState(source, peer)
                     try {
                         acknowledge(source, peer, committed, operationAllowed)
@@ -373,9 +479,21 @@ class RemoteChannelPullService(
 
     private suspend fun acknowledge(source: RemoteChannelPullSource, peer: RemoteChannelPeerCandidate, state: RemoteChannelBatchState, operationAllowed: () -> Boolean) {
         requireCurrentSource(source, peer, operationAllowed)
-        puller.acknowledge(source.url, peer, state)
+        val signedAck = signedRequest(source, peer, state, ack = true)
         requireCurrentSource(source, peer, operationAllowed)
-        inbox.acknowledgeBatch(source, peer, state.pendingAck ?: error("没有待 ACK 批次"))
+        if (signedAck == null) puller.acknowledge(source.url, peer, state)
+        else puller.authenticatedAck(source.url, signedAck, peer, state)
+        requireCurrentSource(source, peer, operationAllowed)
+        inbox.acknowledgeBatch(source, peer, state.pendingAck ?: error("没有待 ACK 批次")) {
+            commitAllowed(source, peer, state, operationAllowed)
+        }
+    }
+
+    private fun commitAllowed(source: RemoteChannelPullSource, peer: RemoteChannelPeerCandidate, state: RemoteChannelBatchState,
+                              operationAllowed: () -> Boolean): Boolean {
+        if (!operationAllowed() || sources.sourceFor(peer) != source) return false
+        receiverAuthorization(source, peer, state)
+        return true
     }
 
     private suspend fun requireCurrentSource(source: RemoteChannelPullSource, peer: RemoteChannelPeerCandidate, operationAllowed: () -> Boolean) {
@@ -384,6 +502,27 @@ class RemoteChannelPullService(
         if (!operationAllowed()) throw CancellationException("后台收件许可已撤销")
         require(sources.sourceFor(peer) == source) { "HTTPS 来源在同步期间已变化" }
         require(pairings.active(peer.channelId, peer.senderId, peer.keyId) == peer) { "配对身份已停用或变化" }
+        if (source.receiverAuthRequired) {
+            val state = inbox.existingBatchState(source, peer) ?: error("原接收队列不可用")
+            receiverAuthorization(source, peer, state)
+        }
+    }
+
+    private fun receiverAuthorization(source: RemoteChannelPullSource, peer: RemoteChannelPeerCandidate,
+                                      state: RemoteChannelBatchState): RemoteChannelReceiverAuthorization? {
+        if (!source.receiverAuthRequired) return null
+        val auth = source.receiverAuthorization ?: error("接收公钥尚未完成登记，请显式导出原公钥")
+        val identity = receiverIdentity ?: error("接收签名器不可用")
+        require(RemoteChannelReceiverAuthProtocol.authorization(peer, source, state, auth.publicKeySpkiBase64) == auth &&
+            identity.export(peer, source, state) == auth) { "接收公钥与原登记不匹配" }
+        return auth
+    }
+
+    private fun signedRequest(source: RemoteChannelPullSource, peer: RemoteChannelPeerCandidate,
+                              state: RemoteChannelBatchState, ack: Boolean): String? {
+        val auth = receiverAuthorization(source, peer, state) ?: return null
+        val request = if (ack) RemoteChannelReceiverAuthProtocol.ackRequest(peer, state) else RemoteChannelReceiverAuthProtocol.pullRequest(peer, state)
+        return receiverIdentity!!.sign(auth, request, clock())
     }
 
     private fun recordFailure(identity: String, error: Exception) {

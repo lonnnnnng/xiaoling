@@ -8,7 +8,7 @@
 
 该工具不监听网络，不提供 HTTPS URL、接收端注册 UI、部署脚本或密码学接收端认证。调用者权限来自操作系统对状态目录的管理权限；`receiverId` 只用于路由。任何 HTTP 适配层都必须先完成独立的接收端认证和授权，不能把现有 `pull / ack` 直接暴露到公网，也不能把批次签名理解成接收端身份认证。
 
-第七片在独立 `remote_channel_receiver_auth.py` 增加[接收端签名认证与本地授权](remote-channel-receiver-auth.md)，与原队列共事务；本工具仍为本地管理入口，不得作为网络认证 fallback。新核心尚未接 HTTP 或产品注册 UI，第六片以下记录保持其原验收范围。
+第七片在独立 `remote_channel_receiver_auth.py` 增加[接收端签名认证与本地授权](remote-channel-receiver-auth.md)，与原队列共事务；本工具仍为本地管理入口，不得作为网络认证 fallback。第八片补[产品公钥创建/导出与认证 HTTPS 客户端](remote-channel-receiver-https.md)，服务端 HTTP listener 与稳定部署仍待后续；第六片以下证据保持其原验收范围。
 
 ## 状态、密钥与持久化
 
@@ -68,7 +68,7 @@ python3 tools/remote_channel_sender.py --state-dir "$queue_directory" stats
 python3 tools/remote_channel_sender.py --state-dir "$queue_directory" ack < /absolute/path/receiver-ack.json
 ```
 
-不能在常规使用中由发送方自己拼 ACK 冒充接收端入箱。本片隔离测试从 Kotlin 生产收件快照导出请求再交给 CLI。配对页当前没有 receiverId 导出/注册流程，示例 receiver 不能代替手机实际身份；生产注册、授权绑定与部署在后续切片完成。
+不能在常规使用中由发送方自己拼 ACK 冒充接收端入箱。本片隔离测试从 Kotlin 生产收件快照导出请求再交给 CLI。示例 receiver 不能代替手机实际身份；第八片应使用配对页导出的公开清单，经管理员独立核对指纹后由认证 CLI authorize，稳定网络服务部署仍待后续。
 
 成功输出单个 JSON，退出码 0；错误只输出固定 `sender error: <CODE>`，退出码 2（BrokenPipe 为 1），不打印正文或底层异常。主要错误：
 
@@ -93,7 +93,7 @@ python3 tools/remote_channel_sender.py --state-dir "$queue_directory" ack < /abs
 - Redmi `wsvwypiz7xwslvl7 / begonia`、SDK 36：两轮独立 instrumentation 分别 `OK (1 test)`，PID `13846 → 13885`。seed 经生产 Gateway 验签并写真实 Keystore 密文/outbox；独立主机 CLI 接收生产 ACK 并幂等回复；restore 在新手机进程读回 outbox、验签响应、清待 ACK，同时保留两条 pending 正文。成功后仅移除本轮 UUID preferences/AES alias，并断言删除成功、重读为空及别名不存在；失败保留现场。额外 shell 文件检查被设备 SELinux 拒绝，未调整系统安全设置。
 - 手机与主机仅通过 instrumentation 参数传合成批次/ACK，`https://sender-queue.example/batch` 只作来源 hash 绑定，没有 DNS、HTTP、TLS 或模型 API。主机测试目录/私钥留在仓库外，审计输出只有公钥与合成记录。
 
-自然 15 分钟周期、Doze、LMK、系统重启和厂商后台策略均未重新验收；本片不能宣称稳定生产发送方或第 285 阶段整体完成。下一片需要先设计接收端认证/授权绑定，再完成稳定 HTTPS 适配与部署，并独立验收长期保留和自然恢复。
+自然 15 分钟周期、Doze、LMK、系统重启和厂商后台策略均未重新验收；本片不能宣称稳定生产发送方或第 285 阶段整体完成。认证核心与客户端现已分别由第七/八片补齐，后续仍需稳定 HTTPS 服务适配与部署，并独立验收长期保留和自然恢复。
 
 ## 官方正文依据
 

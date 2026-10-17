@@ -9,6 +9,7 @@ import com.longdev.xiaoling.agent.RemoteChannelInboxGateway
 import com.longdev.xiaoling.agent.RemoteChannelPullService
 import com.longdev.xiaoling.agent.RemoteChannelPullSourceRegistry
 import com.longdev.xiaoling.agent.RemoteChannelPullCheckpointRegistry
+import com.longdev.xiaoling.agent.AndroidKeystoreRemoteChannelReceiverSigner
 import com.longdev.xiaoling.storage.KeystoreRemoteChannelInboxStateStore
 import com.longdev.xiaoling.storage.SharedPreferencesAgentPluginStateStore
 import com.longdev.xiaoling.storage.SharedPreferencesRemoteChannelPairingStateStore
@@ -78,6 +79,7 @@ class XiaoLingApplication : Application(), Configuration.Provider {
             remoteChannelPullSourceRegistry,
             remoteChannelInboxGateway,
             checkpoints = remoteChannelPullCheckpointRegistry,
+            receiverIdentity = AndroidKeystoreRemoteChannelReceiverSigner(),
         )
     }
 
