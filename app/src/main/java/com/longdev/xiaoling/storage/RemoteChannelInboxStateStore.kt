@@ -10,6 +10,7 @@ import com.longdev.xiaoling.agent.RemoteChannelInboxSnapshot
 import com.longdev.xiaoling.agent.RemoteChannelInboxStateStore
 import com.longdev.xiaoling.agent.RemoteChannelPendingDraft
 import com.longdev.xiaoling.agent.RemoteChannelPolicy
+import com.longdev.xiaoling.agent.RemoteChannelBatchStateCodec
 import com.longdev.xiaoling.share.SharedDraftPayload
 import java.security.KeyStore
 import javax.crypto.Cipher
@@ -90,7 +91,7 @@ class KeystoreRemoteChannelInboxStateStore(
 }
 
 internal object RemoteChannelInboxSnapshotCodec {
-    private const val SCHEMA_VERSION = 1
+    private const val SCHEMA_VERSION = 2
     private const val MAX_STATE_BYTES = 1024 * 1024
     private const val MAX_KEY_LENGTH = 1024
 
@@ -111,6 +112,7 @@ internal object RemoteChannelInboxSnapshotCodec {
         val root = JSONObject()
             .put("schemaVersion", SCHEMA_VERSION)
             .put("dedupeKeys", JSONArray(snapshot.dedupeKeys))
+            .put("batchStates", RemoteChannelBatchStateCodec.encode(snapshot.batchStates))
             .put("pendingDrafts", JSONArray().apply {
                 snapshot.pendingDrafts.forEach { pending ->
                     val draft = pending.draft
@@ -137,8 +139,10 @@ internal object RemoteChannelInboxSnapshotCodec {
     fun decode(raw: String): RemoteChannelInboxSnapshot {
         require(raw.toByteArray(Charsets.UTF_8).size <= MAX_STATE_BYTES) { "远程收件箱快照过大" }
         val root = JSONObject(raw)
-        root.requireOnlyKeys(setOf("schemaVersion", "dedupeKeys", "pendingDrafts"))
-        require(root.requiredLong("schemaVersion") == SCHEMA_VERSION.toLong()) { "远程收件箱 schemaVersion 不受支持" }
+        val version = root.requiredLong("schemaVersion")
+        require(version == 1L || version == SCHEMA_VERSION.toLong()) { "远程收件箱 schemaVersion 不受支持" }
+        val fields = setOf("schemaVersion", "dedupeKeys", "pendingDrafts") + if (version == 2L) setOf("batchStates") else emptySet()
+        require(root.keys().asSequence().toSet() == fields) { "远程收件箱字段不完整或含未知字段" }
         val keys = root.getJSONArray("dedupeKeys")
         require(keys.length() <= RemoteChannelPolicy.MAX_DEDUPE_ENTRIES) { "远程去重记录过多" }
         val dedupeKeys = (0 until keys.length()).map { index ->
@@ -171,7 +175,9 @@ internal object RemoteChannelInboxSnapshotCodec {
         require(pending.all { identityKey(it.draft) in dedupeKeys }) { "远程待处理消息缺少去重身份" }
         require(pending.all { it.nonceDedupeKey in dedupeKeys }) { "远程待处理消息缺少 nonce 去重身份" }
         pending.forEach { validateDraft(it.draft, it.acceptedAtMillis) }
-        return RemoteChannelInboxSnapshot(dedupeKeys, pending)
+        // long: 旧 v1 快照没有批次状态，升级只补空列表，不改变正文、去重身份或 Keystore 密钥。
+        val batchStates = if (version == 2L) RemoteChannelBatchStateCodec.decode(root.getJSONArray("batchStates")) else emptyList()
+        return RemoteChannelInboxSnapshot(dedupeKeys, pending, batchStates)
     }
 
     private fun identityKey(draft: RemoteChannelDraft): String = RemoteChannelPolicy.dedupeKey(draft)

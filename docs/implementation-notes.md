@@ -1,5 +1,13 @@
 # 当前实现说明
 
+## 2026-10-17 第 285 阶段第二片：原子批次收件与 ACK outbox
+
+- `RemoteChannelBatchProtocol` 固化 v1 外层签名、cursor/receiverId/expiry 绑定、消息数和响应体上限；ACK 回执逐字段核对并用当前 P-256 公钥验签。`RemoteChannelHttpsPuller` 复用原 DNS/HTTPS/取消和有界 JSON 读取，在同一登记 URL 上 GET 批次、POST ACK，不接受响应派生网络目标。
+- `RemoteChannelInboxSnapshot.batchStates` 和明文 codec v2 将来源 URL 指纹、随机接收端 ID、cursor、单批 receipt/outbox 与正文/去重身份放在同一个 AES-GCM commit。v1 只补空 batchStates；单条接收、打开/忽略与 24 小时正文过期清理全部保留批次元数据。
+- `RemoteChannelInboxGateway.receiveBatch` 在隔离内存快照演算整批，外层签名和逐条公钥验签通过、容量足够后才一次写盘。nonce-only 碰撞拒绝整批；多个 Gateway 共享进程内存储锁，提交前再核对配对，避免重建入口覆盖 cursor/outbox。
+- `RemoteChannelPullService.synchronize` 串行、有界执行：待 ACK 时只补一次 POST，正常时最多一次 GET 与一次 POST。取消不记故障，ACK 失败返回“已入箱、回执待补”，outbox 保留；服务器成功但本地清除 commit 失败同样保留，后续幂等重试。持久网络退避仍由第一片 SharedPreferences 账本负责，恢复不能依赖它代替加密快照中的 receipt/cursor。
+- 设置页按钮改为“同步收件”，显示实际入箱/重复数量及送达回执状态；草稿仍要前台确认。协议只表达安全入箱，不证明用户确认、接收端身份或 Agent 执行。后台、通知、跨平台实际实现及生产发送方认证/队列策略未开放，详见[协议](remote-channel-batch-v1.md)与报告。
+
 ## 2026-10-17 第 285 阶段第一片：Remote Channel 持久退避
 
 - `RemoteChannelPullCheckpointRegistry` 与 `SharedPreferencesRemoteChannelPullCheckpointStateStore` 在独立偏好文件保存来源身份、cursor、待 ACK 消息 ID、失败次数、退避时间及错误码。JSON codec 拒绝隐式字符串/数字转换、非法 null 字段、未知字段、重复来源和越界值；读盘或写盘失败 fail-closed。

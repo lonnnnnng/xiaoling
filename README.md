@@ -79,7 +79,7 @@
 4. 返回对话页，选择模型与 API 模式后开始普通对话。
 5. 需要执行工具时，使用 Agent 任务入口或显式 `/agent` 意图，检查计划后再确认执行。
 6. 需要远程工具时，在“设置 → MCP Servers”配置服务器；需要扩展任务指令时，在“设置 → Agent Skills”导入 GitHub 的 `SKILL.json` 或 `SKILL.md`。
-7. 需要接收远程消息时，在“设置 → 远端身份配对”核对并启用发送方公钥，再粘贴签名 JSON，或登记 HTTPS 地址后点“拉取一条”。字段、响应格式和签名字节格式见 [Remote Channel 收件协议](docs/remote-channel-signed-import.md)。
+7. 需要接收远程消息时，在“设置 → 远端身份配对”核对并启用发送方公钥，再粘贴签名 JSON，或登记 HTTPS 地址后点击收件按钮。字段、响应格式和签名字节格式见 [Remote Channel 收件协议](docs/remote-channel-signed-import.md)。
 
 系统分享的文本、图片和文档只会进入可编辑草稿，不会自动发送、调用模型或创建 Agent Run。
 
@@ -103,6 +103,8 @@ JAVA_HOME=$(/usr/libexec/java_home -v 21) ./gradlew assembleRelease
 Release 签名从未跟踪文件 `local-signing/xiaoling-release.env` 读取。请勿把签名文件、密码、API Key 或设备端 Provider 配置提交到仓库。
 
 ## 当前状态
+
+开发源码第 285 阶段已增加前台签名批次、cursor、同址签名 ACK 与原子加密 outbox；用户在配对页点“同步收件”后才收件，ACK 失败保留并优先补发，草稿继续前台确认。该切片尚未发布，后台送达与通知待后续；协议见 [批次协议 v1](docs/remote-channel-batch-v1.md)，实测范围见 [验证报告](docs/verification-report.md)。
 
 | 项目 | 状态 |
 | --- | --- |

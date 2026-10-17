@@ -2,6 +2,19 @@
 
 验证日期：2026-10-17（北京时间）
 
+# 2026-10-17 第 285 阶段第二片：前台签名批次、cursor 与原子 ACK outbox
+
+- 当前开发基线：已登记、已启用的 P-256 来源经设置页“同步收件”接收至多 8 条签名消息；外层签名绑定 receiverId、请求/下一游标、有效期及所有消息签名，每条消息继续独立验签。正文、去重身份、cursor 与单批 receipt/outbox 同次 AES-GCM 提交，整批失败不推进游标；ACK 固定 POST 同一登记 URL，签名回执确认后才清除 outbox。草稿继续前台确认，不创建 Agent Run。协议见[批次协议 v1](remote-channel-batch-v1.md)。
+- 最终本地命令：`JAVA_HOME=$(/usr/libexec/java_home -v 21) ./gradlew :app:testDebugUnitTest --tests '*RemoteChannel*' :app:assembleDebug :app:assembleDebugAndroidTest --console=plain` 为 `BUILD SUCCESSFUL in 10s`。七个聚焦 JVM 类合计 `58 tests / 0 failures / 0 errors / 0 skipped`，其中批次类 13 项；覆盖签名/游标篡改、失效批次、第二条验签失败整批回滚、写失败、容量、nonce-only 碰撞、重复入箱、过期/忽略保留 receipt、v1/v2 严格 codec、并发 Gateway、旧单条入口禁止绕过 cursor/outbox、ACK 丢失与取消。网络故障、取消和并发证据使用 JVM 拦截器或 loopback MockWebServer，不能等同公网网络故障。
+- Redmi `wsvwypiz7xwslvl7 / begonia`：最新 Debug 主包和 AndroidTest APK 均以 `adb -s wsvwypiz7xwslvl7 install -r <APK>` 成功覆盖安装，保留用户数据；设备 `dumpsys package` 确认为 `0.1.22 (23)`，Room 保持 v40。本轮没有签名新 Release、推送或发布。
+- 独立公网夹具：Python/OpenSSL 生成合成 P-256 批次与 ACK，官方 `cloudflared 2026.10.1` Quick Tunnel 暴露临时 `https://tax-pediatric-potential-popularity.trycloudflare.com`；下载归档 SHA-256 `647615df99d49cd179ea5e13ef760b9bbfb33630f6ae62f87e33dfadda60adcc` 与上游资产摘要一致。测试私钥只位于仓库外临时目录，未复制进审计输出；仅合成收件数据经隧道转发。公网门禁完成后已停止本轮隧道与本机服务，临时目录保留。
+- 真实 UI 与兼容迁移：`RemoteChannelBatchHttpsInstrumentedTest#realBatchTlsCommitsMessagesCursorAndSignedAck`、`#legacyCiphertextUpgradesWithoutLosingPendingDraftOrReplayIdentity` 使用生产 DNS/TLS/transport，在真实设置页点击同步按钮，最终合并 `OK (2 tests)`、`16.543s`。断言入箱 2 条、显示签名 ACK 成功、密文不含消息 ID/cursor/receiverId、随后 cursor 驱动空批次；同一 Keystore 密钥下的旧 schema v1 密文升级保留正文与重放身份，之后能接批次。
+- 公网跨进程 outbox 门禁：分别执行 `#seedAckOutboxForIndependentProcessRestart`、`#restoreAckOutboxWithoutRedeliveringMessages`，携带 `remotePullBaseUrl / remotePullPublicKey`、`remoteBatchPhase=seed/restore` 与同一隔离 `remoteBatchLedger=remote_batch_https_process_test_1792233524919_retry`。seed 为 `OK (1 test)`、`3.214s`、PID `8614`：首次 ACK HTTP 503 后，2 条正文、cursor、receipt 与真实 30 秒持久退避仍在，立即重试被阻断。执行 `adb -s wsvwypiz7xwslvl7 shell am force-stop com.longdev.xiaoling` 后，restore 在 PID `8724` 为 `OK (1 test)`、`23.992s`：等待剩余退避、先单次 POST 原 receipt，再 GET 空批次并确认 ACK，始终保留 2 条正文。服务日志顺序为 `GET 200 → POST 503 → POST 200 → GET 200 → POST 200`；成功后只移除该隔离测试账本和测试密钥。此证据是受控 force-stop/重建，不是自然 LMK 或生产发送方恢复。
+- 失败证据与修正：首次 restore 为 `FAILURES!!! Tests run: 1, Failures: 1`，断言 `ackPending=false` 实为 `true`；原 receipt 恢复 POST 已成功，失败来自夹具对后续每个新空批次再次注入首次 ACK 503。故障改为每个测试接收端只注入一次后，以上新账本重跑通过。旧隔离前缀 `remote_batch_https_process_test_1792233444217_final` 和失败日志保留，没有清除正式配置或以新成功覆盖失败事实。前期只读子代理上游 503 失败后，主代理完成核查；一次只读 `storage/*Database*` 查询被 zsh 的 `no matches found` 拒绝，改用 `rg` 已定位 Room v40。
+- 受影响 Redmi 回归：既有 `RemoteChannelPairingPageInstrumentedTest` 3 项加加密收件箱重建/密文损坏 2 项，合计 `OK (5 tests)`、`15.399s`，验证单条兼容同步、手动签名导入、配对撤销、打开/忽略以及损坏冻结；均使用内存或隔离测试存储。
+- 审计输出：`outputs/verification/stage285-batch/` 保存 `build.log`、`jvm-summary.json`、`https-final.log`、`seed-final.log / restore-final.log`（失败轮）、`seed-retry.log / restore-retry.log`、`regression.log`、两份 server 日志与 `process-evidence.log`。本节保存后重新打包 AndroidTest 并运行 `RoomKnowledgeDocumentStoreInstrumentedTest#projectDocumentationCorpusMeetsGoldenQueryRecallGate`，实际结果记录于同目录 `corpus.log`。`git diff --check` 与本轮任务文件凭据扫描通过；生成缓存和审计输出均保持忽略，未处理无关 `refs/`。
+- 未验证边界：稳定生产发送方的认证/队列/幂等交付、自然 LMK/系统后台恢复、离线自动调度、后台送达和通知仍待下一片。ACK 表示本机安全入箱，不证明用户确认、接收端身份或执行成功。完整 JVM、Lint、Release 和全量 instrumentation 按分级策略后置；未使用模拟器，也未调用模型 API。
+
 # 2026-10-17 第 285 阶段第一片：Remote Channel 持久退避账本
 
 - 当前验证基线：前台 HTTPS 单条收件的独立 checkpoint、网络/超时/5xx 指数退避、取消不记故障、协议拒绝可手动恢复、严格 codec、commit 失败冻结与满容量不淘汰。生产由 `XiaoLingApplication` 注入 SharedPreferences 账本；正式产物和发布提交仍沿用下节 `v0.1.22 / c829fcb`，本轮没有构建或发布新 Release。
@@ -9,7 +22,7 @@
 - Redmi `wsvwypiz7xwslvl7 / begonia`：Debug 与 AndroidTest APK 均 `install -r` 成功，版本保持 `0.1.22 (23)`，保留用户数据。`RemoteChannelPullCheckpointStateStoreInstrumentedTest#retryAndAckStateSurviveStoreRecreationAndCorruptionFreezesWrites` 与既有来源存储测试合并 `OK (2 tests)`、`0.169s`，使用 UUID 隔离偏好文件。
 - 受控进程恢复：`retrySurvivesSeparateInstrumentationProcesses` 分别以 `remoteCheckpointPhase=seed/restore` 和同一受前缀约束的测试账本运行；seed 为 `OK (1 test)`、`0.067s`、PID `7243`。随后执行 `adb -s wsvwypiz7xwslvl7 shell am force-stop com.longdev.xiaoling`，restore 在不同 PID `7286` 为 `OK (1 test)`、`0.123s`；cursor、预留 ACK 身份和 `31_000` 毫秒退避时间恢复，过早尝试被拒绝。此处是受控进程重建，不是自然 LMK 或生产断网证据；restore 后只移除隔离测试偏好文件，测试 APK 保留。
 - 审计日志：`outputs/verification/stage285/build.log`、`storage.log`、`seed.log`、`restore.log`；本节写入后的文档语料门禁结果以同目录 `corpus.log` 为准。`git diff --check` 通过；早期只读目录检索遇到仓库没有 `.github/`、`scripts/`，未影响构建。两次只读子代理因上游 503 失败，后续核查由主代理完成。
-- 未验证边界：HTTP/超时/并发/取消服务测试使用 JVM 拦截器或 loopback MockWebServer，没有新增真实公网收件证据。当前网络仍为九字段单条响应，成功不累积待 ACK 队列；cursor/ACK 是本地预留能力，没有服务端协议、批次、网络 ACK、后台收件、通知或跨存储事务/outbox 对账。完整 JVM、Lint、Release 和全量 instrumentation 按分级策略后置，未使用模拟器。
+- 第一片当时的未验证边界：HTTP/超时/并发/取消服务测试使用 JVM 拦截器或 loopback MockWebServer，没有新增真实公网收件证据。当时网络仍为九字段单条响应，成功不累积待 ACK 队列；cursor/ACK 是本地预留能力，没有服务端协议、批次、网络 ACK、后台收件、通知或跨存储事务/outbox 对账。批次与 outbox 的后续证据见上方第二片；第一片未跑完整 JVM、Lint、Release 或全量 instrumentation，未使用模拟器。
 
 # 2026-10-14 发布 v0.1.22（versionCode 23）
 

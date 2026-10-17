@@ -1,6 +1,7 @@
 package com.longdev.xiaoling.agent
 
 import org.json.JSONObject
+import java.util.UUID
 
 sealed interface RemoteChannelInboxStatus {
     data class Ready(val pending: List<RemoteChannelPendingDraft>) : RemoteChannelInboxStatus
@@ -13,25 +14,106 @@ sealed interface RemoteChannelInboxStatus {
  */
 class RemoteChannelInboxGateway(
     private val store: RemoteChannelInboxStateStore,
-    pairingRegistry: RemoteChannelPairingRegistry,
+    private val pairingRegistry: RemoteChannelPairingRegistry,
     private val clock: () -> Long = System::currentTimeMillis,
 ) {
     private val authenticator = PublicKeyRemoteChannelAuthenticator(pairingRegistry)
-    @Synchronized
-    fun status(): RemoteChannelInboxStatus {
+    fun status(): RemoteChannelInboxStatus = synchronized(STATE_LOCK) {
         val inbox = inbox("__inbox_list__", "__inbox_list__")
-        return if (inbox.isStorageAvailable()) RemoteChannelInboxStatus.Ready(inbox.allPendingDrafts())
+        if (inbox.isStorageAvailable()) RemoteChannelInboxStatus.Ready(inbox.allPendingDrafts())
         else RemoteChannelInboxStatus.Unavailable
     }
 
-    @Synchronized
-    fun receive(envelope: RemoteChannelEnvelope): RemoteChannelReceiveResult =
+    fun receive(envelope: RemoteChannelEnvelope): RemoteChannelReceiveResult = synchronized(STATE_LOCK) {
         // long: 动态允许表只限定这次消息的视图；真正的渠道/发送方授权由固定的公钥配对验签器逐次读取账本决定。
         inbox(envelope.channelId.trim(), envelope.senderId.trim()).receive(envelope)
+    }
 
-    @Synchronized
-    fun discard(draft: RemoteChannelDraft): Boolean =
+    fun discard(draft: RemoteChannelDraft): Boolean = synchronized(STATE_LOCK) {
         inbox(draft.channelId, draft.senderId).discardPending(draft.channelId, draft.senderId, draft.messageId)
+    }
+
+    fun batchState(source: RemoteChannelPullSource, peer: RemoteChannelPeerCandidate): RemoteChannelBatchState = synchronized(STATE_LOCK) {
+        val snapshot = loadSnapshot()
+        val identity = RemoteChannelPullReliabilityPolicy.sourceIdentity(peer)
+        val endpoint = RemoteChannelBatchProtocol.endpointHash(source)
+        snapshot.batchStates.firstOrNull { it.sourceIdentity == identity && it.endpointSha256 == endpoint }?.let { return@synchronized it }
+        check(snapshot.batchStates.size < RemoteChannelBatchProtocol.MAX_STATES) { "批次来源已达到上限" }
+        val state = RemoteChannelBatchState(identity, endpoint, UUID.randomUUID().toString().replace("-", ""))
+        saveSnapshot(snapshot.copy(batchStates = snapshot.batchStates + state))
+        state
+    }
+
+    fun existingBatchState(source: RemoteChannelPullSource, peer: RemoteChannelPeerCandidate): RemoteChannelBatchState? = synchronized(STATE_LOCK) {
+        val identity = RemoteChannelPullReliabilityPolicy.sourceIdentity(peer)
+        val endpoint = RemoteChannelBatchProtocol.endpointHash(source)
+        loadSnapshot().batchStates.firstOrNull { it.sourceIdentity == identity && it.endpointSha256 == endpoint }
+    }
+
+    fun receiveBatch(source: RemoteChannelPullSource, peer: RemoteChannelPeerCandidate, batch: RemoteChannelSignedBatch): RemoteChannelBatchReceiveResult =
+        synchronized(STATE_LOCK) {
+            val original = loadSnapshot()
+            val identity = RemoteChannelPullReliabilityPolicy.sourceIdentity(peer)
+            val endpoint = RemoteChannelBatchProtocol.endpointHash(source)
+            val state = original.batchStates.singleOrNull { it.sourceIdentity == identity && it.endpointSha256 == endpoint }
+                ?: error("批次来源尚未初始化")
+            require(state.pendingAck == null) { "旧批次 ACK 尚未确认" }
+            require(pairingRegistry.active(peer.channelId, peer.senderId, peer.keyId) == peer) { "配对身份已停用或变化" }
+            RemoteChannelBatchProtocol.verifyBatch(batch, peer, state, clock())
+
+            // long: 用隔离的内存事务演算整批入箱；任一验签、nonce 或容量拒绝时不写正文，也不推进游标。
+            var staged = original
+            val stagingStore = object : RemoteChannelInboxStateStore {
+                override fun loadSnapshot() = staged
+                override fun saveSnapshot(snapshot: RemoteChannelInboxSnapshot) { staged = snapshot }
+            }
+            val stagingInbox = InMemoryRemoteChannelInbox(RemoteChannelAllowlist(peer.channelId, setOf(peer.senderId)),
+                authenticator = authenticator, clock = clock, inboxStateStore = stagingStore)
+            var accepted = 0
+            var duplicates = 0
+            batch.messages.forEach { envelope ->
+                require(envelope.channelId == peer.channelId && envelope.senderId == peer.senderId && envelope.keyId == peer.keyId) {
+                    "批次包含其他身份消息"
+                }
+                when (val result = stagingInbox.receive(envelope)) {
+                    is RemoteChannelReceiveResult.Accepted -> accepted += 1
+                    is RemoteChannelReceiveResult.Rejected -> {
+                        // long: nonce 碰撞不能证明新 messageId 曾经入箱，只有持久消息去重身份存在才计为可 ACK 的重复。
+                        require(result.reason == RemoteChannelRejectionReason.DUPLICATE_MESSAGE &&
+                            RemoteChannelPolicy.dedupeKey(envelope) in staged.dedupeKeys) { "批次消息拒绝：${result.reason}" }
+                        duplicates += 1
+                    }
+                }
+            }
+            val nextState = state.copy(cursor = batch.nextCursor, pendingAck = RemoteChannelBatchProtocol.receipt(batch))
+            require(pairingRegistry.active(peer.channelId, peer.senderId, peer.keyId) == peer) { "配对身份已停用或变化" }
+            saveSnapshot(staged.copy(batchStates = staged.batchStates.map { if (it == state) nextState else it }))
+            RemoteChannelBatchReceiveResult(accepted, duplicates)
+        }
+
+    fun acknowledgeBatch(source: RemoteChannelPullSource, peer: RemoteChannelPeerCandidate, receipt: RemoteChannelBatchReceipt) =
+        synchronized(STATE_LOCK) {
+            val snapshot = loadSnapshot()
+            val identity = RemoteChannelPullReliabilityPolicy.sourceIdentity(peer)
+            val endpoint = RemoteChannelBatchProtocol.endpointHash(source)
+            val state = snapshot.batchStates.single { it.sourceIdentity == identity && it.endpointSha256 == endpoint }
+            // long: 迟到回执只能清除它对应的 outbox，不能清除新批次或另一 URL 的待确认回执。
+            require(state.pendingAck == receipt) { "待 ACK 批次已变化" }
+            saveSnapshot(snapshot.copy(batchStates = snapshot.batchStates.map { if (it == state) state.copy(pendingAck = null) else it }))
+        }
+
+    private fun loadSnapshot(): RemoteChannelInboxSnapshot = try {
+        store.loadSnapshot() ?: RemoteChannelInboxSnapshot(emptyList(), emptyList())
+    } catch (error: Exception) { throw IllegalStateException("加密收件箱不可用", error) }
+
+    private fun saveSnapshot(snapshot: RemoteChannelInboxSnapshot) {
+        try { store.saveSnapshot(snapshot) } catch (error: Exception) { throw IllegalStateException("加密收件箱无法提交", error) }
+    }
+
+    private companion object {
+        // long: 同进程重建 Gateway 也共用存储锁，防止手动导入、过期清理和批次提交互相覆盖快照。
+        val STATE_LOCK = Any()
+    }
 
     private fun inbox(channelId: String, senderId: String): InMemoryRemoteChannelInbox =
         InMemoryRemoteChannelInbox(

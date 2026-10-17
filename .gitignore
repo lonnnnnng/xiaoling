@@ -6,5 +6,6 @@
 /.kotlin/
 **/build/
 outputs/
+/tools/__pycache__/
 *.iml
 .DS_Store

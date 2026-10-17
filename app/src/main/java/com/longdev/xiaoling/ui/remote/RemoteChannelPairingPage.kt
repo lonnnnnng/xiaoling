@@ -41,6 +41,7 @@ import com.longdev.xiaoling.agent.RemoteChannelInboxStatus
 import com.longdev.xiaoling.agent.RemoteChannelReceiveResult
 import com.longdev.xiaoling.agent.RemoteChannelPullService
 import com.longdev.xiaoling.agent.RemoteChannelPullSourceRegistry
+import com.longdev.xiaoling.agent.RemoteChannelPullSyncResult
 import com.longdev.xiaoling.agent.RemoteChannelSignedEnvelopeCodec
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -292,7 +293,7 @@ internal fun RemoteChannelPairingPage(
                             enabled = !sourceBusy && sourceFailure == null && stateFailure == null,
                             singleLine = true,
                         )
-                        Text("地址会保存在本机配置中，请勿把令牌写入 URL 路径。仅支持无需认证头的单条签名 JSON。",
+                        Text("地址会保存在本机配置中，请勿把令牌写入 URL 路径。支持单条签名消息或有界签名批次；同步不会自动运行 Agent。",
                             style = MaterialTheme.typography.bodySmall)
                         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                             TextButton(
@@ -310,11 +311,15 @@ internal fun RemoteChannelPairingPage(
                                 onClick = {
                                     sourceBusy = true
                                     scope.launch {
-                                        val result = withContext(Dispatchers.IO) { runCatching { pullService.pull(identity) } }
+                                        val result = withContext(Dispatchers.IO) { runCatching { pullService.synchronize(identity) } }
                                         notice = result.fold(
-                                            onSuccess = { received -> when (received) {
+                                            onSuccess = { synced -> when (synced) {
+                                                is RemoteChannelPullSyncResult.Batch -> "本次入箱 ${synced.acceptedCount} 条，重复 ${synced.duplicateCount} 条；" +
+                                                    if (synced.ackPending) "送达回执待补发，可稍后再次同步" else "送达回执已确认"
+                                                is RemoteChannelPullSyncResult.Single -> when (val received = synced.result) {
                                                 is RemoteChannelReceiveResult.Accepted -> "签名消息已进入待确认收件箱"
                                                 is RemoteChannelReceiveResult.Rejected -> "HTTPS 消息已拒绝：${received.reason}"
+                                                }
                                             } },
                                             onFailure = { it.message ?: "HTTPS 收件失败" },
                                         )
@@ -326,7 +331,7 @@ internal fun RemoteChannelPairingPage(
                                     sourceFailure == null && stateFailure == null &&
                                     inboxStatus is RemoteChannelInboxStatus.Ready,
                                 modifier = Modifier.testTag("remote-source-pull-$tag"),
-                            ) { Text("拉取一条") }
+                            ) { Text("同步收件") }
                             TextButton(
                                 onClick = {
                                     notice = runCatching { pullSources.remove(identity) }.fold(

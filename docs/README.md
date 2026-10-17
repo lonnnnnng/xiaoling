@@ -1,8 +1,10 @@
 # 文档索引
 
-## 当前阶段：第 285 阶段 Remote Channel 持久退避第一片
+## 当前阶段：第 285 阶段 Remote Channel 前台批次与 ACK outbox
 
-- 前台 HTTPS 单条拉取已增加独立 checkpoint 与跨重建退避，取消不记故障，损坏/写盘失败冻结，满容量保留旧记录。cursor/待 ACK 身份只为本地预留字段；服务端批次/ACK、后台送达与通知仍待后续切片。验证范围见[最新报告](verification-report.md)，正式 Release 仍为 `v0.1.22`。
+- 第二片已实现有界签名批次、cursor、同址签名 ACK 和正文/去重/游标/outbox 原子加密提交；设置页通过“同步收件”进入，ACK 失败后跨进程保留并优先补发，旧单条协议及 v1 密文兼容。详见[批次协议](remote-channel-batch-v1.md)与[验证报告](verification-report.md)。后台收件、通知及稳定生产发送方仍待后续，正式版本保持 `v0.1.22`。
+
+- 第一片历史：前台单条拉取补独立 checkpoint 与持久退避，取消不记故障，损坏/写失败冻结，满容量保留旧记录。当时 cursor/ACK 仅预留；第二片已经接入批次网络协议与原子加密 outbox。
 
 - `v0.1.22` 已发布 P-256 已启用配对身份的手动九字段 JSON 导入、已登记 HTTPS 来源的前台单条拉取、加密待确认列表和会话确认卡。Redmi 已通过临时公网 HTTPS 合成发送方的真实 DNS/TLS、验签、加密入箱及拒绝路径单项；稳定生产发送方、后台收件与通知仍待下一阶段。详见[签名收件协议](remote-channel-signed-import.md)、[路线图](personal-agent-roadmap.md)和[最新验证报告](verification-report.md)。
 - 下方第 251 至 284 阶段及既有发布记录是历史验收背景，具体边界以当前源码与报告顶部为准。

@@ -7,6 +7,7 @@ import java.net.Proxy
 import java.nio.ByteBuffer
 import java.nio.charset.CodingErrorAction
 import java.util.concurrent.TimeUnit
+import java.util.Base64
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
@@ -20,6 +21,8 @@ import okhttp3.Dns
 import okhttp3.HttpUrl
 import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import okhttp3.OkHttpClient
+import okhttp3.MediaType.Companion.toMediaType
+import okhttp3.RequestBody.Companion.toRequestBody
 import okhttp3.Request
 import okhttp3.Response
 import org.json.JSONArray
@@ -192,6 +195,27 @@ class RemoteChannelHttpsPuller(
             .header("Accept", "application/json")
             .header("Cache-Control", "no-store")
             .build()
+        return RemoteChannelSignedEnvelopeCodec.decode(executeJson(request))
+    }
+
+    suspend fun fetchBatchOrSingle(url: String, state: RemoteChannelBatchState): RemoteChannelPullResponse {
+        val request = Request.Builder().url(RemoteChannelPullPolicy.endpoint(url)).get()
+            .header("Accept", "application/json").header("Cache-Control", "no-store")
+            .header("X-Xiaoling-Protocol", "1").header("X-Xiaoling-Receiver", state.receiverId)
+            .apply { state.cursor?.let { header("X-Xiaoling-Cursor", Base64.getUrlEncoder().withoutPadding().encodeToString(it.toByteArray(Charsets.UTF_8))) } }
+            .build()
+        return RemoteChannelBatchProtocol.decodeResponse(executeJson(request))
+    }
+
+    suspend fun acknowledge(url: String, peer: RemoteChannelPeerCandidate, state: RemoteChannelBatchState) {
+        // long: ACK 固定发往用户登记的同一地址，回执或消息正文不能提供新的网络目标。
+        val request = Request.Builder().url(RemoteChannelPullPolicy.endpoint(url))
+            .header("Accept", "application/json").header("Cache-Control", "no-store")
+            .post(RemoteChannelBatchProtocol.ackRequest(peer, state).toRequestBody("application/json".toMediaType())).build()
+        RemoteChannelBatchProtocol.verifyAck(executeJson(request), peer, state)
+    }
+
+    private suspend fun executeJson(request: Request): String {
         val call = client.newCall(request)
         return suspendCancellableCoroutine { continuation ->
             // long: 取消覆盖响应头和正文读取整个阶段；停滞正文不能占住已退出的前台拉取任务。
@@ -204,7 +228,7 @@ class RemoteChannelHttpsPuller(
 
                 override fun onResponse(call: Call, response: Response) {
                     val result = runCatching {
-                        response.use { readEnvelope(it) { continuation.isActive } }
+                        response.use { readJson(it) { continuation.isActive } }
                     }
                     continuation.resumeWith(result)
                 }
@@ -212,7 +236,7 @@ class RemoteChannelHttpsPuller(
         }
     }
 
-    private fun readEnvelope(response: Response, isActive: () -> Boolean): RemoteChannelEnvelope {
+    private fun readJson(response: Response, isActive: () -> Boolean): String {
         if (response.code != 200) throw RemoteChannelPullHttpException(response.code)
         require(response.header("Content-Type")?.substringBefore(';')?.trim()?.equals("application/json", true) == true) {
             "HTTPS 收件响应不是 JSON"
@@ -232,7 +256,7 @@ class RemoteChannelHttpsPuller(
         val text = Charsets.UTF_8.newDecoder().onMalformedInput(CodingErrorAction.REPORT)
             .onUnmappableCharacter(CodingErrorAction.REPORT)
             .decode(ByteBuffer.wrap(output.toByteArray())).toString()
-        return RemoteChannelSignedEnvelopeCodec.decode(text)
+        return text
     }
 }
 
@@ -252,6 +276,9 @@ class RemoteChannelPullService(
         val sourceIdentity = RemoteChannelPullReliabilityPolicy.sourceIdentity(peer)
         checkpoints?.beforeAttempt(sourceIdentity)
         require(pairings.active(peer.channelId, peer.senderId, peer.keyId) == peer) { "请先启用当前配对身份" }
+        // long: 旧单条调用者也不能绕过已启用批次的 cursor/outbox；批次来源统一从 synchronize 恢复。
+        val batchState = inbox.existingBatchState(source, peer)
+        require(batchState?.cursor == null && batchState?.pendingAck == null) { "此来源已启用批次协议，请同步收件" }
         val envelope = try {
             val envelope = puller.fetch(source.url)
             currentCoroutineContext().ensureActive()
@@ -289,5 +316,78 @@ class RemoteChannelPullService(
             }
         }
         result
+    }
+
+    suspend fun synchronize(peer: RemoteChannelPeerCandidate): RemoteChannelPullSyncResult = pullMutex.withLock {
+        val source = sources.sourceFor(peer) ?: throw IllegalArgumentException("该身份尚未登记 HTTPS 来源")
+        val identity = RemoteChannelPullReliabilityPolicy.sourceIdentity(peer)
+        checkpoints?.beforeAttempt(identity)
+        requireCurrentSource(source, peer)
+        val state = inbox.batchState(source, peer)
+        try {
+            if (state.pendingAck != null) {
+                // long: 恢复时先补已持久入箱的 ACK，不拉新批次；请求次数有界，也不会再次展示旧正文。
+                acknowledge(source, peer, state)
+                checkpoints?.recordDuplicate(identity, state.pendingAck.messageIds.lastOrNull() ?: state.pendingAck.batchId)
+                return@withLock RemoteChannelPullSyncResult.Batch(0, 0, false)
+            }
+            when (val response = puller.fetchBatchOrSingle(source.url, state)) {
+                is RemoteChannelPullResponse.Single -> {
+                    require(state.cursor == null) { "已启用批次游标的来源不能退回单条协议" }
+                    requireCurrentSource(source, peer)
+                    val envelope = response.envelope
+                    if (envelope.channelId != peer.channelId || envelope.senderId != peer.senderId || envelope.keyId != peer.keyId) {
+                        throw RemoteChannelPullIdentityMismatchException()
+                    }
+                    val result = inbox.receive(envelope)
+                    when (result) {
+                        is RemoteChannelReceiveResult.Accepted -> checkpoints?.recordAccepted(identity, envelope.messageId.trim(), awaitingAck = false)
+                        is RemoteChannelReceiveResult.Rejected -> if (result.reason == RemoteChannelRejectionReason.DUPLICATE_MESSAGE) {
+                            checkpoints?.recordDuplicate(identity, envelope.messageId.trim())
+                        } else checkpoints?.recordNonRetryableFailure(identity, RemoteChannelPullErrorCode.REJECTED_MESSAGE)
+                    }
+                    RemoteChannelPullSyncResult.Single(result)
+                }
+                is RemoteChannelPullResponse.Batch -> {
+                    requireCurrentSource(source, peer)
+                    val result = inbox.receiveBatch(source, peer, response.batch)
+                    val committed = inbox.batchState(source, peer)
+                    try {
+                        acknowledge(source, peer, committed)
+                    } catch (cancelled: CancellationException) { throw cancelled
+                    } catch (error: Exception) {
+                        recordFailure(identity, error)
+                        // long: 网络 ACK 失败不能把已提交正文伪装成未入箱；outbox 保留，下次主动同步优先补回执。
+                        return@withLock RemoteChannelPullSyncResult.Batch(result.acceptedCount, result.duplicateCount, true)
+                    }
+                    checkpoints?.recordDuplicate(identity, response.batch.messages.lastOrNull()?.messageId?.trim() ?: response.batch.batchId)
+                    RemoteChannelPullSyncResult.Batch(result.acceptedCount, result.duplicateCount, false)
+                }
+            }
+        } catch (cancelled: CancellationException) { throw cancelled
+        } catch (error: Exception) {
+            if (checkpoints?.isAvailable() != false) recordFailure(identity, error)
+            throw error
+        }
+    }
+
+    private suspend fun acknowledge(source: RemoteChannelPullSource, peer: RemoteChannelPeerCandidate, state: RemoteChannelBatchState) {
+        requireCurrentSource(source, peer)
+        puller.acknowledge(source.url, peer, state)
+        requireCurrentSource(source, peer)
+        inbox.acknowledgeBatch(source, peer, state.pendingAck ?: error("没有待 ACK 批次"))
+    }
+
+    private suspend fun requireCurrentSource(source: RemoteChannelPullSource, peer: RemoteChannelPeerCandidate) {
+        currentCoroutineContext().ensureActive()
+        require(sources.sourceFor(peer) == source) { "HTTPS 来源在同步期间已变化" }
+        require(pairings.active(peer.channelId, peer.senderId, peer.keyId) == peer) { "配对身份已停用或变化" }
+    }
+
+    private fun recordFailure(identity: String, error: Exception) {
+        val code = RemoteChannelPullReliabilityPolicy.classify(error)
+        if (code in setOf(RemoteChannelPullErrorCode.NETWORK, RemoteChannelPullErrorCode.TIMEOUT, RemoteChannelPullErrorCode.SERVER_5XX)) {
+            checkpoints?.recordRetryableFailure(identity, error)
+        } else checkpoints?.recordNonRetryableFailure(identity, code)
     }
 }
