@@ -2,6 +2,20 @@
 
 验证日期：2026-10-18（北京时间）
 
+# 2026-10-18 第 287 阶段第五片：有界后台整理建议
+
+- 主线：第 3 点 Context/Memory 五片实现基线收口，下一主线为第 4 点 Skill/插件；自然系统恢复、完整 Activity 专项、模型质量、大规模耗时及正式 Release 独立后置。详见[整理契约](memory-maintenance.md)与[路线图](personal-agent-roadmap.md)，不提升前四片既有证据等级。
+- 实现：候选记忆默认关闭，页面显式一次性启动/停止；WorkManager OneTime/请求 UUID/KEEP，冻结近 7 天最多 20 个已完成主 Run，SQL keyset 稳定排序、原消息 8 KiB/USER/同会话/无附件门禁。只复用原话候选规则，不读取模型回答或工具结果做记忆，无 Runtime/Provider/MCP 请求。
+- 持久化：Room 43→44 新建 checkpoint/outbox 和完成索引，旧事实、候选决议和冻结输入不改。游标/预算/outbox 共事务，候选/DELIVERED 共事务，失败不跨过该条；固定候选身份与已有决定复用防止重复。payload/source hash 加原话重算核对，敏感候选不复制正文，源漂移或窗口失效固定封存。1024 行总容量满时拒绝，不删除旧回执、正式记忆/FTS/undo。
+- 只读复核修正：旧 PENDING 跨请求原先没有重算 7 天/20 Run 边界，已给 outbox 绑定请求、checkpoint 保存窗口起点，继承项占新预算且超窗封存；追加“旧待投递 + 20 新 Run”回归。另一复核发现刷新可撤销停止 job、停止失败隐藏入口、非空列表跳过维护恢复；已分开 stop/observer Job，NonCancellable 保护持久栅栏，未证明停止时保留停止入口，页面进入无条件恢复观察。
+- JVM/构建：JDK 21 wrapper `:app:testDebugUnitTest --tests '*MemoryMaintenancePolicyTest' --tests '*AgentMemoryCandidatePolicyTest' --tests '*MemoryManagementProjectionTest' :app:assembleDebug :app:assembleDebugAndroidTest`，聚焦 `10 tests / 0 failures / 0 errors / 0 skipped`；复核后 `BUILD SUCCESSFUL in 14s`。最终源码（上层超时取消传播补强）APK 构建 `BUILD SUCCESSFUL in 4s`。首轮测试包编译因新测试漏传 list(query/filter) 和页面 Fake 漏实现 start/cancel 失败，修正后成功，失败日志保留。
+- Redmi：仅 `wsvwypiz7xwslvl7 / begonia / SDK 36`，主/测试 APK 均 `install -r` 成功，保留数据权限和正式配置。新整理存储 9 项、43→44 迁移 1 项、既有 CAS 6 项、管理页 3 项及 Dialog 5 项合计 `OK (24 tests)`，27.868s；逐项 24 passed、0 failed/skipped。覆盖固定窗口/20 Run、候选原话/敏感/超长/旧 origin、双 Room 连接、cursor/outbox 插入失败与 candidate/receipt 半写入回滚、数据库重开、来源变化、关闭/取消、已有 ACCEPTED/REJECTED 保留、正式用户编辑/版本不变、1024 容量和页面启动/停止。Worker 用 TestListenableWorkerBuilder 注入 UUID Room 调用生产 doWork，不冒充真实 JobScheduler 调度。
+- 独立进程：`tools/verify_memory_maintenance_process.py` 三轮各 `OK (1 test)`，PID `26168 → 26212 → 26257`，`process-final/result.json completed=true`。seed 保存待投递 outbox/游标及正式隔离事实 hash；新进程 restore 核对原摘要、投递一次/重复无新增、正式记忆 hash 不变；第三进程核对 SUCCEEDED/DELIVERED、候选唯一、原 Run COMPLETED 和无 undo，全部断言通过后仅删除并确认不存在本轮 UUID 数据库。受控 force-stop，不是自然 LMK/Doze/系统重启。
+- 主机门禁：复用原进程脚本结果解析并扩展可指定 PID 字段；既有主机反例 `2/2`，拒绝失败/跳过/零项/未完成/缺 PID；新三轮主机实际核对定制 PID 字段和独立性，证据输出目录拒绝覆盖。
+- 证据边界：单请求最多 60 个本地操作/15 秒/3 次尝试，取消/失败保留前缀；未宣称任意容量的性能或模型语义质量。Room/WorkManager 两持久边界通过页面重新进入/刷新补入队，未增加周期、开机自动整理、FTS修复、自动合并/删除或后台模型请求。未运行完整 JVM/Lint/全量 instrumentation/Release。
+- 最终补验与审计：上层超时取消传播、生产 Worker 成功/关闭门禁及六份语料首轮定向 `OK (3 tests)`，4.911s；新增固定 remaining+scanned 总预算校验防止两个字段单独合法却重复预算，并显式 SQL 下界确保使用完成时间索引范围。新总预算拒绝单项与既有 Worker/上层取消/语料最终定向 `OK (4 tests)`、5.032s，逐项 0 failed/skipped，日志单独保存。预算补强后的最新包再次三轮独立进程，PID `26499 → 26544 → 26591`，`process-current/result.json completed=true`，UUID 数据库清理确认。schema 比较确认原 33 个实体字段/约束不变，只增加两表与 Run 完成索引；首次脚本假设空 foreignKeys 必有字段报 KeyError，改按导出格式后通过。126 个本地链接有效，实际两份凭据内存匹配任务文件/证据/两 APK 全部解压条目 0 命中；本报告写回后再次打包并复验最终 corpus，最终制品摘要另存审计 JSON。
+- 交付：发布版本继续 `0.1.22 (23)`、开发 Room v44；仅中文本地提交，不推送/发版，保留原 `refs/`。忽略的 `outputs/verification/stage287-memory-maintenance/` 保存官方正文、构建/失败、JVM/设备/三轮摘要和最终补验/语料/审计。
+
 # 2026-10-18 第 287 阶段第四片：上下文恢复校验与独立进程验收
 
 - 主线：第 3 点 Context/Memory 第四片将有界输入与压缩来源接入已有恢复门禁，下一片为有界后台整理；整个第 3 点仍未收口，详见[恢复契约](agent-context-recovery.md)与[路线图](personal-agent-roadmap.md)。原恢复类型及审批/预算/提交未知限制保留，不自动重发模型请求或重放工具。

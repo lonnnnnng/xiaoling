@@ -21,7 +21,7 @@
 
 1. Remote Channel 第 285 阶段按原定 cursor、批次、ACK、重试、过期、后台收件和通知功能收口。稳定部署与长期验收列为独立待办，不阻塞后续主线；临时公网认证互通不代表稳定服务和自然系统恢复已验收。
 2. 第 286 阶段 MCP 已收口：统一 `McpSessionRegistry`、legacy SSE、真实模型 SSE 联合验收及 Context7 认证 HTTPS 只读验收已完成。stdio 等待进程沙箱和生命周期机制，OAuth、Tasks 后置。
-3. 当前主线为第 287 阶段 Context/Memory：Memory CAS、有界输入/context snapshot、确定性提取压缩和第四片上下文恢复校验已实现；下一片是有界后台整理，受控进程验收范围以当前报告为准。
+3. 第 287 阶段 Context/Memory 五片实现基线已完成：Memory CAS、有界输入/context snapshot、确定性提取压缩、上下文恢复校验和显式一次性有界后台整理建议。当前主线下一点为 Skill/插件；系统长期/质量验收独立追踪，证据等级以报告为准。
 4. Skill 已可从 GitHub 导入并固定提交，但插件仍是声明/只读投影，缺少签名 manifest、版本回滚和 SAFE 前台可执行扩展。
 5. 多 Agent 仍限前台 Direct、最多两个只读 child；后续补 child checkpoint、预算、取消、失败聚合和恢复。
 6. Workspace/Browser/GenUI 合为后续一组：补 session transcript、DOM/action、版本化组件和显式 action。
@@ -62,20 +62,26 @@
 - 验证分级：JVM 覆盖 connect/disconnect/race/cancel/reconnect，Redmi 默认 OkHttp 验证隔离 loopback SSE 与既有 MCP 回归；2026-10-18 补齐真实 `gpt-6-luna` 的 SSE 成功/取消/停用和 Context7 认证 HTTPS 发现/只读解析，生产 Run/Room 联合门禁通过。外部 Context7 为 Streamable HTTP，SSE 服务端仍是 loopback，认证失败与显式匿名轮分别保留，见[验证报告](verification-report.md)。
 - 本阶段原定统一 Registry/SSE 功能与联合验收收口；stdio、OAuth、Tasks、后台 MCP 和正式 Release 独立后置，不追加到本阶段。
 
-#### 第 287 阶段：运行上下文、Memory CAS 与后台恢复（当前主线，第 3 点）
+#### 第 287 阶段：运行上下文、Memory CAS 与后台恢复（第 3 点实现基线收口）
 
 - 第一片 Memory CAS：显式版本、条件修改、当前内容冲突返回、保留旧草稿、版本化 Agent/管理删除与最新快照撤销，以及 Room 40→41 兼容迁移已实现；聚焦 JVM、Redmi 存储/迁移及生产 ViewModel/UI 验收见[验证报告](verification-report.md)，契约见[Memory CAS](memory-cas.md)。此处只收口 CAS，不收口整个第 3 点。
 - 第二片 bounded transcript/context snapshot 保存实际 adapter 输入序列，Room 41→42、连续序号、完整性/容量门禁、设备正文省略和保存失败停止已实现，详见[输入快照契约](agent-context-snapshot.md)及[验证报告](verification-report.md)。此处没有完整消息往返、自动恢复或压缩。
 - 第三片确定性提取压缩在 64 KiB/实质收益门禁后保存原输入和派生版本，保留最近完整结果并显式标记旧正文缺口，Room 42→43、共事务/来源漂移/容量与版本关联已实现，见[压缩契约](agent-context-compression.md)。本片不生成语义摘要，也不接入自动恢复。
 - 第四片将持久输入/压缩来源校验接到原恢复门禁，新捕获帧的身份锚点同事务保存；恢复分类/marker/回读共事务、生产入口按 Run 互斥、审批确认绑定与批准前复核已实现。Room 保持 v43，独立 PID 的受控重启范围见[恢复契约](agent-context-recovery.md)及报告；未启用旧请求/工具自动重放或自然 LMK。
-- 下一片为有界后台整理，不追加 MCP/Remote Channel 的独立长期待办；整个第 3 点仍未收口。
+- 第五片显式一次性整理近 7 天最多 20 个已完成主 Run，仅从原始用户陈述生成候选；游标/outbox、候选/回执分别共事务，源漂移/超窗/容量拒绝、取消栅栏和重复决定保护已实现，Room 43→44 不改原事实。见[整理契约](memory-maintenance.md)和报告。五片原定实现基线收口，不追加 MCP/Remote Channel 的独立长期待办。
 
 - 在现有 Room Memory 上增加显式 `version`/CAS 冲突返回和当前内容回传，避免多轮 Agent、后台整理覆盖用户编辑；禁止默认删除。
 - 为 Agent Run 持久化 bounded transcript、context snapshot 和压缩版本；压缩前冻结未完成 tool response，失败保留原上下文并允许重试。
 - 后台记忆整理只处理已完成轮次，采用有界窗口、失败不推进游标、可重放 outbox；先做显式“整理建议”，再考虑自动写入。
 - 退出标准：Activity/进程重启、CAS 冲突、压缩失败、重复 outbox 和半写入恢复均有测试与 Redmi 单项证据。
 
-#### 第 288 阶段：可执行 Skill/插件最小闭环
+##### Context/Memory 独立待办（不阻塞 Skill/插件）
+
+- 自然 LMK、Doze、系统重启及一次性任务真实调度的长期验收。
+- 完整 Activity 恢复专项、真实模型压缩/记忆建议质量与大规模耗时验证。
+- 全量消息往返 transcript、语义摘要、自动写入、容量回收与正式 Release 继续单独评审。
+
+#### 第 288 阶段：可执行 Skill/插件最小闭环（下一主线，第 4 点）
 
 - Skill 继续采用 GitHub commit pin、目录逃逸拒绝和默认停用；`SKILL.md` 只进入显式选中的 Run，不默认扩权。
 - 插件先定义签名 manifest、版本/来源指纹、能力声明、升级回滚和权限网关；首期只允许 SAFE 前台工具和只读 UI surface。

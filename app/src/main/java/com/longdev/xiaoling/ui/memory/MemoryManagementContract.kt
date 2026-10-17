@@ -21,6 +21,12 @@ interface MemoryManagementActions {
 
     fun updateMemoryCandidatesEnabled(enabled: Boolean)
 
+    fun startMemoryMaintenance()
+
+    fun cancelMemoryMaintenance()
+
+    fun refreshMemoryMaintenance()
+
     fun updateMemorySearchQuery(query: String)
 
     fun updateMemoryFilter(filter: AgentMemoryFilter)
@@ -71,6 +77,8 @@ internal data class MemoryManagementUiState(
     val candidatesEnabled: Boolean = false,
     val loadingCandidates: Boolean = false,
     val candidates: List<MemoryManagementCandidateUiState> = emptyList(),
+    val maintenanceRunning: Boolean = false,
+    val maintenanceMessage: String? = null,
     val searchQuery: String = "",
     val filter: AgentMemoryFilter = AgentMemoryFilter.ALL,
     val deletedMemoryForUndo: AgentMemoryRecord? = null,
@@ -110,6 +118,8 @@ internal object MemoryManagementProjection {
         deletedMemoryForUndo: AgentMemoryRecord?,
         editingMemory: AgentMemoryEditUiState? = null,
         pendingMemoryDelete: AgentMemoryRecord? = null,
+        maintenanceRunning: Boolean = false,
+        maintenanceMessage: String? = null,
     ): MemoryManagementUiState {
         // long: 管理页只展示仍需用户决定的候选；已保存、已忽略和敏感阻断记录继续留在审计数据中，但不能重新出现可操作按钮。
         val actionableCandidates = candidates.filter { candidate ->
@@ -128,6 +138,8 @@ internal object MemoryManagementProjection {
                 )
             },
             candidatesEnabled = candidatesEnabled,
+            maintenanceRunning = maintenanceRunning,
+            maintenanceMessage = maintenanceMessage,
             loadingCandidates = loadingCandidates,
             candidates = actionableCandidates.map { candidate ->
                 val conflict = candidate.status == AgentMemoryCandidateStatus.CONFLICT

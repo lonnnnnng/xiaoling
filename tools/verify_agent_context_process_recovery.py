@@ -12,11 +12,11 @@ TEST = "com.longdev.xiaoling.storage.AgentContextProcessRecoveryInstrumentedTest
 METHODS = ("seedDurableBoundaries", "restoreUsingProductionRecoveryWithoutToolOrModelReplay", "verifySettledEvidenceAndCleanOnlyFixture")
 
 
-def read_result(raw):
+def read_result(raw, pid_field="contextRecoveryPid"):
     codes = [int(value) for value in re.findall(r"^INSTRUMENTATION_STATUS_CODE: (-?\d+)$", raw, re.MULTILINE)]
     assert codes.count(0) == 1 and all(code in (0, 1, 2) for code in codes), "JUnit 失败或跳过"
     assert "OK (1 test)" in raw and "INSTRUMENTATION_FAILED" not in raw and "INSTRUMENTATION_CODE: -1" in raw, "JUnit 未成功完成"
-    pid = re.search(r"^INSTRUMENTATION_STATUS: contextRecoveryPid=(\d+)$", raw, re.MULTILINE)
+    pid = re.search(r"^INSTRUMENTATION_STATUS: " + re.escape(pid_field) + r"=(\d+)$", raw, re.MULTILINE)
     assert pid, "缺少实际进程 PID"
     return int(pid[1])
 

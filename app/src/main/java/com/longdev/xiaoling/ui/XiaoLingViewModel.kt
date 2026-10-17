@@ -364,6 +364,8 @@ data class XiaoLingUiState(
     val memoryCandidatesEnabled: Boolean = false,
     val loadingMemoryCandidates: Boolean = false,
     val memoryCandidates: List<AgentMemoryCandidateRecord> = emptyList(),
+    val memoryMaintenanceRunning: Boolean = false,
+    val memoryMaintenanceMessage: String? = null,
     val mutatingMemoryCandidateIds: Set<String> = emptySet(),
     val memorySearchQuery: String = "",
     val memoryFilter: AgentMemoryFilter = AgentMemoryFilter.ALL,
@@ -850,6 +852,14 @@ class XiaoLingViewModel @JvmOverloads constructor(
     private var notificationTaskDraftRequestId: String? = null
     private var notificationTaskVerificationRequestId: String? = null
     private var memoryLoadJob: Job? = null
+    private var memoryMaintenanceJob: Job? = null
+    private var memoryMaintenanceStopJob: Job? = null
+    private val memoryMaintenanceStore by lazy {
+        com.longdev.xiaoling.storage.RoomMemoryMaintenanceStore(com.longdev.xiaoling.data.XiaoLingDatabase.getInstance(getApplication()))
+    }
+    private val memoryMaintenanceScheduler by lazy {
+        com.longdev.xiaoling.automation.MemoryMaintenanceScheduler(getApplication())
+    }
     private var memorySearchJob: Job? = null
     private var memoryCandidateLoadJob: Job? = null
     private var skillLoadJob: Job? = null
@@ -1995,6 +2005,81 @@ class XiaoLingViewModel @JvmOverloads constructor(
     override fun refreshMemories() {
         loadMemories()
         loadMemoryCandidates()
+        observeMemoryMaintenance(startNew = false)
+    }
+
+    override fun startMemoryMaintenance() {
+        if (!uiState.memoryCandidatesEnabled || uiState.memoryMaintenanceRunning || memoryMaintenanceStopJob?.isActive == true) return
+        observeMemoryMaintenance(startNew = true)
+    }
+
+    override fun refreshMemoryMaintenance() { observeMemoryMaintenance(startNew = false) }
+
+    override fun cancelMemoryMaintenance() {
+        if (memoryMaintenanceStopJob?.isActive == true) return
+        memoryMaintenanceJob?.cancel()
+        uiState = uiState.copy(memoryMaintenanceRunning = true, memoryMaintenanceMessage = "正在停止整理…")
+        memoryMaintenanceStopJob = viewModelScope.launch {
+            var stopped = false
+            try {
+                withContext(NonCancellable + Dispatchers.IO) {
+                    memoryMaintenanceStore.current()?.takeIf { it.status == "RUNNING" }?.let { state ->
+                        // long: 先落持久取消栅栏再撤销系统任务，迟到 Worker 不得继续扫描或投递候选。
+                        memoryMaintenanceStore.cancel(state.requestId)
+                        stopped = true
+                        memoryMaintenanceScheduler.cancel(state.requestId)
+                    }
+                    stopped = true
+                }
+                uiState = uiState.copy(memoryMaintenanceRunning = false, memoryMaintenanceMessage = "已停止；已生成的候选仍需确认。")
+                loadMemoryCandidates()
+            } catch (cancellation: CancellationException) { throw cancellation }
+            catch (error: Exception) {
+                uiState = uiState.copy(memoryMaintenanceRunning = !stopped, memoryMaintenanceMessage = "停止对账未完成，请再次停止或刷新。")
+            }
+        }
+    }
+
+    private fun observeMemoryMaintenance(startNew: Boolean) {
+        // long: 刷新只撤销旧观察，不能取消用户尚未提交的停止栅栏。
+        if (memoryMaintenanceStopJob?.isActive == true) return
+        memoryMaintenanceJob?.cancel()
+        memoryMaintenanceJob = viewModelScope.launch {
+            try {
+                val state = withContext(Dispatchers.IO) {
+                    if (startNew) memoryMaintenanceStore.begin() else memoryMaintenanceStore.current()
+                } ?: return@launch
+                if (state.status == "RUNNING" && uiState.memoryCandidatesEnabled) {
+                    uiState = uiState.copy(memoryMaintenanceRunning = true, memoryMaintenanceMessage = "后台整理中，可随时停止。")
+                    val workId = withContext(Dispatchers.IO) { memoryMaintenanceScheduler.enqueue(state.requestId) }
+                    androidx.work.WorkManager.getInstance(getApplication()).getWorkInfoByIdFlow(java.util.UUID.fromString(workId))
+                        .collect { info ->
+                            if (info?.state?.isFinished == true) {
+                                val latest = withContext(Dispatchers.IO) {
+                                    if (memoryMaintenanceStore.current()?.status == "RUNNING") memoryMaintenanceStore.fail(state.requestId)
+                                    memoryMaintenanceStore.current()
+                                }
+                                uiState = uiState.copy(memoryMaintenanceRunning = false,
+                                    memoryMaintenanceMessage = maintenanceStatusMessage(latest))
+                                loadMemoryCandidates()
+                            }
+                        }
+                } else {
+                    uiState = uiState.copy(memoryMaintenanceRunning = false, memoryMaintenanceMessage = maintenanceStatusMessage(state))
+                }
+            } catch (cancellation: CancellationException) { throw cancellation }
+            catch (error: Exception) {
+                // long: 入队失败不撤销已保存的请求或游标，页面刷新可按同一请求补入队。
+                uiState = uiState.copy(memoryMaintenanceRunning = false, memoryMaintenanceMessage = "整理未完成，请刷新或重试；已提交进度保留。")
+            }
+        }
+    }
+
+    private fun maintenanceStatusMessage(state: com.longdev.xiaoling.data.MemoryMaintenanceCheckpointEntity?): String? = when (state?.status) {
+        "SUCCEEDED" -> "本次检查 ${state.scanned} 个任务，新增 ${state.delivered} 条候选；保存前请核对重复或冲突。"
+        "CANCELLED" -> "已停止；已生成的候选仍需确认。"
+        "FAILED" -> "整理未完成，可重试；已提交进度保留。"
+        else -> null
     }
 
     internal fun refreshMemoriesAndResolveNavigation(
@@ -3184,6 +3269,7 @@ class XiaoLingViewModel @JvmOverloads constructor(
         if (!enabled) {
             // long: 关闭候选记忆后立即撤销旧列表读取，避免迟到 Room 结果把已清空的候选重新投影到界面。
             memoryCandidateLoadJob?.cancel()
+            cancelMemoryMaintenance()
         }
         uiState = uiState.copy(
             memoryCandidatesEnabled = enabled,

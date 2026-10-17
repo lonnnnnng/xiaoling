@@ -1,5 +1,12 @@
 # 当前实现说明
 
+## 2026-10-18 第 287 阶段第五片：整理游标、outbox 和用户候选
+
+- `MemoryMaintenancePolicy` 复用原话候选/敏感规则；SQL keyset 稳定裁决完成时间相同的 Run，原话/附件/origin/完成与取消资格在 Room 读取时过滤，不加载全量历史。
+- `RoomMemoryMaintenanceStore` 单条扫描把 checkpoint 预算/游标与 outbox 原子提交；候选固定身份与回执同事务，匹配已有候选只复用决议。请求身份、来源/候选 hash 与重算门禁阻止漂移；继承 outbox 重算窗口与预算。
+- `MemoryMaintenanceWorker` OneTime/KEEP、60 次本地操作/15 秒/最多 3 次尝试，取消传播，最终失败保留进度。页面重建修复已请求工作项；停止 Job 与观察 Job 分离，先持久栅栏再系统取消，未确认停止成功保留入口。
+- Room v44 新表初始为空，旧事实/上下文不回填；UUID 双连接、故障 trigger、生产 Worker 注入与三轮独立进程验证范围以[报告](verification-report.md)为准。详见[整理契约](memory-maintenance.md)。
+
 ## 2026-10-18 第 287 阶段第四片：上下文恢复事务与执行互斥
 
 - `loadDetail` 同事务组合当前 Run/控制面/完整工具事实和 context 两表；校验后标记恢复状态，`AgentRunResumePolicy` 对 INVALID 优先给出结构化拒绝，不在恢复时降级为旧版本。

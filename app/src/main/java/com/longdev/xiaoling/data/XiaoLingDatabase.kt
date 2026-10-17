@@ -26,6 +26,8 @@ import org.json.JSONObject
         AgentMemoryOperationEntity::class,
         AgentMemoryFtsEntity::class,
         AgentMemoryCandidateEntity::class,
+        MemoryMaintenanceCheckpointEntity::class,
+        MemoryMaintenanceOutboxEntity::class,
         KnowledgeDocumentEntity::class,
         KnowledgeChunkEntity::class,
         KnowledgeChunkFtsEntity::class,
@@ -44,7 +46,7 @@ import org.json.JSONObject
         ProcessExitObservationEntity::class,
         KnowledgeAnswerabilityShadowObservationEntity::class,
     ],
-    version = 43,
+    version = 44,
     exportSchema = true,
 )
 abstract class XiaoLingDatabase : RoomDatabase() {
@@ -52,6 +54,7 @@ abstract class XiaoLingDatabase : RoomDatabase() {
     abstract fun conversationDao(): ConversationDao
     abstract fun agentRunDao(): AgentRunDao
     abstract fun agentMemoryDao(): AgentMemoryDao
+    abstract fun memoryMaintenanceDao(): MemoryMaintenanceDao
     abstract fun knowledgeDao(): KnowledgeDao
     abstract fun agentNoteDao(): AgentNoteDao
     abstract fun agentSkillDao(): AgentSkillDao
@@ -61,7 +64,7 @@ abstract class XiaoLingDatabase : RoomDatabase() {
     abstract fun knowledgeAnswerabilityShadowObservationDao(): KnowledgeAnswerabilityShadowObservationDao
 
     companion object {
-        const val CURRENT_VERSION = 43
+        const val CURRENT_VERSION = 44
         const val DATABASE_NAME = "xiaoling.db"
 
         @Volatile
@@ -989,6 +992,26 @@ abstract class XiaoLingDatabase : RoomDatabase() {
             }
         }
 
+        private val MIGRATION_43_44 = object : Migration(43, 44) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                // long: 整理游标与待投递建议独立建表，迁移不回写用户事实、旧候选决议或已冻结上下文。
+                db.execSQL("""CREATE TABLE IF NOT EXISTS `memory_maintenance_checkpoint` (
+                    `id` INTEGER NOT NULL, `requestId` TEXT NOT NULL, `status` TEXT NOT NULL,
+                    `cursorAt` INTEGER NOT NULL, `cursorRunId` TEXT NOT NULL, `windowStart` INTEGER NOT NULL, `windowEnd` INTEGER NOT NULL,
+                    `remaining` INTEGER NOT NULL, `scanned` INTEGER NOT NULL, `suggested` INTEGER NOT NULL,
+                    `delivered` INTEGER NOT NULL, PRIMARY KEY(`id`))""".trimIndent())
+                db.execSQL("""CREATE TABLE IF NOT EXISTS `memory_maintenance_outbox` (
+                    `runId` TEXT NOT NULL, `requestId` TEXT NOT NULL, `sourceMessageId` TEXT NOT NULL, `sourceConversationId` TEXT NOT NULL,
+                    `completedAt` INTEGER NOT NULL, `sourceHash` TEXT NOT NULL, `content` TEXT NOT NULL,
+                    `normalizedContent` TEXT NOT NULL, `type` TEXT NOT NULL, `topicKey` TEXT NOT NULL,
+                    `sourceSummary` TEXT NOT NULL, `confidence` REAL NOT NULL, `candidateStatus` TEXT NOT NULL,
+                    `sensitiveCategory` TEXT, `payloadHash` TEXT NOT NULL, `createdAt` INTEGER NOT NULL,
+                    `deliveryStatus` TEXT NOT NULL, `candidateId` TEXT, PRIMARY KEY(`runId`))""".trimIndent())
+                db.execSQL("CREATE INDEX IF NOT EXISTS `index_memory_maintenance_outbox_deliveryStatus_runId` ON `memory_maintenance_outbox` (`deliveryStatus`, `runId`)")
+                db.execSQL("CREATE INDEX IF NOT EXISTS `index_agent_runs_status_completedAt_id` ON `agent_runs` (`status`, `completedAt`, `id`)")
+            }
+        }
+
         fun migrations(): Array<Migration> = arrayOf(
             MIGRATION_1_2,
             MIGRATION_2_3,
@@ -1032,6 +1055,7 @@ abstract class XiaoLingDatabase : RoomDatabase() {
             MIGRATION_40_41,
             MIGRATION_41_42,
             MIGRATION_42_43,
+            MIGRATION_43_44,
         )
 
         private fun createAgentNotesTable(db: SupportSQLiteDatabase) {

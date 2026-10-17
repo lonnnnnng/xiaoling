@@ -74,6 +74,8 @@ internal fun MemoryManagementPage(
 ) {
     val memoryListState = rememberLazyListState()
     LaunchedEffect(Unit) {
+        // long: 维护恢复与正式记忆列表加载无关，来源导航已有非空列表时也要展示持久请求并修复入队间隙。
+        actions.refreshMemoryMaintenance()
         if (state.memories.isEmpty() && !state.loading) {
             actions.refreshMemories()
         }
@@ -132,6 +134,21 @@ internal fun MemoryManagementPage(
                     onCheckedChange = actions::updateMemoryCandidatesEnabled,
                     modifier = Modifier.size(width = 44.dp, height = 28.dp),
                 )
+            }
+        }
+
+        if (state.candidatesEnabled) {
+            Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    OutlinedButton(onClick = actions::startMemoryMaintenance, enabled = !state.maintenanceRunning) {
+                        Text("整理已完成任务")
+                    }
+                    if (state.maintenanceRunning) {
+                        TextButton(onClick = actions::cancelMemoryMaintenance) { Text("停止整理") }
+                    }
+                }
+                Text(state.maintenanceMessage ?: "每次检查近 7 天最多 20 个已完成任务，仅生成待确认建议。",
+                    style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
         }
 

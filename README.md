@@ -7,7 +7,7 @@
 <p align="center">
   <img alt="Android 8+" src="https://img.shields.io/badge/Android-8.0%2B-3DDC84?logo=android&logoColor=white">
   <img alt="Kotlin" src="https://img.shields.io/badge/Kotlin-Jetpack%20Compose-7F52FF?logo=kotlin&logoColor=white">
-  <img alt="Room v43" src="https://img.shields.io/badge/Room-v43-4285F4">
+  <img alt="Room v44" src="https://img.shields.io/badge/Room-v44-4285F4">
   <img alt="Release v0.1.22" src="https://img.shields.io/badge/Release-v0.1.22-2E7D32">
 </p>
 
@@ -104,7 +104,7 @@ Release 签名从未跟踪文件 `local-signing/xiaoling-release.env` 读取。�
 
 ## 当前状态
 
-当前主线是第 3 点 Context/Memory（第 287 阶段）。Memory CAS、有界输入/context snapshot、确定性提取压缩与上下文恢复校验已实现，开发 Room v43；新帧身份锚点与原输入/来源共事务，生产恢复按 Run 互斥、回读最新证据，审批批准前原子复核。独立 PID 的受控重启验收见报告；后续推进有界后台整理，整个第 3 点尚未收口。详见[Memory CAS](docs/memory-cas.md)、[输入快照](docs/agent-context-snapshot.md)、[压缩契约](docs/agent-context-compression.md)、[恢复契约](docs/agent-context-recovery.md)、[路线图](docs/personal-agent-roadmap.md)和[验证报告](docs/verification-report.md)。
+第 3 点 Context/Memory（第 287 阶段）的五片实现基线已完成：Memory CAS、有界输入/context snapshot、确定性提取压缩、上下文恢复校验与显式一次性有界后台整理建议，开发 Room v44。整理仅处理近 7 天最多 20 个已完成任务的原始用户陈述，以持久 outbox 送到候选列表，正式记忆由用户确认；受控独立进程证据与长期验证边界见报告。下一主线进入第 4 点 Skill/插件。详见[Memory CAS](docs/memory-cas.md)、[输入快照](docs/agent-context-snapshot.md)、[压缩契约](docs/agent-context-compression.md)、[恢复契约](docs/agent-context-recovery.md)、[整理契约](docs/memory-maintenance.md)、[路线图](docs/personal-agent-roadmap.md)和[验证报告](docs/verification-report.md)。
 
 第 2 点 MCP 已收口：应用级 `McpSessionRegistry` 统一设置/Run 会话，支持 Streamable HTTP 与 legacy SSE；配置变更撤销旧连接，取消/断流清目录，后续显式操作重新发现且不重放工具调用。Redmi 已通过真实 `gpt-6-luna` 的 SSE 成功/取消/停用，以及 Context7 认证 HTTPS 的发现和只读解析。Context7 为真实外部 Streamable HTTP，SSE 服务端仍为隔离 loopback；`query-docs`、OAuth、stdio、Tasks、后台 MCP 和正式 Release 独立后置，详见[MCP 会话契约](docs/mcp-session-registry.md)。
 
@@ -113,7 +113,7 @@ Release 签名从未跟踪文件 `local-signing/xiaoling-release.env` 读取。�
 | 项目 | 状态 |
 | --- | --- |
 | 正式版本 | `v0.1.22`（`versionCode 23`） |
-| 当前开发数据库 | Room v43（正式 v0.1.22 发布包仍为 v40） |
+| 当前开发数据库 | Room v44（正式 v0.1.22 发布包仍为 v40） |
 | 开发里程碑 | 第四组 Run/Task Runtime v2 P0-b 已完成，包含浏览器、工作区/终端、受限 MCP、GitHub Skill、后台可靠性、TTS、系统助手、插件/ACI/GenUI 与任务中心汇总投影 |
 | JVM 历史基线（2026-08-13） | `1118 / 1118` 通过 |
 | Lint 历史基线（2026-08-13） | 通过 |

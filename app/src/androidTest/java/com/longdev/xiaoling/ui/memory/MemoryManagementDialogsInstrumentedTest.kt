@@ -192,6 +192,11 @@ class MemoryManagementDialogsInstrumentedTest {
 
         override fun refreshMemories() = Unit
 
+        override fun startMemoryMaintenance() = Unit
+
+        override fun cancelMemoryMaintenance() = Unit
+        override fun refreshMemoryMaintenance() = Unit
+
         override fun updateMemoryCandidatesEnabled(enabled: Boolean) = Unit
 
         override fun updateMemorySearchQuery(query: String) = Unit

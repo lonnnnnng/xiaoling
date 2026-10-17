@@ -9,6 +9,7 @@ import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.test.performTextInput
+import androidx.compose.ui.test.assertIsNotEnabled
 import com.longdev.xiaoling.agent.AgentMemoryExpiryOption
 import com.longdev.xiaoling.agent.AgentMemoryFilter
 import com.longdev.xiaoling.agent.AgentMemoryRecord
@@ -115,10 +116,31 @@ class MemoryManagementPageInstrumentedTest {
         )
     }
 
+    @Test fun maintenanceRefreshesWithExistingFactsAndExposesExplicitStartAndStop() {
+        val state = mutableStateOf(memoryManagementState(null).copy(candidatesEnabled = true))
+        val actions = FakeMemoryManagementActions()
+        composeRule.setContent { MaterialTheme { MemoryManagementPage(state.value, actions, {}) } }
+        composeRule.onNodeWithText("整理已完成任务").performClick()
+        composeRule.runOnIdle {
+            assertEquals(1, actions.maintenanceRefreshes)
+            assertEquals(1, actions.maintenanceStarts)
+            state.value = state.value.copy(maintenanceRunning = true, maintenanceMessage = "后台整理中")
+        }
+        composeRule.onNodeWithText("整理已完成任务").assertIsNotEnabled()
+        composeRule.onNodeWithText("停止整理").performClick()
+        composeRule.runOnIdle { assertEquals(1, actions.maintenanceStops) }
+    }
+
     private class FakeMemoryManagementActions(
         private val onMemorySelected: (String) -> Unit = {},
         private val onSearchQueryChanged: (String) -> Unit = {},
     ) : MemoryManagementActions {
+        var maintenanceStarts = 0
+        var maintenanceStops = 0
+        var maintenanceRefreshes = 0
+        override fun startMemoryMaintenance() { maintenanceStarts++ }
+        override fun cancelMemoryMaintenance() { maintenanceStops++ }
+        override fun refreshMemoryMaintenance() { maintenanceRefreshes++ }
         var refreshCount = 0
         val searchQueries = mutableListOf<String>()
         val filters = mutableListOf<AgentMemoryFilter>()

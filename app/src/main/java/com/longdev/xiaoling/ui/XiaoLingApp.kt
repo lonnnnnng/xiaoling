@@ -924,6 +924,8 @@ private fun XiaoLingUiState.toMemoryManagementUiState(): MemoryManagementUiState
         deletedMemoryForUndo = deletedMemoryForUndo,
         editingMemory = editingMemory,
         pendingMemoryDelete = pendingMemoryDelete,
+        maintenanceRunning = memoryMaintenanceRunning,
+        maintenanceMessage = memoryMaintenanceMessage,
     )
 }
 

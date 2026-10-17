@@ -1,8 +1,8 @@
 # 文档索引
 
-## 当前阶段：第 287 阶段 Context/Memory（第四片进程恢复）
+## 当前交付：第 287 阶段 Context/Memory（第五片有界后台整理）
 
-- Memory CAS、有界输入快照、确定性提取压缩与上下文恢复校验已实现；新帧身份锚点共事务，生产恢复按 Run 互斥并回读最新证据，开发 Room v43。详见[Memory CAS](memory-cas.md)、[输入快照](agent-context-snapshot.md)、[压缩契约](agent-context-compression.md)、[恢复契约](agent-context-recovery.md)与[验证报告](verification-report.md)。后续为有界后台整理，整个第 3 点仍在推进。
+- 第 3 点 Context/Memory 五片实现基线已具备：Memory CAS、有界输入快照、确定性提取压缩、上下文恢复校验，以及显式一次性有界后台整理建议。开发 Room v44；整理不自动写正式记忆。详见[Memory CAS](memory-cas.md)、[输入快照](agent-context-snapshot.md)、[压缩契约](agent-context-compression.md)、[恢复契约](agent-context-recovery.md)、[整理契约](memory-maintenance.md)与[验证报告](verification-report.md)。后续主线进入第 4 点 Skill/插件，长期系统/质量验收独立追踪。
 
 ## 第 286 阶段 MCP（已收口）
 

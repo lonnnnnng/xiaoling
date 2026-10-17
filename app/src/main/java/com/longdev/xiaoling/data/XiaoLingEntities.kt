@@ -99,6 +99,7 @@ data class MessagePartEntity(
         Index(value = ["conversationId", "createdAt"]),
         Index(value = ["rootRunId", "createdAt"]),
         Index(value = ["parentRunId", "createdAt"]),
+        Index(value = ["status", "completedAt", "id"]),
     ],
 )
 data class AgentRunEntity(
