@@ -1,6 +1,6 @@
 # 插件签名、发布者公钥与版本回滚
 
-第 288 阶段第一片，2026-10-18。第 4 点 Skill/插件正在推进，本片只建立声明安装的可信账本，SAFE 前台执行仍待下一片。Room 保持 v44，发布版本仍为 `0.1.22 (23)`。
+第 288 阶段第一片，2026-10-18。本片建立声明安装的可信账本；第二片已接入签名身份下的[SAFE 前台执行网关](agent-plugin-execution.md)。Room 保持 v44，发布版本仍为 `0.1.22 (23)`。
 
 ## 导入与确认
 
@@ -65,6 +65,6 @@ python3 tools/plugin_manifest_signer.py \
 
 聚焦 JVM、同向量 Redmi 真机、管理页及三轮独立进程证据见[验证报告](verification-report.md)。独立 Python/OpenSSL 签名由生产 Kotlin 解码/验签，并覆盖补充字符的跨语言排序；受控 force-stop 不是自然 LMK/Doze/系统重启。
 
-下一片补签名身份下的 SAFE 前台执行权限交集、冻结目录、即时撤销、超时取消及 Tool Ledger。当前签名插件仍只参与预览，未接入 Run 或真实 ACI 执行，不宣称整个第 4 点收口。
+第一片当时仅参与预览；第二片已补 SAFE 前台执行权限交集、冻结目录、即时撤销、超时取消及 Tool Ledger，详见[执行契约](agent-plugin-execution.md)。签名不会自动授权，仍须前台显式发起；第 4 点原定实现基线完成，独立验收边界以最新报告为准。
 
 官方依据（已通过 smart-search 抓取正文，访问于 2026-10-18）：[Java 17 Signature](https://docs.oracle.com/en/java/javase/17/docs/api/java.base/java/security/Signature.html)、[Android X509EncodedKeySpec](https://developer.android.com/reference/java/security/spec/X509EncodedKeySpec)、[OpenSSL dgst](https://docs.openssl.org/3.5/man1/openssl-dgst/)。算法/编码的实际兼容性以本片 JVM 与指定 Redmi 验签结果为准。

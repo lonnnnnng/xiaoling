@@ -24,6 +24,7 @@ enum class AgentRunRestartDispositionCode {
     TOOL_DEFINITION_UNAVAILABLE,
     COMMITTED_EFFECT_EVIDENCE_INVALID,
     CONTEXT_EVIDENCE_INVALID,
+    PLUGIN_FOREGROUND_SELECTION_EXPIRED,
 }
 
 data class AgentRunRestartDisposition(
@@ -109,6 +110,11 @@ object AgentRunResumePolicy {
         definitionLookup: (String) -> ToolDefinition? = { null },
         committedVerificationSupport: (String) -> Boolean = { false },
     ): AgentRunResumeAssessment {
+        // long: 插件前台选择随旧进程消失，历史工具成功也不能授权原生 Registry 继续执行。
+        if (AgentPluginExecutionPolicy.isPluginRun(detail)) {
+            return restartRequired(AgentRunRestartDispositionCode.PLUGIN_FOREGROUND_SELECTION_EXPIRED,
+                "插件前台许可已失效，请从插件页重新显式发起")
+        }
         if (detail.contextRecoveryStatus == AgentContextRecoveryStatus.INVALID) {
             return restartRequired(AgentRunRestartDispositionCode.CONTEXT_EVIDENCE_INVALID,
                 "已保存的上下文或压缩来源不完整，不能原地恢复；保留证据并确认后创建新 Run")
@@ -982,11 +988,15 @@ object AgentRunResumePolicy {
             code = code,
             reason = reason,
             evidenceBoundary = code.toEvidenceBoundary(),
-            suggestedAction = "保留旧 Run 及其证据，按重试门禁确认后创建关联新 Run。",
+            suggestedAction = if (code == AgentRunRestartDispositionCode.PLUGIN_FOREGROUND_SELECTION_EXPIRED)
+                "保留旧 Run 及其证据，从插件页重新选择签名插件并创建新 Run。"
+                else "保留旧 Run 及其证据，按重试门禁确认后创建关联新 Run。",
         ),
     )
 
     private fun AgentRunRestartDispositionCode.toEvidenceBoundary(): String = when (this) {
+        AgentRunRestartDispositionCode.PLUGIN_FOREGROUND_SELECTION_EXPIRED ->
+            "签名身份与冻结目录仅记录历史事实，不能替代新一轮前台显式选择。"
         AgentRunRestartDispositionCode.RUN_STATE_NOT_RESUMABLE ->
             "旧模型协程与旧 Executor 已丢失，当前 Run 状态不具备可证明的安全续跑位置。"
         AgentRunRestartDispositionCode.PROFILE_EVIDENCE_INVALID ->

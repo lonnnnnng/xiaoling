@@ -4607,6 +4607,25 @@ class XiaoLingViewModel @JvmOverloads constructor(
         saveProfilesSnapshot(profiles, nextId)
     }
 
+    fun runSignedPlugin(pluginId: String, goal: String, expectedManifestSha256: String): Boolean {
+        if (uiState.sendingMessage || uiState.loadingConversationMessages || uiState.pendingPersonalTaskPlan != null ||
+            uiState.attachingImage || uiState.attachingDocument || uiState.pendingImage != null ||
+            uiState.pendingDocument != null || uiState.sharedDraftImported || goal.isBlank() || goal.length > 2_000) {
+            showValidation("插件任务只接受本机前台新目标，请先结束当前操作并移除共享草稿或附件")
+            return false
+        }
+        val runtimeSelection = selectedAgentLaunchPreflight()?.runtimeSelection ?: return false
+        val app = getApplication<XiaoLingApplication>()
+        val selection = runCatching {
+            com.longdev.xiaoling.agent.AgentPluginExecutionSelection.capture(app.agentPluginRegistry,
+                app.agentPluginForeground, pluginId, expectedManifestSha256)
+        }.getOrElse { showValidation(it.message ?: "插件前台许可不可用"); return false }
+        // long: 仅用户点击本机插件任务按钮才产生一次性选择，普通发送、分享与 Workflow 不继承它。
+        uiState = uiState.copy(personalTaskMode = false)
+        sendAgentRun("/agent ${goal.trim()}", runtimeSelection, pluginSelection = selection)
+        return true
+    }
+
     fun sendMessage() {
         if (uiState.sendingMessage) return
         if (uiState.loadingConversationMessages) {
@@ -5470,7 +5489,9 @@ class XiaoLingViewModel @JvmOverloads constructor(
         controlledReplayQualification: com.longdev.xiaoling.agent.AgentNotCommittedReplayQualification? = null,
         memoryRecallEnabled: Boolean = runtimeSelection.profile.memoryEnabled,
         workflowRunId: String? = null,
+        pluginSelection: com.longdev.xiaoling.agent.AgentPluginExecutionSelection? = null,
     ) {
+        val externalInput = uiState.sharedDraftImported
         val effectiveMemoryRecallEnabled = memoryRecallEnabled && runtimeSelection.profile.memoryEnabled
         val currentConversation = uiState.conversations.firstOrNull { it.id == conversationId }
         clearAgentStateForConversation(conversationId)
@@ -5532,6 +5553,8 @@ class XiaoLingViewModel @JvmOverloads constructor(
                         AgentInvocationSource.WORKFLOW
                     },
                     approvalGate = approvalGate,
+                    pluginSelection = pluginSelection,
+                    externalInput = externalInput,
                     onSnapshot = { snapshot ->
                         if (workflowRunId != null) {
                             withContext(Dispatchers.IO) {
@@ -5604,13 +5627,13 @@ class XiaoLingViewModel @JvmOverloads constructor(
                     )
                     // long: 先把最终答案放进当前会话，等同一份快照完成 Room 保存后再宣告发送结束，避免重建 Activity 读到旧会话而丢失目标级结果卡片。
                     .copy(sendingMessage = true, result = null)
-                createMemoryCandidateAfterTurn(
+                if (pluginSelection == null) createMemoryCandidateAfterTurn(
                     userText = goal,
                     conversationId = conversationId,
                     runId = summary.runId,
                 )
                 val answerPersistenceJob = saveConversationSelection()
-                publishAgentAnswerabilityShadow(
+                if (pluginSelection == null) publishAgentAnswerabilityShadow(
                     persistenceJob = answerPersistenceJob,
                     persistedMessageId = assistantMessage.id,
                     question = goal,

@@ -69,7 +69,7 @@
 - Remote Channel 已具备签名/白名单校验、独立 Keystore 加密的待确认收件箱，以及设置页手动 P-256 公钥身份配对：指纹核对后保存且默认停用，可启停、撤销。设置页可手动导入九字段签名 JSON，也可为当前公钥登记 HTTPS 地址并主动拉取一条；两种来源都进入跨重启待确认列表，确认卡打开或忽略后才移除加密正文，重放身份保留。当前没有后台网络监听、送达通知或远端自动执行入口。
 - 设备动作目前只承诺少量已验收应用与前台场景，不承诺任意 App；后台或定时设备动作、坐标/截图兜底仍关闭。
 - 后台计划使用 WorkManager 非精确定时语义；已补齐 `KEEP` 实际 Work ID 回读和孤立计划补队，但不承诺自然 LMK 后原地续跑，也未引入 Foreground Service。TTS 仅由用户在前台点击 assistant 消息触发，使用音频焦点和长文本分片；设备无可用系统引擎时保持不可播放。系统助手入口只打开对话页，不读取屏幕、不自动录音或发送。
-- GitHub Skill 导入只保存校验后的指令和来源摘要；仓库目录可发现多个 `SKILL.json` / `SKILL.md` 并要求选择，不执行仓库脚本、不自动授予工具权限；设置页可安装旧声明或 P-256 签名 manifest，确认公钥后默认停用，支持有界历史回滚并保留最高版本/移除身份约束；插件仍仅参与预览。账号与云同步、开放 Skill 市场、远程代码安装、stdio/OAuth MCP、多 Agent 扩张和端侧模型管理仍未开放。
+- GitHub Skill 导入只保存校验后的指令和来源摘要；仓库目录可发现多个 `SKILL.json` / `SKILL.md` 并要求选择，不执行仓库脚本、不自动授予工具权限；设置页可安装旧声明或 P-256 签名 manifest，确认公钥后默认停用，支持有界历史回滚并保留最高版本/移除身份约束。启用的签名插件可显式运行与当前 Agent 相交的宿主 SAFE 只读能力；无签名声明仍仅预览。账号与云同步、开放 Skill 市场、远程代码安装、stdio/OAuth MCP、多 Agent 扩张和端侧模型管理仍未开放。
 
 ## 快速开始
 
@@ -104,9 +104,9 @@ Release 签名从未跟踪文件 `local-signing/xiaoling-release.env` 读取。�
 
 ## 当前状态
 
-当前主线为第 4 点 Skill/插件（第 288 阶段）：第一片已实现签名 manifest、前台公钥指纹确认、身份绑定、最高版本与最多 3 个历史版本回滚，schema v1 兼容升级为 v2。签名安装/升级/回滚/重装默认停用；移除保留签名身份约束，CLI 支持本机离线签署。SAFE 前台执行尚待下一片，整个第 4 点未收口。详见[插件签名与回滚](docs/agent-plugin-signing.md)和[验证报告](docs/verification-report.md)。
+第 4 点 Skill/插件（第 288 阶段）原定实现基线已完成：签名 manifest、公钥/内容确认、有界版本回滚和 SAFE 前台执行网关。签名插件须启用、填写目标并显式点击；目录受 manifest/ACI/Profile/动态 SAFE 交集约束，停用或离开前台撤销，旧 Run 须重新选择。每轮最多 3 调用/60 秒，工具 10 秒，插件标记与 Run 同事务。下一主线为第 5 点多 Agent；长期系统、完整产品界面联合与正式 Release 验收独立追踪。详见[签名与回滚](docs/agent-plugin-signing.md)、[前台执行契约](docs/agent-plugin-execution.md)和[验证报告](docs/verification-report.md)。
 
-第 3 点 Context/Memory（第 287 阶段）的五片实现基线已完成：Memory CAS、有界输入/context snapshot、确定性提取压缩、上下文恢复校验与显式一次性有界后台整理建议，开发 Room v44。整理仅处理近 7 天最多 20 个已完成任务的原始用户陈述，以持久 outbox 送到候选列表，正式记忆由用户确认；受控独立进程证据与长期验证边界见报告。本轮已进入第 4 点 Skill/插件。详见[Memory CAS](docs/memory-cas.md)、[输入快照](docs/agent-context-snapshot.md)、[压缩契约](docs/agent-context-compression.md)、[恢复契约](docs/agent-context-recovery.md)、[整理契约](docs/memory-maintenance.md)、[路线图](docs/personal-agent-roadmap.md)和[验证报告](docs/verification-report.md)。
+第 3 点 Context/Memory（第 287 阶段）的五片实现基线已完成：Memory CAS、有界输入/context snapshot、确定性提取压缩、上下文恢复校验与显式一次性有界后台整理建议，开发 Room v44。整理仅处理近 7 天最多 20 个已完成任务的原始用户陈述，以持久 outbox 送到候选列表，正式记忆由用户确认；受控独立进程证据与长期验证边界见报告。第 4 点两片亦已完成，下一主线为第 5 点多 Agent。详见[Memory CAS](docs/memory-cas.md)、[输入快照](docs/agent-context-snapshot.md)、[压缩契约](docs/agent-context-compression.md)、[恢复契约](docs/agent-context-recovery.md)、[整理契约](docs/memory-maintenance.md)、[路线图](docs/personal-agent-roadmap.md)和[验证报告](docs/verification-report.md)。
 
 第 2 点 MCP 已收口：应用级 `McpSessionRegistry` 统一设置/Run 会话，支持 Streamable HTTP 与 legacy SSE；配置变更撤销旧连接，取消/断流清目录，后续显式操作重新发现且不重放工具调用。Redmi 已通过真实 `gpt-6-luna` 的 SSE 成功/取消/停用，以及 Context7 认证 HTTPS 的发现和只读解析。Context7 为真实外部 Streamable HTTP，SSE 服务端仍为隔离 loopback；`query-docs`、OAuth、stdio、Tasks、后台 MCP 和正式 Release 独立后置，详见[MCP 会话契约](docs/mcp-session-registry.md)。
 

@@ -26,6 +26,8 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        // long: Debug 生命周期验收只测真实 Activity 回调，不初始化正式 ViewModel；Release 始终进入正常界面。
+        if (BuildConfig.DEBUG && intent.getBooleanExtra("com.longdev.xiaoling.DEBUG_PLUGIN_LIFECYCLE_PROBE", false)) return
         // long: 系统重建会复用原始分享 Intent，因此分享只在首次创建导入；通知点击即使恢复了旧 Activity 也必须重新校验一次性令牌。
         if (savedInstanceState == null) {
             handleShareIntent(intent)
@@ -46,6 +48,22 @@ class MainActivity : ComponentActivity() {
         super.onNewIntent(intent)
         setIntent(intent)
         handleIncomingIntent(intent)
+    }
+
+    override fun onResume() {
+        super.onResume()
+        (application as XiaoLingApplication).agentPluginForeground.resumed(this)
+    }
+
+    override fun onPause() {
+        // long: 插件许可要求实际 resumed；系统浮层、切后台或配置重建均撤销旧轮次，返回前台必须重新显式发起。
+        (application as XiaoLingApplication).agentPluginForeground.paused(this)
+        super.onPause()
+    }
+
+    override fun onDestroy() {
+        (application as XiaoLingApplication).agentPluginForeground.paused(this)
+        super.onDestroy()
     }
 
     private fun handleIncomingIntent(intent: Intent) {

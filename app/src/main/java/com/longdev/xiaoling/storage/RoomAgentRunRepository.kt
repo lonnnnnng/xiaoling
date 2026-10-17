@@ -6,6 +6,7 @@ import com.longdev.xiaoling.agent.APPROVAL_REQUEST_NO_EXPIRY_AT
 import com.longdev.xiaoling.agent.ApprovalRequestRecord
 import com.longdev.xiaoling.agent.ApprovalRequestStatus
 import com.longdev.xiaoling.agent.AgentRunLedger
+import com.longdev.xiaoling.agent.AgentPluginExecutionPolicy
 import com.longdev.xiaoling.agent.AgentContextInput
 import com.longdev.xiaoling.agent.AgentContextRecoveryStatus
 import com.longdev.xiaoling.agent.AgentRunRecoveryExecutionGate
@@ -87,6 +88,15 @@ class RoomAgentRunRepository(
     context: Context,
     private val database: XiaoLingDatabase = XiaoLingDatabase.getInstance(context),
 ) : AgentRunLedger {
+    suspend fun createPluginRun(conversationId: String, userMessageId: String, goal: String, evidence: String): AgentRunRecord =
+        database.withTransaction {
+            // long: Run 与插件身份标记必须同事务，避免进程在两次写入间退出后，恢复把插件轮次误当成完整宿主权限。
+            val run = createRun(conversationId, userMessageId, goal, null, null)
+            appendEvent(run.id, AgentPluginExecutionPolicy.SELECTION_EVENT, "已冻结签名插件与 SAFE 能力目录",
+                RunEventMetadata.Reason(evidence))
+            run
+        }
+
     override suspend fun createRun(
         conversationId: String,
         userMessageId: String,

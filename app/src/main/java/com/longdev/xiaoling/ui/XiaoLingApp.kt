@@ -556,6 +556,11 @@ private fun XiaoLingContent(
                                 }
                             }
                         },
+                        onRunPlugin = { id, goal, digest ->
+                            viewModel.runSignedPlugin(id, goal, digest).also { started ->
+                                if (started) navigation.routeExternal(XiaoLingExternalNavigationTarget.SKILL_TRY)
+                            }
+                        },
                         onOpenWorkflowManagement = { workflowId ->
                             viewModel.refreshWorkflows()
                             navigation.openSettingsPane(
@@ -1042,6 +1047,7 @@ private fun SettingsPage(
     onOpenRemoteChannelPairing: () -> Unit,
     onOpenAssistantRole: () -> Unit,
     onTrySkill: (String, String) -> Unit,
+    onRunPlugin: (String, String, String) -> Boolean,
     onOpenWorkflowManagement: (String?) -> Unit,
     onOpenAgentRunHistory: () -> Unit,
     onOpenProcessExitObservations: () -> Unit,
@@ -1233,6 +1239,14 @@ private fun SettingsPage(
                 registry = (LocalContext.current.applicationContext as XiaoLingApplication).agentPluginRegistry,
                 onBack = onBackToSettings,
                 modifier = Modifier.matchParentSize(),
+                selectedProfileName = state.agentProfiles.firstOrNull { it.id == state.selectedAgentProfileId }?.name,
+                registeredTools = state.registeredAgentTools,
+                allowedToolNames = state.agentProfiles.firstOrNull { it.id == state.selectedAgentProfileId }
+                    ?.allowedToolNames?.toSet().orEmpty(),
+                executionAvailable = !state.sendingMessage && !state.loadingConversationMessages &&
+                    state.pendingPersonalTaskPlan == null && !state.sharedDraftImported &&
+                    !state.attachingImage && !state.attachingDocument && state.pendingImage == null && state.pendingDocument == null,
+                onRunReadOnly = onRunPlugin,
             )
             pane == SettingsPane.REMOTE_CHANNEL_PAIRING -> RemoteChannelPairingPage(
                 registry = (LocalContext.current.applicationContext as XiaoLingApplication).remoteChannelPairingRegistry,

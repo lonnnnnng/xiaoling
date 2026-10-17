@@ -240,6 +240,8 @@ internal object RunEventMetadataCodec {
                 AgentEventTypes.LLM_REPEAT_COMPLETED,
                 AgentEventTypes.RECOVERY_SUMMARY,
                 "skill.selected",
+                AgentPluginExecutionPolicy.SELECTION_EVENT,
+                "plugin.execution.initialization_failed",
                 "run.failed",
                 "run.timeout",
                 "run.cancelled",

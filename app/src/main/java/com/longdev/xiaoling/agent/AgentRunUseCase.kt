@@ -16,14 +16,22 @@ import com.longdev.xiaoling.storage.RoomAgentSkillStore
 import com.longdev.xiaoling.storage.RoomAgentTaskStore
 import com.longdev.xiaoling.storage.RoomKnowledgeDocumentStore
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.withContext
 
 class AgentRunUseCase(
     context: Context,
     private val client: OpenAiCompatibleClient,
     mcpSessionRegistry: McpSessionRegistry? = null,
     private val baseLedger: RoomAgentRunRepository = RoomAgentRunRepository(context),
+    pluginRegistry: AgentPluginRegistry? = null,
+    pluginForeground: AgentPluginForegroundState? = null,
+    skillStore: AgentSkillStore? = null,
 ) {
     private val appContext = context.applicationContext
+    private val plugins = pluginRegistry ?: (appContext as? XiaoLingApplication)?.agentPluginRegistry ?: AgentPluginRegistry()
+    private val pluginForegroundState = pluginForeground ?: (appContext as? XiaoLingApplication)?.agentPluginForeground
+        ?: AgentPluginForegroundState()
     // long: 验收可注入独立配置账本，生产未传入时仍共用 Application 注册表，不让测试改动用户的 MCP 配置。
     private val mcpSessions = mcpSessionRegistry ?: (appContext as? XiaoLingApplication)?.mcpSessionRegistry
         ?: McpSessionRegistry(AndroidMcpServerStore(appContext))
@@ -62,7 +70,8 @@ class AgentRunUseCase(
         mcpClient = mcpClient,
     )
     private val skillCatalog = AgentSkillCatalog(
-        store = RoomAgentSkillStore(context.applicationContext),
+        // long: 验收可隔离 Skill 同步写入；生产仍使用既有 Room store。
+        store = skillStore ?: RoomAgentSkillStore(context.applicationContext),
         registeredTools = toolRegistry::registeredTools,
     )
 
@@ -84,10 +93,14 @@ class AgentRunUseCase(
         userAttachments: MessageAttachmentSelection = MessageAttachmentSelection(),
         approvalGate: ApprovalGate = AutoApprovalGate(),
         onSnapshot: suspend (AgentRunSnapshot) -> Unit = {},
+        pluginSelection: AgentPluginExecutionSelection? = null,
+        externalInput: Boolean = false,
     ): AgentRunSummary {
         AgentProfilePolicy.validateRunnable(agentProfile)
         require(config.model == agentProfile.model) { "Agent Profile 模型快照与请求配置不一致" }
         require(config.providerId == agentProfile.providerId) { "Agent Profile 提供方快照与请求配置不一致" }
+        retryOfRunId?.let { source -> baseLedger.runDetail(source)?.let(AgentPluginExecutionPolicy::requireFreshSelection) }
+        require(pluginSelection == null || retryOfRunId == null) { "插件任务必须显式创建新 Run" }
         val invocationContext = AgentToolExecutionContext(
             conversationId = conversationId,
             userMessageId = userMessageId,
@@ -98,7 +111,8 @@ class AgentRunUseCase(
             invocationSource = invocationSource,
             workflowDeviceActionContext = workflowDeviceActionContext,
         )
-        val runToolRegistry = toolRegistryFor(agentProfile.providerId, config)
+        // long: 插件只读范围不隐式启用知识 Embedding 网络请求；模型规划仍使用用户当前 Profile 配置。
+        val runToolRegistry = if (pluginSelection != null) toolRegistry else toolRegistryFor(agentProfile.providerId, config)
         // long: 同一个 UseCase 会跨多个 Agent/Workflow Run 复用生产 Registry；先绑定当前 planning context，避免 Profile 初始化读取上一条 Workflow 的短期限制。
         (runToolRegistry as? AgentRunContextAwareToolRegistry)?.bindRunContext(invocationContext)
         val availableToolNames = runToolRegistry.availableToolsFor(
@@ -112,6 +126,11 @@ class AgentRunUseCase(
         // long: 任务重试等直接 Agent 专属工具在 Workflow context 会从 Registry 隐藏；先裁剪冻结白名单，再创建 scoped registry，避免把“当前不可见”误判为 Profile 配置损坏。
         // long: Profile 白名单需要保留完整静态能力，Workflow 的步骤门禁会在动态工具面隐藏暂不可用动作；若只传 scopedToolNames，会把隐藏动作错误地变成 Skill 未注册。
         val profileToolRegistry = ProfileScopedToolRegistry(runToolRegistry, agentProfile.allowedToolNames)
+        val pluginToolRegistry = pluginSelection?.let { selection ->
+            require(userAttachments.image == null && userAttachments.document == null) { "插件任务暂不接受附件" }
+            AgentPluginToolRegistry(profileToolRegistry, plugins, pluginForegroundState, selection,
+                agentProfile.allowedToolNames.toSet(), executionOrigin, invocationSource, externalInput, parentRunId)
+        }
         val skillSelectionToolNames = if (
             invocationSource == AgentInvocationSource.WORKFLOW &&
             executionOrigin == AgentExecutionOrigin.FOREGROUND &&
@@ -120,7 +139,8 @@ class AgentRunUseCase(
             // long: 前台 Workflow 的 Skill 先按用户冻结的 Profile 能力分类；瞬时 Accessibility 健康只影响实际可见工具，不能让 device-control 消失后退化成全工具面。
             agentProfile.allowedToolNames.toSet()
         } else {
-            agentProfile.allowedToolNames.filterTo(linkedSetOf(), availableToolNames::contains)
+            pluginToolRegistry?.registeredTools()?.mapTo(linkedSetOf(), ToolDefinition::name)
+                ?: agentProfile.allowedToolNames.filterTo(linkedSetOf(), availableToolNames::contains)
         }
         val selectedSkills = if (requiredSkillIds.isNotEmpty()) {
             // long: Workflow 的目标应用步骤已经由规划器确定能力类型，必须使用显式 Skill，避免“包名”等普通词把设备动作误路由到 app-info。
@@ -136,10 +156,11 @@ class AgentRunUseCase(
                 allowedToolNames = skillSelectionToolNames,
             )
         }
-        val scopedToolRegistry = SkillScopedToolRegistry(profileToolRegistry, selectedSkills)
+        val scopedToolRegistry = SkillScopedToolRegistry(pluginToolRegistry ?: profileToolRegistry, selectedSkills)
         val ledger = ReportingAgentRunLedger(
             delegate = baseLedger,
             onSnapshot = onSnapshot,
+            pluginEvidence = pluginToolRegistry?.evidenceJson(),
         )
         val runtime = MinimalAgentRuntime(
             ledger = ledger,
@@ -155,9 +176,10 @@ class AgentRunUseCase(
             approvalGate = approvalGate,
             permissionChecker = permissionChecker,
             // long: 直接 Agent 的设备动作闭环需要“打开/观察/动作/观察/收尾观察”等多个事实；只对 Profile 明确授权设备动作的前台直接 Run 提高上限，通用 Agent 与 Workflow 仍保持默认有界预算。
-            options = runtimeOptionsFor(agentProfile, invocationSource),
+            options = if (pluginToolRegistry != null) AgentRuntimeOptions(maxToolCalls = 3, runTimeoutMs = 60_000,
+                toolStepTimeoutMs = AgentPluginExecutionPolicy.MAX_TOOL_TIMEOUT_MS) else runtimeOptionsFor(agentProfile, invocationSource),
         )
-        return runtime.run(
+        suspend fun executeRun() = runtime.run(
             conversationId = conversationId,
             userMessageId = userMessageId,
             goal = goal,
@@ -170,6 +192,7 @@ class AgentRunUseCase(
             workflowDeviceActionContext = workflowDeviceActionContext,
             parentRunId = parentRunId,
         )
+        return if (pluginToolRegistry != null) pluginToolRegistry.guardRun { executeRun() } else executeRun()
     }
 
     suspend fun runReadOnlyChildAgents(
@@ -311,6 +334,7 @@ class AgentRunUseCase(
         require(config.providerId == agentProfile.providerId) { "来源 Agent Profile 提供方与受控重放请求不一致" }
         val latestSource = baseLedger.runDetail(sourceRunId)
             ?: error("来源 Agent Run 已不存在：$sourceRunId")
+        AgentPluginExecutionPolicy.requireFreshSelection(latestSource)
         val persistedProfile = when (val audit = latestSource.inspectAgentProfileAudit()) {
             AgentProfileAuditAssessment.Legacy -> error("来源 Agent Run 缺少 Agent Profile 快照")
             is AgentProfileAuditAssessment.Available -> audit.profile
@@ -370,6 +394,7 @@ class AgentRunUseCase(
         require(approval.runId == it) { "审批请求不属于当前 Agent Run" }
     }) { freshDetail ->
         val detail = freshDetail
+        AgentPluginExecutionPolicy.requireFreshSelection(detail)
         val selectionEvent = detail.snapshot.events.lastOrNull { it.type == "skill.selected" }
         val agentProfile = when (val assessment = detail.inspectAgentProfileAudit()) {
             AgentProfileAuditAssessment.Legacy -> null
@@ -517,6 +542,7 @@ class AgentRunUseCase(
         onSnapshot: suspend (AgentRunSnapshot) -> Unit = {},
     ): AgentRunSummary = baseLedger.withRecoveryExecution(detail.snapshot.run.id) { freshDetail ->
         val detail = freshDetail
+        AgentPluginExecutionPolicy.requireFreshSelection(detail)
         val ledger = ReportingAgentRunLedger(
             delegate = baseLedger,
             onSnapshot = onSnapshot,
@@ -540,6 +566,7 @@ class AgentRunUseCase(
         onSnapshot: suspend (AgentRunSnapshot) -> Unit = {},
     ): AgentRunSummary = baseLedger.withRecoveryExecution(detail.snapshot.run.id) { freshDetail ->
         val detail = freshDetail
+        AgentPluginExecutionPolicy.requireFreshSelection(detail)
         val ledger = ReportingAgentRunLedger(
             delegate = baseLedger,
             onSnapshot = onSnapshot,
@@ -684,6 +711,7 @@ private object RecoveryOnlyAgentLlm : AgentLlm {
 private class ReportingAgentRunLedger(
     private val delegate: AgentRunLedger,
     private val onSnapshot: suspend (AgentRunSnapshot) -> Unit,
+    private val pluginEvidence: String? = null,
 ) : AgentRunLedger {
     private val stepRunIds = mutableMapOf<String, String>()
 
@@ -693,6 +721,7 @@ private class ReportingAgentRunLedger(
         goal: String,
         retryOfRunId: String?,
     ): AgentRunRecord {
+        if (pluginEvidence != null) return createPluginRecord(conversationId, userMessageId, goal)
         val run = delegate.createRun(conversationId, userMessageId, goal, retryOfRunId)
         emit(run.id)
         return run
@@ -705,9 +734,31 @@ private class ReportingAgentRunLedger(
         retryOfRunId: String?,
         parentRunId: String?,
     ): AgentRunRecord {
+        if (pluginEvidence != null) return createPluginRecord(conversationId, userMessageId, goal)
         val run = delegate.createRun(conversationId, userMessageId, goal, retryOfRunId, parentRunId)
         emit(run.id)
         return run
+    }
+
+    private suspend fun createPluginRecord(conversationId: String, userMessageId: String, goal: String): AgentRunRecord {
+        var created: AgentRunRecord? = null
+        try {
+            withContext(NonCancellable) {
+                created = (delegate as RoomAgentRunRepository).createPluginRun(conversationId, userMessageId, goal, requireNotNull(pluginEvidence))
+            }
+            val run = requireNotNull(created)
+            emit(run.id)
+            return run
+        } catch (error: Throwable) {
+            // long: Runtime 尚未拿到 Run 时也要结算初始化失败；否则许可撤销或 UI 回调异常会遗留 QUEUED 记录。
+            created?.let { run -> withContext(NonCancellable) {
+                val status = if (error is CancellationException) AgentRunStatus.CANCELLED else AgentRunStatus.FAILED
+                delegate.appendEvent(run.id, "plugin.execution.initialization_failed", "插件 Run 初始化未完成",
+                    RunEventMetadata.Reason("插件 Run 初始化未完成"))
+                delegate.updateRunStatus(run.id, status, errorMessage = "插件 Run 初始化未完成")
+            } }
+            throw error
+        }
     }
 
     override suspend fun updateRunStatus(runId: String, status: AgentRunStatus, result: String?, errorMessage: String?) {

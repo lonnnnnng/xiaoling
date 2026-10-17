@@ -1,11 +1,14 @@
 package com.longdev.xiaoling.agent
 
 import java.util.Collections
+import java.util.UUID
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.asStateFlow
 
 /**
- * 插件系统第一版只管理声明，不加载外部代码。
+ * 插件声明映射宿主只读能力，不加载外部代码。
  *
- * long: manifest、权限和版本状态先可审计，任意插件执行器必须等到独立沙箱和真机门禁完成后再接入。
+ * long: 签名声明经前台网关映射现有宿主工具；外部代码执行器须等独立沙箱和真机门禁完成后再接入。
  */
 enum class AgentPluginPermission {
     READ_ONLY_CAPABILITIES,
@@ -110,6 +113,9 @@ class AgentPluginRegistry(
     private val plugins = linkedMapOf<String, InstalledAgentPlugin>()
     private var persistenceFailureReason: String? = null
     private var restoreBlocked = false
+    private val registryIdentity = UUID.randomUUID().toString()
+    private val revisions = MutableStateFlow<Map<String, Long>>(emptyMap())
+    val executionChanges = revisions.asStateFlow()
 
     init {
         restore()
@@ -174,6 +180,7 @@ class AgentPluginRegistry(
         // long: 安装或升级默认保持停用，避免新 manifest 在没有用户确认时改变可用能力面。
         val installed = immutable(InstalledAgentPlugin(manifest = manifest, enabled = false))
         val candidate = plugins.toMutableMap().apply { put(manifest.id, installed) }
+        invalidateExecution(manifest.id)
         if (!persist(candidate.values)) {
             return AgentPluginInstallResult.Rejected("插件状态无法持久化")
         }
@@ -186,6 +193,30 @@ class AgentPluginRegistry(
 
     @Synchronized
     fun get(id: String): InstalledAgentPlugin? = plugins[id]?.takeUnless { it.removed }
+
+    @Synchronized
+    fun executionBinding(id: String, expectedManifestSha256: String): AgentPluginExecutionBinding {
+        require(!restoreBlocked && persistenceFailureReason == null) { "插件账本不可用，执行已冻结" }
+        val plugin = requireNotNull(get(id)) { "插件未安装" }
+        require(plugin.enabled && AgentPluginPermission.READ_ONLY_CAPABILITIES in plugin.manifest.permissions) { "插件未启用或未声明只读能力" }
+        val signed = requireNotNull(plugin.signedManifest) { "无签名声明只能预览" }
+        val confirmation = AgentPluginSigning.verify(signed)
+        require(confirmation.manifestSha256 == expectedManifestSha256) { "插件版本已变化，请重新选择" }
+        return AgentPluginExecutionBinding(plugin.manifest, confirmation, registryIdentity, revisions.value[id] ?: 0L)
+    }
+
+    @Synchronized
+    fun isExecutionCurrent(binding: AgentPluginExecutionBinding): Boolean = runCatching {
+        binding.registryIdentity == registryIdentity && binding.revision == (revisions.value[binding.manifest.id] ?: 0L) &&
+            executionBinding(binding.manifest.id, binding.confirmation.manifestSha256).let {
+                it.manifest == binding.manifest && it.confirmation == binding.confirmation
+            }
+    }.getOrDefault(false)
+
+    private fun invalidateExecution(id: String) {
+        // long: 先撤销旧进程许可再尝试写盘；写失败也不能让正在运行的旧任务继续，重新启用只签发新许可。
+        revisions.value = Collections.unmodifiableMap(revisions.value + (id to ((revisions.value[id] ?: 0L) + 1L)))
+    }
 
     @Synchronized
     fun installSigned(
@@ -268,6 +299,7 @@ class AgentPluginRegistry(
     private fun replace(updated: InstalledAgentPlugin): Boolean {
         val owned = immutable(updated)
         val candidate = plugins.toMutableMap().apply { put(owned.manifest.id, owned) }
+        invalidateExecution(owned.manifest.id)
         if (!persist(candidate.values)) return false
         plugins[owned.manifest.id] = owned
         return true
@@ -292,8 +324,10 @@ class AgentPluginRegistry(
     fun setEnabled(id: String, enabled: Boolean): InstalledAgentPlugin? {
         if (restoreBlocked) return null
         val current = get(id) ?: return null
+        if (current.enabled == enabled) return current
         val updated = current.copy(enabled = enabled)
         val candidate = plugins.toMutableMap().apply { put(id, updated) }
+        invalidateExecution(id)
         if (!persist(candidate.values)) return null
         return updated.also { plugins[id] = it }
     }
@@ -307,6 +341,7 @@ class AgentPluginRegistry(
         val candidate = plugins.toMutableMap().apply {
             if (current.signedManifest != null) put(id, current.copy(enabled = false, removed = true)) else remove(id)
         }
+        invalidateExecution(id)
         if (!persist(candidate.values)) return false
         plugins.clear()
         plugins.putAll(candidate)

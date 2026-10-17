@@ -35,12 +35,22 @@ import com.longdev.xiaoling.agent.AgentPluginRegistry
 import com.longdev.xiaoling.agent.AgentPluginSignedManifest
 import com.longdev.xiaoling.agent.AgentPluginSigning
 import com.longdev.xiaoling.agent.InstalledAgentPlugin
+import com.longdev.xiaoling.agent.AciPolicy
+import com.longdev.xiaoling.agent.AgentPluginPermission
+import com.longdev.xiaoling.agent.ToolDefinition
+import com.longdev.xiaoling.agent.ToolRisk
+import com.longdev.xiaoling.agent.ToolApprovalPolicy
 
 @Composable
 internal fun AgentPluginManagementPage(
     registry: AgentPluginRegistry,
     onBack: () -> Unit,
     modifier: Modifier = Modifier,
+    selectedProfileName: String? = null,
+    registeredTools: List<ToolDefinition> = emptyList(),
+    allowedToolNames: Set<String> = emptySet(),
+    executionAvailable: Boolean = false,
+    onRunReadOnly: (String, String, String) -> Boolean = { _, _, _ -> false },
 ) {
     var rawManifest by remember { mutableStateOf("") }
     var notice by remember { mutableStateOf<String?>(null) }
@@ -63,7 +73,7 @@ internal fun AgentPluginManagementPage(
             Text("Agent 插件", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
         }
         Text(
-            "只安装声明式 manifest。启用仅影响只读能力预览，不执行插件代码，也不授予 MCP、终端、网络或设备动作权限。",
+            "签名插件启用后，可填写目标并显式运行宿主只读能力。离开前台或停用会撤销本轮许可；不加载插件代码。无签名声明仅供预览。",
             style = MaterialTheme.typography.bodySmall,
         )
         if (stateFailure != null) {
@@ -114,14 +124,22 @@ internal fun AgentPluginManagementPage(
         }
         plugins.forEach { plugin ->
             val manifest = plugin.manifest
+            var goal by remember(manifest) { mutableStateOf("") }
+            val confirmation = plugin.signedManifest?.let { AgentPluginSigning.verify(it) }
+            val safeNames = registeredTools.filter { it.name in manifest.capabilities &&
+                it.name in allowedToolNames && it.name in AciPolicy.DEFAULT_READ_ONLY_CAPABILITY_NAMES &&
+                it.risk == ToolRisk.SAFE && it.approvalPolicy == ToolApprovalPolicy.NONE }.map { it.name }.sorted()
+            val canRun = stateFailure == null && plugin.enabled && confirmation != null &&
+                AgentPluginPermission.READ_ONLY_CAPABILITIES in manifest.permissions && safeNames.isNotEmpty() &&
+                selectedProfileName != null && executionAvailable
             Card(modifier = Modifier.fillMaxWidth().testTag("agent-plugin-${manifest.id}")) {
                 Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                     Text("${manifest.name} · ${manifest.version}", fontWeight = FontWeight.SemiBold)
                     Text(manifest.id, style = MaterialTheme.typography.bodySmall)
                     Text(if (plugin.signedManifest == null) "无签名声明 · 仅预览" else "签名已校验 · 已确认公钥",
                         style = MaterialTheme.typography.bodySmall)
-                    plugin.signedManifest?.let { signed ->
-                        Text("公钥 SHA-256：${AgentPluginSigning.verify(signed).publicKeySha256}",
+                    confirmation?.let {
+                        Text("公钥 SHA-256：${it.publicKeySha256}",
                             style = MaterialTheme.typography.bodySmall)
                         Text("最高确认版本：${plugin.highestSignedManifest?.manifest?.version}",
                             style = MaterialTheme.typography.bodySmall)
@@ -130,6 +148,22 @@ internal fun AgentPluginManagementPage(
                         style = MaterialTheme.typography.bodySmall)
                     Text("声明权限：${manifest.permissions.map { it.name }.sorted().joinToString().ifEmpty { "无" }}",
                         style = MaterialTheme.typography.bodySmall)
+                    if (confirmation != null) {
+                        Text("当前 Agent：${selectedProfileName ?: "未选择"} · 只读能力：${safeNames.joinToString().ifEmpty { "无交集" }}",
+                            style = MaterialTheme.typography.bodySmall)
+                        OutlinedTextField(value = goal, onValueChange = { if (it.length <= 2_000) goal = it },
+                            label = { Text("只读任务目标") }, enabled = canRun,
+                            supportingText = { Text("最多 3 次工具调用、60 秒；能力仍受当前可用状态与 Agent 记忆开关约束。当前会话将保存结果。") },
+                            modifier = Modifier.fillMaxWidth().testTag("agent-plugin-goal-${manifest.id}"))
+                        Button(onClick = {
+                            // long: 页面冻结的摘要随点击传入执行层；升级或停用后旧页面不能批准替换后的内容。
+                            if (!onRunReadOnly(manifest.id, goal.trim(), confirmation.manifestSha256)) {
+                                notice = "任务未启动，请检查当前 Agent、前台状态和插件版本"
+                                revision += 1
+                            }
+                        }, enabled = canRun && goal.isNotBlank(),
+                            modifier = Modifier.testTag("agent-plugin-run-${manifest.id}")) { Text("运行只读任务") }
+                    }
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Text("启用声明", modifier = Modifier.weight(1f))
                         Switch(

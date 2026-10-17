@@ -179,25 +179,26 @@ class MinimalAgentRuntime internal constructor(
         parentRunId: String? = null,
     ): AgentRunSummary {
         val run = ledger.createRun(conversationId, userMessageId, goal, retryOfRunId, parentRunId)
-        (toolRegistry as? AgentRunContextAwareToolRegistry)?.bindRunContext(
-            AgentToolExecutionContext(
-                conversationId = conversationId,
-                userMessageId = userMessageId,
-                runId = run.id,
-                goal = goal,
-                memoryRecallEnabled = memoryRecallEnabled,
-                executionOrigin = executionOrigin,
-                invocationSource = invocationSource,
-                processSessionId = processSessionId,
-                workflowDeviceActionContext = workflowDeviceActionContext,
-                agentProfileInfo = agentProfile?.toExecutionProfileInfo(memoryRecallEnabled),
-            ),
-        )
         val state = AgentRuntimeExecutionState(
             runTimeoutMs = options.runTimeoutMs,
             monotonicClock = monotonicClock,
         )
         return try {
+            // long: 真实 Run 已落库后，绑定依赖也可能失败；必须进入统一结算与清理，不能遗留 QUEUED 任务。
+            (toolRegistry as? AgentRunContextAwareToolRegistry)?.bindRunContext(
+                AgentToolExecutionContext(
+                    conversationId = conversationId,
+                    userMessageId = userMessageId,
+                    runId = run.id,
+                    goal = goal,
+                    memoryRecallEnabled = memoryRecallEnabled,
+                    executionOrigin = executionOrigin,
+                    invocationSource = invocationSource,
+                    processSessionId = processSessionId,
+                    workflowDeviceActionContext = workflowDeviceActionContext,
+                    agentProfileInfo = agentProfile?.toExecutionProfileInfo(memoryRecallEnabled),
+                ),
+            )
             persistExecutionBudget(run.id, "初始化执行预算", state.executionBudget)
             if (agentProfile != null) {
                 // long: Run 必须冻结启动时的 Agent 身份、模型和能力白名单；后续编辑或删除 Profile 不能改变历史审计、审批恢复和工具边界。

@@ -2,9 +2,22 @@
 
 验证日期：2026-10-18（北京时间）
 
+# 2026-10-18 第 288 阶段第二片：SAFE 前台执行网关
+
+- 主线：第 4 点 Skill/插件的原定签名 manifest、版本回滚、SAFE 前台宿主扩展两片实现基线收口；下一点为第 5 点多 Agent。完整产品界面点击到真实模型的联合专项、自然 LMK/Doze/系统重启与正式 Release 独立追踪，不追加为本阶段切片。Room v44/发布版本 `0.1.22 (23)` 不变，见[执行契约](agent-plugin-execution.md)和[路线图](personal-agent-roadmap.md)。
+- 实现：管理页目标与当前 Profile、一次性签名摘要与插件/前台代次，固定 ACI/manifest/Profile/静态与动态 SAFE/NONE 交集、冻结指纹、观察到动态漂移后永久收窄。MainActivity 暂停、停用/升级/回滚/移除与失败写盘撤销整轮；新代次不能复活旧选择。单轮 3 调用/60 秒、单工具 10 秒、结果 20000 UTF-16 字符；工具执行、参数/权限校验与 typed verification 沿原 Runtime。
+- 持久与恢复：插件 marker/Run/created event 共事务；Reason codec 保留签名双摘要/目录证据。创建回调失败与真实 context bind 异常均收敛。旧插件 Run 即使已有 PASSED 或 marker 正文损坏，恢复分类、普通重试、受控重放及 UseCase 执行入口均要求重新显式选择；不回退到原生完整工具面。无附件/共享草稿/Workflow/后台/child。使用无 Embedding 知识 store，结束后跳过自动 memory candidate/answerability shadow。
+- JVM/构建：JDK 21 wrapper 定向插件签名/存储/投影/网关/Runtime、恢复/重试、MinimalAgentRuntime、RunEvent codec、OpenAI 客户端及取消测试，最终 `250 tests / 0 failures / 0 errors / 0 skipped`；Debug/AndroidTest APK 构建成功。新半开 socket 测试覆盖普通与流式模式的响应头/正文停滞，取消后服务端实际 EOF；宿主同步工具超时仍是协作式取消，不能作为硬进程隔离证据。
+- Redmi：仅 `wsvwypiz7xwslvl7 / begonia / SDK 36`，主/测试 APK 均 `install -r`。修复后网关同向量 14、生产 UseCase/Room/真实 MainActivity 生命周期 6、管理页 7，27 项实际通过；真实模型方法在此轮按显式开关跳过，Android 汇总 `OK (28 tests)` 含 1 skipped。恢复 `0L` 补强后新增一项同向量，最终包定向结果另记下方收尾。生命周期 Debug 探针仅跳过正式 ViewModel 初始化，Application 既有 Remote Channel 启动对账仍按生产路径执行。
+- 真实模型：显式 USB 单次 socket 把 root 测试配置送入内存，使用真实 `gpt-6-luna` 和生产 `AgentRunUseCase/OpenAiCompatibleClient`；只暴露原生 `app.current_time`，1 次调用，Room `PASSED/COMPLETED` 和输入快照验证，`OK (1 test)`、23.11s。未保存凭据或修改正式 Provider/MCP 配置。该轮使用注入的前台许可，真实 Activity 暂停/恢复另项验收；管理页回调、生产 UseCase 和生命周期分项通过不冒充完整界面联合验收。
+- 独立进程：`tools/verify_plugin_execution_process.py` 三轮各 `OK (1 test)`，最终 PID `29274 → 29322 → 29366`，`process-current/result.json completed=true`。第一轮真实宿主时间已经 PASSED 时保留 VERIFYING；新进程拒绝旧前台并收敛 CANCELLED，第三进程重新显式选择完成新 Run，旧 terminal/Tool Ledger 不变。成功后删除严格 UUID 测试偏好/数据库。受控 force-stop，不是自然系统恢复。
+- 失败保留与修正：首轮夹具字段/枚举不符及非 SAFE 缺确认策略分别修正。首轮 Redmi 28 项记录 5 failures（包括 skip 的清理失败）：marker Reason 未回读、未打开 DB 的删除断言、模型 socket 等待取消过迟；补 codec、条件清理和取消开始即关闭 OkHttp 后重跑通过。首次三进程第三轮暴露恢复空映射的装箱数字类型不一致，明确 `0L` 并新增恢复后选择回归；原失败日志与 `completed=false` 保留，原专用夹具补验成功后清理，再完整新 UUID 三轮通过。两次独立复核补齐 observed dynamic 收窄及 bind 异常结算，最后复核无阻塞问题。
+- 边界：本片映射宿主 SAFE 能力，不加载外部代码，不下载 source。未观察到的宿主动态定义瞬时 ABA、同数量 validator 内部语义变化、非协作阻塞读取不能夸大成可强制中断；Profile 继续使用既有冻结语义，无新增 Profile 编辑即时撤销。未跑全量 JVM/Lint/instrumentation 或正式 Release，未 push/tag/发版；`refs/` 保留。证据目录为忽略的 `outputs/verification/stage288-plugin-execution/`。
+- 最终代码补验：新增恢复空代次向量后，网关 15、生产链 6、管理页 7 共 28 项实际通过，真实模型开关 skip 1，Android 汇总 `OK (29 tests)`、23.987s；失败项未被跳过掩盖。6 个既有偏好文件前后 hash 相同，Memory undo 均 absent。201 个本地文档链接有效；最终语料打包和真实凭据/解压 APK 审计的结果另存证据，不保存秘密原文。
+
 # 2026-10-18 第 288 阶段第一片：签名插件、公钥确认与版本回滚
 
-- 主线：第 4 点 Skill/插件第一片完成签名与版本账本；SAFE 前台执行、权限交集、冻结目录、即时撤销、超时取消和 Tool Ledger 为下一片，第 4 点尚未收口。Room v44/发布版本 `0.1.22 (23)` 不变。详见[插件签名契约](agent-plugin-signing.md)及[路线图](personal-agent-roadmap.md)。
+- 历史边界：第一片仅完成签名与版本账本，当时第 4 点尚未收口；第二片已补前台网关，当前状态见本报告顶部。Room v44/发布版本 `0.1.22 (23)` 不变。详见[插件签名契约](agent-plugin-signing.md)及[路线图](personal-agent-roadmap.md)。
 - 实现：全 manifest/source 字段域隔离签名，固定顺序/长度前缀/UTF-16 集合排序；named P-256 SPKI、标准 Base64、最小 DER 与严格 UTF-8。首装前台确认内容/公钥双摘要，升级绑定原身份；schema v1→v2 保存最高版本与最多 3 项历史，移除保留签名身份，回滚重新验签且默认停用。旧声明仅预览，source artifact 未下载，签名不认证 publisher 真实身份。
 - 只读复核与修正：数字精度/非法 `1.`、空白填充原字符串长度、Registry 集合别名、旧移除弹窗版本漂移均已修正并回归。最后复核无阻塞问题，将离线 signer 的显式 null API 默认值与 App 统一。离线 CLI 不覆盖输出、不保存私钥；独立 Python/OpenSSL → 生产 Kotlin 验签覆盖补充 Unicode 字符排序。Gradle 输入绑定 signer 脚本。
 - JVM/构建：JDK 21 wrapper 定向 `:app:testDebugUnitTest --tests '*AgentPluginSigningTest' --tests '*AgentPluginPersistenceTest' --tests '*AgentPluginCapabilityProjectionTest' --tests '*SecondGroupFoundationTest'`，最终 `43 tests / 0 failures / 0 errors / 0 skipped`；签名类 17、存储 7、能力投影 7、基础类 12。Debug/AndroidTest APK 构建成功（最终源码 `BUILD SUCCESSFUL in 6s`），signer 默认值统一后 JVM `BUILD SUCCESSFUL in 2s`。主机离线输入拒绝 4 项与复用进程结果解析反例 2 项合计 6/6，通过后没有无理由扩跑全量。

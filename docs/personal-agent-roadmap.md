@@ -21,8 +21,8 @@
 
 1. Remote Channel 第 285 阶段按原定 cursor、批次、ACK、重试、过期、后台收件和通知功能收口。稳定部署与长期验收列为独立待办，不阻塞后续主线；临时公网认证互通不代表稳定服务和自然系统恢复已验收。
 2. 第 286 阶段 MCP 已收口：统一 `McpSessionRegistry`、legacy SSE、真实模型 SSE 联合验收及 Context7 认证 HTTPS 只读验收已完成。stdio 等待进程沙箱和生命周期机制，OAuth、Tasks 后置。
-3. 第 287 阶段 Context/Memory 五片实现基线已完成：Memory CAS、有界输入/context snapshot、确定性提取压缩、上下文恢复校验和显式一次性有界后台整理建议。当前主线下一点为 Skill/插件；系统长期/质量验收独立追踪，证据等级以报告为准。
-4. Skill 已可从 GitHub 导入并固定提交，但插件仍是声明/只读投影，缺少签名 manifest、版本回滚和 SAFE 前台可执行扩展。
+3. 第 287 阶段 Context/Memory 五片实现基线已完成：Memory CAS、有界输入/context snapshot、确定性提取压缩、上下文恢复校验和显式一次性有界后台整理建议。第 4 点两片亦已完成，下一主线为多 Agent；系统长期/质量验收独立追踪，证据等级以报告为准。
+4. 第 288 阶段 Skill/插件两片原定实现基线已完成：签名 manifest、有界版本回滚、SAFE 前台显式宿主扩展；无签名仅预览、旧 Run 不能继承前台许可。长期系统、完整界面联合和正式 Release 验收独立追踪。
 5. 多 Agent 仍限前台 Direct、最多两个只读 child；后续补 child checkpoint、预算、取消、失败聚合和恢复。
 6. Workspace/Browser/GenUI 合为后续一组：补 session transcript、DOM/action、版本化组件和显式 action。
 7. shared 目前主要是 contract，实际 Agent runtime、Memory、MCP、设备和 UI 均在 Android；iOS 不能宣称与 Android 对等。
@@ -81,16 +81,22 @@
 - 完整 Activity 恢复专项、真实模型压缩/记忆建议质量与大规模耗时验证。
 - 全量消息往返 transcript、语义摘要、自动写入、容量回收与正式 Release 继续单独评审。
 
-#### 第 288 阶段：可执行 Skill/插件最小闭环（当前主线，第 4 点）
+#### 第 288 阶段：可执行 Skill/插件最小闭环（第 4 点实现基线收口）
 
-- 第一片签名/回滚已实现：P-256 DER 全字段签名、前台公钥/内容确认、升级身份绑定、schema v1→v2、最高版本与 3 项历史、移除身份保留及默认停用；独立签名 CLI 与受控重启验收见[契约](agent-plugin-signing.md)和[报告](verification-report.md)。当前仍仅声明预览，第二片再接 SAFE 前台执行、冻结目录、即时撤销及取消门禁，不将第一片当作第 4 点收口。
+- 第一片签名/回滚已实现：P-256 DER 全字段签名、前台公钥/内容确认、升级身份绑定、schema v1→v2、最高版本与 3 项历史、移除身份保留及默认停用；独立签名 CLI 与受控重启验收见[契约](agent-plugin-signing.md)和[报告](verification-report.md)。
+- 第二片 SAFE 前台执行已实现：页面目标与当前 Profile、一次性摘要/许可代次、固定 ACI 交集、冻结定义、整轮撤销、10 秒工具/60 秒 Run/3 调用与原 Runtime/typed Ledger；插件标记/Run 共事务，旧 Run 只保留证据并重新显式发起。JVM、Redmi、真实模型及独立进程证据见[执行契约](agent-plugin-execution.md)和报告。两片原定实现基线收口，不将后台执行、代码沙箱或长期验收继续追加为本阶段切片。
 
 - Skill 继续采用 GitHub commit pin、目录逃逸拒绝和默认停用；`SKILL.md` 只进入显式选中的 Run，不默认扩权。
 - 插件先定义签名 manifest、版本/来源指纹、能力声明、升级回滚和权限网关；首期只允许 SAFE 前台工具和只读 UI surface。
 - 插件执行与宿主权限隔离：同进程同签名插件只能作为受信扩展；不可信代码必须另进程/沙箱，不能把声明式 ACI 预览直接升级为执行桥。
 - 退出标准：安装/升级/回滚/禁用、能力交集、恶意 manifest、超时取消和重启恢复均有测试；未通过签名或权限检查的扩展永不进入 ToolRegistry。
 
-#### 第 289 阶段：多 Agent 持久生命周期
+##### Skill/插件独立待办（不阻塞多 Agent）
+
+- 完整产品界面点击到真实模型的联合专项、自然 LMK/Doze/系统重启、正式 Release 验收。
+- 发布者密钥轮换/永久撤销、动态定义热加载代次、不可信外部代码沙箱、插件市场及后台执行。
+
+#### 第 289 阶段：多 Agent 持久生命周期（下一主线，第 5 点）
 
 - 将当前最多两个只读 child 扩展为受限 child runtime：每个 child 有独立 Run、预算、取消 token、checkpoint、结果摘要和失败类型；父 Run 只接受结构化结果。
 - 保持 `REMOTE / WORKFLOW / BACKGROUND / depth>0` 禁止派生，写工具和设备动作继续逐次审批；先做只读检索/规划 child，再评估可写 child。

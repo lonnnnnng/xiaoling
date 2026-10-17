@@ -1,5 +1,14 @@
 # 当前实现说明
 
+## 2026-10-18 第 288 阶段第二片：一次性 SAFE 前台网关
+
+- `AgentPluginExecutionSelection/Binding` 绑定签名双摘要、进程 Registry 身份、插件/前台代次并单次 claim；恢复后新选择的空代次明确使用 `0L`，旧进程对象不能复用。Registry 在版本/启停/移除写盘前发出代次变化，失败也撤销。
+- `AgentPluginToolRegistry` 仅接受本机 FOREGROUND/DIRECT，冻结 manifest/ACI/Profile/宿主定义交集，静态/动态 SAFE/NONE 和恢复指纹逐次复核；观察到隐藏/漂移后永久收窄。完整 hooks 透传，调用前后校验、10 秒工具与结果上限、整轮两路观察者覆盖模型等待。
+- `RoomAgentRunRepository.createPluginRun` 同事务创建 Run/插件 marker；Reason codec 保留摘要证据。Reporting ledger 结算创建/回调取消失败，Runtime 将真实 bind 放入 try/finally，避免初始化异常遗留 QUEUED。原恢复/重试策略和 UseCase 入口按 marker 拒绝继承，损坏 metadata 也不降级。
+- 插件页显式目标与当前 Profile，ViewModel 同步捕获选择再发起；共享草稿、附件与活动操作拒绝。会话正常保存，结束后跳过 memory candidate/answerability shadow；插件使用无 Embedding 的原生知识 store。Debug 生命周期探针跳过正式 ViewModel 初始化，Release 不接受该探针，真实 Activity 回调仍复用生产前台 gate。
+- `OpenAiCompatibleClient` 取消观察者作为当前请求的子 Job，在取消开始时关闭 OkHttp，防止原完成回调等待同步 socket 返回；普通/流式请求响应头和正文停滞回归覆盖。超时仍为协作式取消，不是执行沙箱。
+- JVM/Redmi 共用向量、生产 UseCase/loopback/Room、真实模型与三进程恢复分别记录；测试使用隔离 UUID 账本、USB 内存凭据并核对正式偏好/undo 摘要。Room v44 不变，契约见[前台执行](agent-plugin-execution.md)。
+
 ## 2026-10-18 第 288 阶段第一片：签名、确认与原子版本账本
 
 - `AgentPluginSigning` 固定 domain/字段顺序/UTF-8 长度前缀与集合 UTF-16 排序，绑定全部 manifest 与 source。只接受 named P-256 SPKI、规范 Base64 和最小 DER，复核完整曲线参数；不以 ECDSA 随机签名字节作为版本身份。

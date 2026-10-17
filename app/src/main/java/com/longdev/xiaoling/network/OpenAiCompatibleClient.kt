@@ -9,8 +9,12 @@ import com.longdev.xiaoling.model.ModelReasoningSummary
 import com.longdev.xiaoling.model.ModelTokenUsage
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.CoroutineStart
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.awaitCancellation
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.ensureActive
-import kotlinx.coroutines.job
 import kotlinx.coroutines.withContext
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
@@ -170,9 +174,7 @@ class OpenAiCompatibleClient(
         parse: (String) -> T,
     ): HttpExecution<T> {
         val call = client.newCall(request)
-        val cancellationHandle = currentCoroutineContext().job.invokeOnCompletion { cause ->
-            if (cause != null) call.cancel()
-        }
+        val cancellationHandle = watchCancellation(call)
         try {
             call.execute().use { response ->
                 val bodySource = response.body?.source()
@@ -198,7 +200,7 @@ class OpenAiCompatibleClient(
             currentCoroutineContext().ensureActive()
             throw ApiFailureClassifier.fromNetwork(error)
         } finally {
-            cancellationHandle.dispose()
+            cancellationHandle.cancel()
         }
     }
 
@@ -210,9 +212,7 @@ class OpenAiCompatibleClient(
         onDelta: (suspend (StreamDeltaUpdate) -> Unit)?,
     ): ModelCompletion {
         val call = client.newCall(request)
-        val cancellationHandle = currentCoroutineContext().job.invokeOnCompletion { cause ->
-            if (cause != null) call.cancel()
-        }
+        val cancellationHandle = watchCancellation(call)
         try {
             call.execute().use { response ->
                 if (httpDebugLoggingEnabled) NetworkDebugLogger.logStreamResponseStart(request, response.code)
@@ -289,9 +289,15 @@ class OpenAiCompatibleClient(
             currentCoroutineContext().ensureActive()
             throw ApiFailureClassifier.fromNetwork(error)
         } finally {
-            cancellationHandle.dispose()
+            cancellationHandle.cancel()
         }
     }
+
+    private suspend fun watchCancellation(call: okhttp3.Call): Job =
+        CoroutineScope(currentCoroutineContext()).launch(Dispatchers.Unconfined, start = CoroutineStart.UNDISPATCHED) {
+            // long: 同步网络读取会阻止父 Job 完成；子观察者在取消开始时关闭 socket，覆盖响应头、正文与 SSE 等待。
+            try { awaitCancellation() } finally { call.cancel() }
+        }
 
     private data class ModelCompletion(
         val text: String,
