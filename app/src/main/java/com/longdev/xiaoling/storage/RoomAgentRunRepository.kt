@@ -9,6 +9,10 @@ import com.longdev.xiaoling.agent.AgentRunLedger
 import com.longdev.xiaoling.agent.AgentContextInput
 import com.longdev.xiaoling.agent.AgentContextSnapshotCodec
 import com.longdev.xiaoling.agent.AgentContextSnapshotRecord
+import com.longdev.xiaoling.agent.AgentContextCompressionCandidate
+import com.longdev.xiaoling.agent.AgentContextCompressionRecord
+import com.longdev.xiaoling.agent.AgentContextCompressionPolicy
+import com.longdev.xiaoling.data.AgentContextCompressionEntity
 import com.longdev.xiaoling.agent.AgentLlmPhase
 import com.longdev.xiaoling.agent.AgentRunDetailRecord
 import com.longdev.xiaoling.agent.AgentRunRecord
@@ -274,11 +278,24 @@ class RoomAgentRunRepository(
         }
     }
 
-    override suspend fun appendContextSnapshot(runId: String, stepId: String, input: AgentContextInput) {
+    override suspend fun appendContextSnapshot(runId: String, stepId: String, input: AgentContextInput) =
+        persistContextSnapshot(runId, stepId, input, null)
+
+    override suspend fun appendCompressedContextSnapshot(runId: String, stepId: String, input: AgentContextInput,
+        candidate: AgentContextCompressionCandidate) = persistContextSnapshot(runId, stepId, input, candidate)
+
+    private suspend fun persistContextSnapshot(runId: String, stepId: String, input: AgentContextInput,
+        candidate: AgentContextCompressionCandidate?) {
         // long: 在等待 Room 锁前编码成不可变文本，调用方修改集合不能改变这次已冻结的请求输入。
         val payload = AgentContextSnapshotCodec.encode(input)
         val frozen = AgentContextSnapshotCodec.decode(payload)
         val bytes = AgentContextSnapshotCodec.utf8Size(payload)
+        val sourceJson = candidate?.let { AgentContextSnapshotCodec.encode(it.sourceInput) }
+        val frozenCandidate = sourceJson?.let { AgentContextCompressionCandidate(AgentContextSnapshotCodec.decode(it), candidate!!.historyStart, frozen) }
+        frozenCandidate?.let {
+            check(candidate!!.input == frozen)
+            AgentContextCompressionPolicy.validate(it)
+        }
         database.withTransaction {
             val dao = database.agentRunDao()
             val run = checkNotNull(dao.getRun(runId)) { "上下文所属 Run 不存在" }
@@ -292,23 +309,96 @@ class RoomAgentRunRepository(
             check(dao.getToolCalls(runId).map { it.id }.toSet() == verifiedIds.toSet()) { "存在尚未验证的工具响应，拒绝冻结下一次模型输入" }
             val frames = dao.getContextSnapshots(runId)
             validateContextTranscript(runId, frames)
+            val compressions = dao.getContextCompressions(runId)
+            validateContextCompressions(runId, frames, compressions)
+            frozenCandidate?.let { validateCompressionToolSources(runId, it) }
             frames.singleOrNull { it.stepId == stepId }?.let { existing ->
-                check(existing.payloadJson == payload && existing.recordSha256 == AgentContextSnapshotCodec.recordHash(runId, stepId, existing.sequence, payload)) { "同一模型步骤的上下文已冻结，禁止覆盖" }
+                check(existing.payloadJson == payload && existing.recordSha256 == AgentContextSnapshotCodec.recordHash(runId, stepId, existing.sequence, payload, existing.compressionVersion)) { "同一模型步骤的上下文已冻结，禁止覆盖" }
+                val old = compressions.singleOrNull { it.stepId == stepId }
+                check((old == null) == (frozenCandidate == null) &&
+                    (old == null || old.sourceJson == sourceJson && old.historyStart == frozenCandidate!!.historyStart)) { "同一压缩来源已冻结，禁止替换" }
                 return@withTransaction
             }
             check(frames.size < AgentContextSnapshotCodec.MAX_FRAMES) { "上下文请求序列已满" }
             check(frames.sumOf { it.payloadBytes.toLong() } + bytes <= AgentContextSnapshotCodec.MAX_RUN_BYTES) { "Run 上下文已超过字节限额" }
             val sequence = frames.size + 1
-            val hash = AgentContextSnapshotCodec.recordHash(runId, stepId, sequence, payload)
-            dao.insertContextSnapshot(AgentContextSnapshotEntity(runId, sequence, stepId, payload, hash, bytes, System.currentTimeMillis()))
+            val compressionVersion = if (frozenCandidate == null) null else compressions.size + 1
+            val hash = AgentContextSnapshotCodec.recordHash(runId, stepId, sequence, payload, compressionVersion)
+            dao.insertContextSnapshot(AgentContextSnapshotEntity(runId, sequence, stepId, payload, hash, bytes, System.currentTimeMillis(), compressionVersion))
+            if (frozenCandidate != null) {
+                check(compressions.size < AgentContextCompressionPolicy.MAX_VERSIONS) { "压缩版本已满" }
+                val sourceBytes = AgentContextSnapshotCodec.utf8Size(sourceJson!!)
+                check(compressions.sumOf { it.sourceBytes.toLong() } + sourceBytes <= AgentContextCompressionPolicy.MAX_SOURCE_BYTES) { "压缩来源容量已满" }
+                val version = compressions.size + 1
+                // long: 来源、派生版本和实际输入同事务提交；任一插入失败连发送帧也回滚，不能用半写入产物进入模型。
+                dao.insertContextCompression(AgentContextCompressionEntity(runId, version, stepId, sequence,
+                    AgentContextCompressionPolicy.ALGORITHM_VERSION, frozenCandidate.historyStart, sourceJson, sourceBytes,
+                    AgentContextCompressionPolicy.recordHash(runId, stepId, version, sequence, frozenCandidate.historyStart, sourceJson, hash),
+                    System.currentTimeMillis()))
+            }
         }
     }
 
     override suspend fun contextTranscript(runId: String): List<AgentContextSnapshotRecord> = database.withTransaction {
         val frames = database.agentRunDao().getContextSnapshots(runId)
         validateContextTranscript(runId, frames)
+        validateContextCompressions(runId, frames, database.agentRunDao().getContextCompressions(runId))
         frames.map { frame -> AgentContextSnapshotRecord(frame.runId, frame.stepId, frame.sequence,
-            AgentContextSnapshotCodec.decode(frame.payloadJson), frame.recordSha256, frame.payloadBytes, frame.createdAt) }
+            AgentContextSnapshotCodec.decode(frame.payloadJson), frame.recordSha256, frame.payloadBytes, frame.createdAt, frame.compressionVersion) }
+    }
+
+    override suspend fun contextCompressions(runId: String): List<AgentContextCompressionRecord> = database.withTransaction {
+        val frames = database.agentRunDao().getContextSnapshots(runId)
+        val rows = database.agentRunDao().getContextCompressions(runId)
+        validateContextTranscript(runId, frames)
+        validateContextCompressions(runId, frames, rows)
+        rows.map { AgentContextCompressionRecord(it.runId, it.stepId, it.version, it.frameSequence,
+            AgentContextSnapshotCodec.decode(it.sourceJson), it.historyStart, it.recordSha256, it.createdAt) }
+    }
+
+    private suspend fun validateContextCompressions(runId: String, frames: List<AgentContextSnapshotEntity>,
+        rows: List<AgentContextCompressionEntity>) {
+        check(rows.size <= AgentContextCompressionPolicy.MAX_VERSIONS && rows.map { it.stepId }.distinct().size == rows.size)
+        // long: 压缩帧必须有完整来源行；来源被删不能让派生输入悄悄降级成普通 EXACT_TEXT。
+        val compressedFrames = frames.filter { it.compressionVersion != null }
+        check(compressedFrames.size == rows.size && compressedFrames.map { it.compressionVersion }.distinct().size == rows.size)
+        check(compressedFrames.all { frame -> rows.any { it.version == frame.compressionVersion && it.frameSequence == frame.sequence && it.stepId == frame.stepId } })
+        check(rows.sumOf { it.sourceBytes.toLong() } <= AgentContextCompressionPolicy.MAX_SOURCE_BYTES)
+        rows.forEachIndexed { index, row ->
+            check(row.runId == runId && row.version == index + 1 && row.algorithmVersion == AgentContextCompressionPolicy.ALGORITHM_VERSION)
+            val frame = checkNotNull(frames.singleOrNull { it.sequence == row.frameSequence && it.stepId == row.stepId })
+            check(frame.compressionVersion == row.version)
+            check(row.sourceBytes == AgentContextSnapshotCodec.utf8Size(row.sourceJson))
+            check(row.recordSha256 == AgentContextCompressionPolicy.recordHash(runId, row.stepId, row.version, row.frameSequence,
+                row.historyStart, row.sourceJson, frame.recordSha256)) { "压缩来源或派生关联损坏" }
+            val candidate = AgentContextCompressionCandidate(AgentContextSnapshotCodec.decode(row.sourceJson), row.historyStart,
+                AgentContextSnapshotCodec.decode(frame.payloadJson))
+            AgentContextCompressionPolicy.validate(candidate)
+            validateCompressionToolSources(runId, candidate)
+        }
+    }
+
+    private suspend fun validateCompressionToolSources(runId: String, candidate: AgentContextCompressionCandidate) {
+        val rows = AgentContextCompressionPolicy.history(candidate.sourceInput, candidate.historyStart)
+        val calls = database.agentRunDao().getToolCalls(runId).associateBy { it.id }
+        val results = database.agentRunDao().getToolResults(runId).associateBy { it.toolCallId }
+        candidate.sourceInput.verifiedToolCallIds.forEachIndexed { index, id ->
+            val call = checkNotNull(calls[id])
+            val result = checkNotNull(results[id])
+            val row = rows.getJSONObject(index)
+            val arguments = row.getJSONObject("arguments").let { args -> args.keys().asSequence().associateWith { args.getString(it) } }
+            val liveArguments = JSONObject(call.argumentsJson).let { args ->
+                check(args.keys().asSequence().all { args.get(it) is String })
+                args.keys().asSequence().associateWith { args.getString(it) }
+            }
+            val verified = if (!row.has("verified") || row.isNull("verified")) null else row.getBoolean("verified")
+            // long: 快照摘要不能证明实时账本仍一致；压缩提交和读取都逐项绑定已验证工具参数/完整结果，拒绝等待期间的来源漂移。
+            check(call.toolName == row.getString("tool") && liveArguments == arguments && result.toolName == call.toolName &&
+                result.success && result.verificationStatus == ToolVerificationStatus.PASSED.name && result.content == row.getString("content") &&
+                result.executorVerified == verified && org.json.JSONArray(result.knowledgeReferencesJson).toString() == row.getJSONArray("knowledge_references").toString()) {
+                "压缩来源与完整工具账本不一致"
+            }
+        }
     }
 
     private suspend fun validateContextTranscript(runId: String, frames: List<AgentContextSnapshotEntity>) {
@@ -318,7 +408,7 @@ class RoomAgentRunRepository(
         frames.forEachIndexed { index, frame ->
             check(frame.runId == runId && frame.sequence == index + 1 && frame.stepId.isNotBlank()) { "上下文归属或请求序号不匹配" }
             check(frame.payloadBytes == AgentContextSnapshotCodec.utf8Size(frame.payloadJson)) { "上下文字节计数不匹配" }
-            check(frame.recordSha256 == AgentContextSnapshotCodec.recordHash(runId, frame.stepId, frame.sequence, frame.payloadJson)) { "上下文摘要不匹配" }
+            check(frame.recordSha256 == AgentContextSnapshotCodec.recordHash(runId, frame.stepId, frame.sequence, frame.payloadJson, frame.compressionVersion)) { "上下文摘要不匹配" }
             val input = AgentContextSnapshotCodec.decode(frame.payloadJson)
             val step = checkNotNull(database.agentRunDao().getStep(frame.stepId)) { "上下文 Step 不存在" }
             val expectedType = if (input.phase == AgentLlmPhase.PLAN) AgentStepTypes.LLM_PLAN else AgentStepTypes.LLM_SUMMARIZE

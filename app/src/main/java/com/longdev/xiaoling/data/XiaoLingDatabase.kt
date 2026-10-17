@@ -19,6 +19,7 @@ import org.json.JSONObject
         ApprovalRequestEntity::class,
         RunEventEntity::class,
         AgentContextSnapshotEntity::class,
+        AgentContextCompressionEntity::class,
         AgentToolCallEntity::class,
         AgentToolResultEntity::class,
         AgentMemoryEntity::class,
@@ -43,7 +44,7 @@ import org.json.JSONObject
         ProcessExitObservationEntity::class,
         KnowledgeAnswerabilityShadowObservationEntity::class,
     ],
-    version = 42,
+    version = 43,
     exportSchema = true,
 )
 abstract class XiaoLingDatabase : RoomDatabase() {
@@ -60,7 +61,7 @@ abstract class XiaoLingDatabase : RoomDatabase() {
     abstract fun knowledgeAnswerabilityShadowObservationDao(): KnowledgeAnswerabilityShadowObservationDao
 
     companion object {
-        const val CURRENT_VERSION = 42
+        const val CURRENT_VERSION = 43
         const val DATABASE_NAME = "xiaoling.db"
 
         @Volatile
@@ -971,6 +972,23 @@ abstract class XiaoLingDatabase : RoomDatabase() {
             }
         }
 
+        private val MIGRATION_42_43 = object : Migration(42, 43) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                // long: 压缩来源作为追加版本保存，旧输入/记忆不改写；派生行依附真实发送帧，避免重开后出现无来源的压缩版本。
+                db.execSQL("ALTER TABLE `agent_context_snapshots` ADD COLUMN `compressionVersion` INTEGER")
+                db.execSQL("CREATE UNIQUE INDEX IF NOT EXISTS `index_agent_context_snapshots_runId_compressionVersion` ON `agent_context_snapshots` (`runId`, `compressionVersion`)")
+                db.execSQL("""CREATE TABLE IF NOT EXISTS `agent_context_compressions` (
+                    `runId` TEXT NOT NULL, `version` INTEGER NOT NULL, `stepId` TEXT NOT NULL,
+                    `frameSequence` INTEGER NOT NULL, `algorithmVersion` INTEGER NOT NULL, `historyStart` INTEGER NOT NULL,
+                    `sourceJson` TEXT NOT NULL, `sourceBytes` INTEGER NOT NULL, `recordSha256` TEXT NOT NULL, `createdAt` INTEGER NOT NULL,
+                    PRIMARY KEY(`runId`, `version`),
+                    FOREIGN KEY(`runId`, `frameSequence`) REFERENCES `agent_context_snapshots`(`runId`, `sequence`) ON UPDATE NO ACTION ON DELETE CASCADE
+                )""".trimIndent())
+                db.execSQL("CREATE UNIQUE INDEX IF NOT EXISTS `index_agent_context_compressions_runId_stepId` ON `agent_context_compressions` (`runId`, `stepId`)")
+                db.execSQL("CREATE INDEX IF NOT EXISTS `index_agent_context_compressions_runId_frameSequence` ON `agent_context_compressions` (`runId`, `frameSequence`)")
+            }
+        }
+
         fun migrations(): Array<Migration> = arrayOf(
             MIGRATION_1_2,
             MIGRATION_2_3,
@@ -1013,6 +1031,7 @@ abstract class XiaoLingDatabase : RoomDatabase() {
             MIGRATION_39_40,
             MIGRATION_40_41,
             MIGRATION_41_42,
+            MIGRATION_42_43,
         )
 
         private fun createAgentNotesTable(db: SupportSQLiteDatabase) {

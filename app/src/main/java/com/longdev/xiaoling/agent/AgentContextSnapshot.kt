@@ -30,6 +30,7 @@ data class AgentContextSnapshotRecord(
     val recordSha256: String,
     val payloadBytes: Int,
     val createdAt: Long,
+    val compressionVersion: Int? = null,
 )
 
 class AgentContextSnapshotException(cause: Throwable? = null) :
@@ -103,11 +104,14 @@ internal object AgentContextSnapshotCodec {
         .onMalformedInput(CodingErrorAction.REPORT).onUnmappableCharacter(CodingErrorAction.REPORT)
         .encode(java.nio.CharBuffer.wrap(text)).remaining()
 
-    fun recordHash(runId: String, stepId: String, sequence: Int, payload: String): String {
+    fun recordHash(runId: String, stepId: String, sequence: Int, payload: String, compressionVersion: Int? = null): String {
         require(runId.isNotBlank() && stepId.isNotBlank() && sequence > 0)
+        require(compressionVersion == null || compressionVersion > 0)
         val digest = MessageDigest.getInstance("SHA-256")
         // long: 长度前缀把身份、顺序与输入绑定在同一摘要里，避免正文相同但归属字段损坏时仍被读作有效记录。
-        listOf("xiaoling-agent-context-v1", runId, stepId, sequence.toString(), payload).forEach { field ->
+        val fields = if (compressionVersion == null) listOf("xiaoling-agent-context-v1", runId, stepId, sequence.toString(), payload)
+            else listOf("xiaoling-agent-context-compressed-v1", runId, stepId, sequence.toString(), compressionVersion.toString(), payload)
+        fields.forEach { field ->
             utf8Size(field)
             val bytes = field.toByteArray(Charsets.UTF_8)
             digest.update(java.nio.ByteBuffer.allocate(4).putInt(bytes.size).array())

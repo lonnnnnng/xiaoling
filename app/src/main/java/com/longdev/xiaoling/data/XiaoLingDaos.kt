@@ -107,6 +107,12 @@ interface ConversationDao {
 @Dao
 interface AgentRunDao {
     @Insert(onConflict = OnConflictStrategy.ABORT)
+    suspend fun insertContextCompression(compression: AgentContextCompressionEntity)
+
+    @Query("SELECT * FROM agent_context_compressions WHERE runId = :runId ORDER BY version ASC")
+    suspend fun getContextCompressions(runId: String): List<AgentContextCompressionEntity>
+
+    @Insert(onConflict = OnConflictStrategy.ABORT)
     suspend fun insertContextSnapshot(snapshot: AgentContextSnapshotEntity)
 
     @Query("SELECT * FROM agent_context_snapshots WHERE runId = :runId ORDER BY sequence ASC")

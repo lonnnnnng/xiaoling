@@ -31,4 +31,11 @@ interface AgentRunLedger {
     }
 
     suspend fun contextTranscript(runId: String): List<AgentContextSnapshotRecord> = emptyList()
+
+    suspend fun appendCompressedContextSnapshot(runId: String, stepId: String, input: AgentContextInput,
+        candidate: AgentContextCompressionCandidate) {
+        error("当前 Ledger 不支持压缩来源与快照共事务保存")
+    }
+
+    suspend fun contextCompressions(runId: String): List<AgentContextCompressionRecord> = emptyList()
 }

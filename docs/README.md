@@ -1,8 +1,8 @@
 # 文档索引
 
-## 当前阶段：第 287 阶段 Context/Memory（第二片输入快照）
+## 当前阶段：第 287 阶段 Context/Memory（第三片提取压缩）
 
-- 正式 Memory CAS 已完成；第二片保存有界实际模型输入，绑定 Run/Step/连续序号，Room 41→42、完整性/容量门禁和设备正文省略投影已实现。详见[Memory CAS](memory-cas.md)、[输入快照契约](agent-context-snapshot.md)与[验证报告](verification-report.md)。后续为压缩、进程恢复和后台整理，整个第 3 点仍在推进。
+- Memory CAS、有界输入快照与确定性提取压缩已实现。较早大结果显式首尾片段，最近结果完整；原输入/压缩版本/实际帧共事务保存，开发 Room v43。详见[Memory CAS](memory-cas.md)、[输入快照](agent-context-snapshot.md)、[压缩契约](agent-context-compression.md)与[验证报告](verification-report.md)。后续为进程恢复和后台整理，整个第 3 点仍在推进。
 
 ## 第 286 阶段 MCP（已收口）
 

@@ -1,5 +1,12 @@
 # 当前实现说明
 
+## 2026-10-18 第 287 阶段第三片：确定性历史投影和来源版本
+
+- `AgentContextCompressionPolicy` v1 按原历史 JSON 64 KiB/收益门禁生成提取投影，最近结果、参数与引用完整；Unicode code point 首尾各 1024B，标注缺口和内容 hash，不产生语义摘要或额外 telemetry。
+- 新模型入口兼容旧 capture；生产 Runtime 的原 timed step 内准备/保存派生输入，Reporting Ledger 转发共事务 API。原 user 前缀只复制，附件和设备输入省略投影保持原路径。
+- Room v43 保存 source JSON/historyStart、连续压缩版本与帧关联。nullable `compressionVersion` 唯一索引、独立帧 domain 和来源摘要防止失源降级；读写逐项核对实时 PASSED 工具账本，双向帧/来源检查拒绝重复版本掩盖无源帧。
+- 失败/超限 ABORT 回滚保留前缀和工具事实，活动同 Step 幂等重试；42→43 保留旧 v1 hash、原数据和 Memory CAS。自然进程恢复、自动重放和后台整理未接入，详见[压缩契约](agent-context-compression.md)。
+
 ## 2026-10-18 第 287 阶段第二片：模型输入序列与存储边界
 
 - `AgentContextSnapshotCodec` v1 严格校验两条文本消息、UTF-8、枚举/字段、工具 ID 与附件计数，冻结编码正文；SHA-256 以 domain/长度前缀绑定 Run、Step、sequence 和 payload。

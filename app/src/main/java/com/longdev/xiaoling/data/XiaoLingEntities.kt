@@ -174,7 +174,7 @@ data class RunEventEntity(
 @Entity(
     tableName = "agent_context_snapshots",
     primaryKeys = ["runId", "sequence"],
-    indices = [Index(value = ["runId", "stepId"], unique = true)],
+    indices = [Index(value = ["runId", "stepId"], unique = true), Index(value = ["runId", "compressionVersion"], unique = true)],
     foreignKeys = [ForeignKey(entity = AgentRunEntity::class, parentColumns = ["id"],
         childColumns = ["runId"], onDelete = ForeignKey.CASCADE)],
 )
@@ -185,6 +185,27 @@ data class AgentContextSnapshotEntity(
     val payloadJson: String,
     val recordSha256: String,
     val payloadBytes: Int,
+    val createdAt: Long,
+    val compressionVersion: Int? = null,
+)
+
+@Entity(
+    tableName = "agent_context_compressions",
+    primaryKeys = ["runId", "version"],
+    indices = [Index(value = ["runId", "stepId"], unique = true), Index(value = ["runId", "frameSequence"])],
+    foreignKeys = [ForeignKey(entity = AgentContextSnapshotEntity::class, parentColumns = ["runId", "sequence"],
+        childColumns = ["runId", "frameSequence"], onDelete = ForeignKey.CASCADE)],
+)
+data class AgentContextCompressionEntity(
+    val runId: String,
+    val version: Int,
+    val stepId: String,
+    val frameSequence: Int,
+    val algorithmVersion: Int,
+    val historyStart: Int,
+    val sourceJson: String,
+    val sourceBytes: Int,
+    val recordSha256: String,
     val createdAt: Long,
 )
 

@@ -54,19 +54,25 @@ class OpenAiAgentLlm(
         tools: List<ToolDefinition>,
         completedTools: List<AgentToolExecution>,
         capture: suspend (AgentContextInput) -> Unit,
-    ): AgentLlmCallResult<AgentPlanDecision> = requestPlan(goal, tools, completedTools, capture)
+    ): AgentLlmCallResult<AgentPlanDecision> = requestPlan(goal, tools, completedTools, { input, _ -> capture(input) })
+
+    override suspend fun proposeNextActionWithCompression(goal: String, tools: List<ToolDefinition>,
+        completedTools: List<AgentToolExecution>, capture: suspend (AgentContextInput, AgentContextCompressionCandidate?) -> Unit,
+    ): AgentLlmCallResult<AgentPlanDecision> = requestPlan(goal, tools, completedTools, capture, compressHistory = true)
 
     private suspend fun requestPlan(
         goal: String,
         tools: List<ToolDefinition>,
         completedTools: List<AgentToolExecution>,
-        capture: (suspend (AgentContextInput) -> Unit)? = null,
+        capture: (suspend (AgentContextInput, AgentContextCompressionCandidate?) -> Unit)? = null,
+        compressHistory: Boolean = false,
     ): AgentLlmCallResult<AgentPlanDecision> {
         val frozenTools = completedTools.map { execution ->
             execution.copy(toolCall = execution.toolCall.copy(arguments = execution.toolCall.arguments.toMap()),
                 toolResult = execution.toolResult.copy(knowledgeReferences = execution.toolResult.knowledgeReferences.toList()))
         }
-        val messages = listOf(
+        val history = frozenTools.toPlannerHistoryJson()
+        var messages = listOf(
                 RequestMessage(
                     role = "system",
                     content = """
@@ -96,13 +102,19 @@ class OpenAiAgentLlm(
                         ${selectedSkills.toModelPromptBlock()}
 
                         已执行并验证的工具历史：
-                        ${frozenTools.toPlannerHistoryJson()}
+                        $history
                     """.trimIndent(),
                     images = userAttachments.image?.let(::listOf).orEmpty(),
                     documents = userAttachments.document?.let(::listOf).orEmpty(),
                 ),
         )
-        capture?.invoke(contextInput(AgentLlmPhase.PLAN, messages, frozenTools))
+        val source = contextInput(AgentLlmPhase.PLAN, messages, frozenTools)
+        val candidate = if (compressHistory) AgentContextCompressionPolicy.prepare(source, messages.last().content.length - history.length) else null
+        if (candidate != null) {
+            // long: 只替换末尾历史区，目标/工具目录/Skill 与最近结果不改；原输入将随派生版本落库，不能只保存压缩后文本。
+            messages = messages.mapIndexed { index, message -> message.copy(content = candidate.input.messages[index].content) }
+        }
+        capture?.invoke(candidate?.input ?: source, candidate)
         // long: 持久化期间取消的请求不能进入网络层；保存输入只表示请求意图，不表示远端已收到。
         currentCoroutineContext().ensureActive()
         val response = client.sendMessage(config = config.copy(streamingEnabled = false, temperature = 0.0), messages = messages)

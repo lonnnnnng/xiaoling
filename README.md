@@ -7,7 +7,7 @@
 <p align="center">
   <img alt="Android 8+" src="https://img.shields.io/badge/Android-8.0%2B-3DDC84?logo=android&logoColor=white">
   <img alt="Kotlin" src="https://img.shields.io/badge/Kotlin-Jetpack%20Compose-7F52FF?logo=kotlin&logoColor=white">
-  <img alt="Room v42" src="https://img.shields.io/badge/Room-v42-4285F4">
+  <img alt="Room v43" src="https://img.shields.io/badge/Room-v43-4285F4">
   <img alt="Release v0.1.22" src="https://img.shields.io/badge/Release-v0.1.22-2E7D32">
 </p>
 
@@ -104,7 +104,7 @@ Release 签名从未跟踪文件 `local-signing/xiaoling-release.env` 读取。�
 
 ## 当前状态
 
-当前主线是第 3 点 Context/Memory（第 287 阶段）。Memory CAS 与有界模型输入/context snapshot 已实现，开发数据库升至 Room v42；快照在发送前保存、绑定 Run/Step/连续序号，设备输入历史省略正文。后续依次推进压缩、进程恢复和后台整理，详见[Memory CAS](docs/memory-cas.md)、[输入快照契约](docs/agent-context-snapshot.md)、[路线图](docs/personal-agent-roadmap.md)和[验证报告](docs/verification-report.md)。
+当前主线是第 3 点 Context/Memory（第 287 阶段）。Memory CAS、有界输入/context snapshot 与确定性提取压缩已实现，开发 Room v43；原输入、压缩版本和实际发送帧共事务保存，较早结果显式省略、最近结果完整。后续依次推进进程恢复和后台整理，详见[Memory CAS](docs/memory-cas.md)、[输入快照](docs/agent-context-snapshot.md)、[压缩契约](docs/agent-context-compression.md)、[路线图](docs/personal-agent-roadmap.md)和[验证报告](docs/verification-report.md)。
 
 第 2 点 MCP 已收口：应用级 `McpSessionRegistry` 统一设置/Run 会话，支持 Streamable HTTP 与 legacy SSE；配置变更撤销旧连接，取消/断流清目录，后续显式操作重新发现且不重放工具调用。Redmi 已通过真实 `gpt-6-luna` 的 SSE 成功/取消/停用，以及 Context7 认证 HTTPS 的发现和只读解析。Context7 为真实外部 Streamable HTTP，SSE 服务端仍为隔离 loopback；`query-docs`、OAuth、stdio、Tasks、后台 MCP 和正式 Release 独立后置，详见[MCP 会话契约](docs/mcp-session-registry.md)。
 
@@ -113,7 +113,7 @@ Release 签名从未跟踪文件 `local-signing/xiaoling-release.env` 读取。�
 | 项目 | 状态 |
 | --- | --- |
 | 正式版本 | `v0.1.22`（`versionCode 23`） |
-| 当前开发数据库 | Room v42（正式 v0.1.22 发布包仍为 v40） |
+| 当前开发数据库 | Room v43（正式 v0.1.22 发布包仍为 v40） |
 | 开发里程碑 | 第四组 Run/Task Runtime v2 P0-b 已完成，包含浏览器、工作区/终端、受限 MCP、GitHub Skill、后台可靠性、TTS、系统助手、插件/ACI/GenUI 与任务中心汇总投影 |
 | JVM 历史基线（2026-08-13） | `1118 / 1118` 通过 |
 | Lint 历史基线（2026-08-13） | 通过 |

@@ -21,7 +21,7 @@
 
 1. Remote Channel 第 285 阶段按原定 cursor、批次、ACK、重试、过期、后台收件和通知功能收口。稳定部署与长期验收列为独立待办，不阻塞后续主线；临时公网认证互通不代表稳定服务和自然系统恢复已验收。
 2. 第 286 阶段 MCP 已收口：统一 `McpSessionRegistry`、legacy SSE、真实模型 SSE 联合验收及 Context7 认证 HTTPS 只读验收已完成。stdio 等待进程沙箱和生命周期机制，OAuth、Tasks 后置。
-3. 当前主线为第 287 阶段 Context/Memory：第一片 Memory CAS 与第二片有界模型输入/context snapshot 已实现；下一片是压缩，其后进程恢复和有界后台整理，验收范围以当前报告为准。
+3. 当前主线为第 287 阶段 Context/Memory：Memory CAS、有界输入/context snapshot 和第三片确定性提取压缩已实现；下一片是进程恢复，其后有界后台整理，验收范围以当前报告为准。
 4. Skill 已可从 GitHub 导入并固定提交，但插件仍是声明/只读投影，缺少签名 manifest、版本回滚和 SAFE 前台可执行扩展。
 5. 多 Agent 仍限前台 Direct、最多两个只读 child；后续补 child checkpoint、预算、取消、失败聚合和恢复。
 6. Workspace/Browser/GenUI 合为后续一组：补 session transcript、DOM/action、版本化组件和显式 action。
@@ -66,7 +66,8 @@
 
 - 第一片 Memory CAS：显式版本、条件修改、当前内容冲突返回、保留旧草稿、版本化 Agent/管理删除与最新快照撤销，以及 Room 40→41 兼容迁移已实现；聚焦 JVM、Redmi 存储/迁移及生产 ViewModel/UI 验收见[验证报告](verification-report.md)，契约见[Memory CAS](memory-cas.md)。此处只收口 CAS，不收口整个第 3 点。
 - 第二片 bounded transcript/context snapshot 保存实际 adapter 输入序列，Room 41→42、连续序号、完整性/容量门禁、设备正文省略和保存失败停止已实现，详见[输入快照契约](agent-context-snapshot.md)及[验证报告](verification-report.md)。此处没有完整消息往返、自动恢复或压缩。
-- 下一片进入压缩，其后为进程恢复和后台整理，不追加 MCP/Remote Channel 的独立长期待办。
+- 第三片确定性提取压缩在 64 KiB/实质收益门禁后保存原输入和派生版本，保留最近完整结果并显式标记旧正文缺口，Room 42→43、共事务/来源漂移/容量与版本关联已实现，见[压缩契约](agent-context-compression.md)。本片不生成语义摘要，也不接入自动恢复。
+- 下一片进入进程恢复，其后为后台整理，不追加 MCP/Remote Channel 的独立长期待办。
 
 - 在现有 Room Memory 上增加显式 `version`/CAS 冲突返回和当前内容回传，避免多轮 Agent、后台整理覆盖用户编辑；禁止默认删除。
 - 为 Agent Run 持久化 bounded transcript、context snapshot 和压缩版本；压缩前冻结未完成 tool response，失败保留原上下文并允许重试。

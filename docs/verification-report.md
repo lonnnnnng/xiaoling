@@ -2,6 +2,21 @@
 
 验证日期：2026-10-18（北京时间）
 
+# 2026-10-18 第 287 阶段第三片：上下文提取压缩
+
+- 主线：第 3 点 Context/Memory 第三片完成确定性提取压缩；Memory CAS 与有界输入快照已提交。下一片为进程恢复，其后是后台整理，整个第 3 点仍未收口，详见[压缩契约](agent-context-compression.md)与[路线图](personal-agent-roadmap.md)。
+- 模型输入：生产 PLAN 经 `proposeNextActionWithCompression` 准备候选，旧接口仍发送完整历史。仅 EXACT_TEXT、无附件、至少两条已验证历史、历史 JSON 至少 64 KiB，且编码输入节省至少 4 KiB 和 10% 时采用；原输入仍受 1 MiB 保存限额约束。较早且超过 4 KiB 的结果保留首尾各最多 1024 UTF-8 字节，按 code point 切取，独立字段标出缺口、完整字节数与 SHA-256；目标前缀、system、工具目录、Skill、参数、引用与最近结果完整保留。设备输入历史仍整体省略正文，不压缩附件。
+- 持久化与失败：原输入、实际发送快照和每 Run 连续压缩版本同 Room ABORT 事务提交；32 版本/16 MiB 来源上限与原快照 64 帧/16 MiB 独立生效。保存与读取核对实时 Tool Ledger 的工具名、参数、完整结果、success、PASSED、executorVerified 和知识引用。同 Step 同源同派生幂等，换源、换普通输入、pending 响应、漂移、损坏或容量已满都拒绝；失败保留旧前缀与完整工具事实，不能绕过保存发送派生或完整输入。计算与保存仍在原规划预算内，不增加模型请求或 telemetry。
+- 只读复核：输入复核未发现具体生产漏洞；存储复核发现原版本集合比较可能掩盖多个帧复用一个来源版本。修正为 nullable `compressionVersion`、每 Run 唯一索引、压缩帧独立摘要 domain 和双向逐帧核对数量/唯一版本/sequence/Step；UUID 数据库先验索引拒绝重复，再移除测试索引注入重复关联，读取仍拒绝且不修复证据。
+- JVM/构建：JDK 21 wrapper 执行 `:app:testDebugUnitTest --tests '*AgentContextCompressionTest' --tests '*AgentContextSnapshotTest' --tests '*MinimalAgentRuntimeTest' --tests '*MultiStepAgentRuntimeTest' --tests '*AgentRunResumePolicyTest' --tests '*AgentRunRecoveryEvidencePolicyTest' :app:assembleDebug :app:assembleDebugAndroidTest --console=plain`，最新 `BUILD SUCCESSFUL in 4s`，六类合计 `156 tests / 0 failures / 0 errors / 0 skipped`。新增压缩 4 项覆盖触发/收益、最近完整结果、目标含同一历史 JSON、Unicode、拒绝错误来源及 adapter wire。
+- 失败保留：首次编译把 `KnowledgeReferenceCodec.encode()` 的 JSONArray 当作 String，修正类型；随后 SQL fixture 混合参数 `arrayOf` 触发 Kotlin intersection reification，改为显式 `arrayOf<Any>`。失败日志与后续成功日志均保留，不将未运行的新断言计为通过。
+- Redmi：仅 `wsvwypiz7xwslvl7 / begonia / SDK 36`，主/测试 APK `install -r` 成功并保留数据与权限。压缩存储 7 项、42→43 迁移 1 项、快照存储 9 项、41→42 迁移 1 项、既有 Run Repository 56 项和既有迁移类 35 项合计 `OK (109 tests)`、`348.356s`；逐项 status 为 109 passed、0 failed/skipped。使用 UUID/内存隔离数据库，不读取正式 Provider 或触碰正式 Memory undo。来源 16 MiB 与 32 版本上限均实际覆盖，耗时不作为性能门禁。
+- 生产联动：默认 `OpenAiCompatibleClient`、生产 adapter/Runtime/Room 与手机 loopback 共 4 请求，第三次请求到达前回读来源已提交，逐帧文本与实际 wire 相等。原输入保留被省略的中间事实，派生旧结果明确省略而最近结果完整。来源 INSERT trigger 故障时只发前两次请求，Run FAILED，保留前两帧与两条 PASSED 工具事实。双 Room 连接验证幂等/连续版本，另验插入回滚/活动 Step 重试、重开、实时来源漂移、摘要或关联损坏及显式 Run 删除 CASCADE。
+- 迁移：Room 42→43 只为旧快照添加 nullable 版本/唯一索引和空来源表；保留旧输入 v1 payload/hash/时间、null 版本和 Memory version=4，不改原恢复资格。Schema 43 与 42 的其他实体及 views 相同。
+- 定向补验与文档：新增独立压缩契约，同步 requirements、implementation-notes、路线图、输入快照契约、索引及根 README；本报告保存后重新打包并覆盖测试 APK，增强来源漂移断言与 `RoomKnowledgeDocumentStoreInstrumentedTest#projectDocumentationCorpusMeetsGoldenQueryRecallGate` 合计 `OK (2 tests)`、`8.870s`，逐项 0 failed/skipped。补验覆盖派生内容相同而原来源变化，以及 arguments、verificationStatus、success、executorVerified 和知识引用漂移；读取与追加均拒绝且不修复。写回本结果后再次打包，最终六份语料单项记录另存 `corpus-final.log`。独立契约与根 README 不在六份语料门禁内；111 个本地链接有效。
+- 证据边界：确定性片段不代表模型语义摘要，不保证任意模型 token 上限；完整 Tool Ledger 仍是最终权威，不扩大审批、权限或恢复资格。关闭重开只证明持久化，loopback 固定响应不代表真实模型任务质量或自然 LMK。未请求真实模型/外部服务，未运行完整 JVM/Lint/全量 instrumentation/Release，也未实现进程恢复或后台整理。
+- 交付：发布版本保持 `0.1.22 (23)`，开发数据库 Room v43。忽略的 `outputs/verification/stage287-context-compression/` 保存失败/成功构建、JVM/设备摘要、定向验收与制品审计；本机两份实际凭据仅在内存用于匹配，任务源码/文档、证据及两 APK 全部解压条目 0 命中。差异空白检查通过；仅中文本地提交，不推送、不发版，无关 `refs/` 保留。
+
 # 2026-10-18 第 287 阶段第二片：bounded 输入序列与 context snapshot
 
 - 主线：第 3 点 Context/Memory 第二片完成有界模型输入持久化；第一片 Memory CAS 已提交。下一片为压缩，随后进程恢复和后台整理；整个第 3 点仍未收口，详见[输入快照契约](agent-context-snapshot.md)与[路线图](personal-agent-roadmap.md)。

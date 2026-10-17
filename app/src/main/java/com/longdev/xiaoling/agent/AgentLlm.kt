@@ -53,6 +53,14 @@ interface AgentLlm {
         capture: suspend (AgentContextInput) -> Unit,
     ): AgentLlmCallResult<AgentPlanDecision> = proposeNextActionWithTelemetry(goal, tools, completedTools)
 
+    /** long: 新入口将派生来源与实际输入一并交给账本；旧模型仅保存原输入，不隐式启用压缩。 */
+    suspend fun proposeNextActionWithCompression(
+        goal: String,
+        tools: List<ToolDefinition>,
+        completedTools: List<AgentToolExecution>,
+        capture: suspend (AgentContextInput, AgentContextCompressionCandidate?) -> Unit,
+    ): AgentLlmCallResult<AgentPlanDecision> = proposeNextActionWithContext(goal, tools, completedTools) { capture(it, null) }
+
     suspend fun summarize(goal: String, toolCall: ToolCall, toolResult: ToolExecutionResult): String
 
     suspend fun summarize(goal: String, completedTools: List<AgentToolExecution>): String {

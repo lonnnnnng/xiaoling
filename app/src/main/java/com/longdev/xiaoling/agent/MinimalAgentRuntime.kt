@@ -574,10 +574,12 @@ class MinimalAgentRuntime internal constructor(
         }
     }
 
-    private suspend fun persistContextSnapshot(runId: String, stepId: String, input: AgentContextInput) {
+    private suspend fun persistContextSnapshot(runId: String, stepId: String, input: AgentContextInput,
+        candidate: AgentContextCompressionCandidate? = null) {
         try {
             currentCoroutineContext().ensureActive()
-            ledger.appendContextSnapshot(runId, stepId, input)
+            if (candidate == null) ledger.appendContextSnapshot(runId, stepId, input)
+            else ledger.appendCompressedContextSnapshot(runId, stepId, input, candidate)
         } catch (error: CancellationException) {
             throw error
         } catch (error: Throwable) {
@@ -610,11 +612,11 @@ class MinimalAgentRuntime internal constructor(
             }
             val planCall = try {
                 runTimedStep("模型规划", options.modelStepTimeoutMs, state.executionBudget) {
-                    llm.proposeNextActionWithContext(
+                    llm.proposeNextActionWithCompression(
                         planningGoal,
                         toolRegistry.availableTools(),
                         state.completedTools.toList(),
-                    ) { input -> persistContextSnapshot(run.id, thinking.id, input) }
+                    ) { input, candidate -> persistContextSnapshot(run.id, thinking.id, input, candidate) }
                 }
             } catch (error: AgentLlmResponseException) {
                 appendLlmRequestEvent(run.id, AgentLlmPhase.PLAN, error.telemetry)
