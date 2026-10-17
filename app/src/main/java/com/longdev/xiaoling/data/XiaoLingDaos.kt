@@ -266,8 +266,21 @@ interface AgentRunDao {
 
 @Dao
 interface AgentMemoryDao {
-    @Insert(onConflict = OnConflictStrategy.REPLACE)
-    suspend fun upsertMemory(memory: AgentMemoryEntity)
+    // long: 创建与撤销都不能覆盖现存身份，正式修改只能经带版本条件的 UPDATE。
+    @Insert(onConflict = OnConflictStrategy.ABORT)
+    suspend fun insertMemory(memory: AgentMemoryEntity)
+
+    @Query("""
+        UPDATE agent_memories SET content = :content, tags = :tags, type = :type,
+        confidence = :confidence, enabled = :enabled, pinned = :pinned, expiresAt = :expiresAt,
+        updatedAt = :updatedAt, version = version + 1
+        WHERE id = :memoryId AND version = :expectedVersion
+    """)
+    suspend fun updateMemoryIfVersionMatches(memoryId: String, content: String, tags: String, type: String,
+        confidence: Double, enabled: Boolean, pinned: Boolean, expiresAt: Long?, updatedAt: Long, expectedVersion: Long): Int
+
+    @Query("DELETE FROM agent_memories WHERE id = :memoryId AND version = :expectedVersion")
+    suspend fun deleteMemoryIfVersionMatches(memoryId: String, expectedVersion: Long): Int
 
     @Insert
     suspend fun insertMemoryIndex(memory: AgentMemoryFtsEntity)

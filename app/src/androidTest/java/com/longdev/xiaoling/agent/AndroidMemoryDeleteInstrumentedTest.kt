@@ -100,7 +100,7 @@ class AndroidMemoryDeleteInstrumentedTest {
             assertTrue(detail.success)
             assertFalse(registry.execute(deleteCall).success)
             assertNotNull(memoryStore.get(fixture.id))
-            memoryStore.delete(ambiguousFixture.id)
+            memoryStore.delete(ambiguousFixture.id, expectedVersion = (memoryStore.get(ambiguousFixture.id)?.version ?: 1L))
 
             val search = registry.execute(
                 ToolCall(

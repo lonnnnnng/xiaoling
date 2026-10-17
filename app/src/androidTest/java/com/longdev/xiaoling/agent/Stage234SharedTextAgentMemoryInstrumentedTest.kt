@@ -274,7 +274,7 @@ class Stage234SharedTextAgentMemoryInstrumentedTest {
         }
         val memoryId = state.getString(KEY_MEMORY_ID, null) ?: fixtureRun?.committedMemoryId()
         // long: 清理只使用本轮 COMMITTED 回执里的稳定 ID；不按正文搜索，避免碰触用户已有长期记忆。
-        memoryId?.let { memoryStore.delete(it) }
+        memoryId?.let { memoryStore.delete(it, expectedVersion = (memoryStore.get(it)?.version ?: 1L)) }
         File(context.filesDir, MEMORY_DELETE_UNDO_FILE).delete()
         originalProfileId?.let { profileStore.select(it) }
         profileId?.let { profileStore.delete(it) }

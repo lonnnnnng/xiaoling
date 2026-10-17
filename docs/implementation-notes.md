@@ -1,5 +1,12 @@
 # 当前实现说明
 
+## 2026-10-18 第 287 阶段第一片：版本化 Memory 与冲突草稿
+
+- `AgentMemoryRecord.version`、`AgentMemoryVersionConflictException(current)` 与管理 API 的必填 `expectedVersion` 接入 Room v41。DAO 以 ABORT 创建、条件 UPDATE/DELETE 修改；Store 的有效写入递增一次，并与 FTS 同事务，同值和引用时间不递增。
+- UI action 传呈现版本、编辑冻结基准、删除确认冻结 snapshot。冲突解除 busy、更新当前列表并保留旧草稿；显式重载取得新版本，保存期间禁用输入，成功回调只关闭同份提交草稿。
+- ToolRegistry 冻结唯一搜索/详情版本，删除版本漂移拒绝且不发提交回执；禁用、过期正文继续隐藏，自然过期也在 Store 拒绝。旧 remember resultHash 沿用业务字段契约。
+- undo 格式 2 独立保存业务版本，读格式 1 补基线 1；恢复要求最新快照完整匹配、目标不存在、版本递增，提交前保留快照。历史删除 operation 的 NULL 版本按旧 hash 只读验证。本轮不做跨存储原子提交或自然进程恢复，详见[Memory CAS](memory-cas.md)。
+
 ## 2026-10-18 第 286 阶段：真实 Provider 与 Context7 验收接缝
 
 - `AgentRunUseCase` 可注入隔离 `McpSessionRegistry`，未注入时生产入口不变；新真机门禁继续使用生产 Profile、Skill、Runtime、审批与 Room，不改正式 MCP/Provider 偏好。

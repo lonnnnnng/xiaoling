@@ -255,7 +255,7 @@ class Stage221MemoryDeleteUiInstrumentedTest {
 
     private suspend fun cleanupPreviousFixture(memoryStore: RoomAgentMemoryStore, memoryId: String?) {
         if (memoryId.isNullOrBlank()) return
-        memoryStore.delete(memoryId)
+        memoryStore.delete(memoryId, expectedVersion = (memoryStore.get(memoryId)?.version ?: 1L))
         File(context.filesDir, MEMORY_DELETE_UNDO_FILE).delete()
     }
 

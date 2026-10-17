@@ -3235,7 +3235,9 @@ class XiaoLingViewModel @JvmOverloads constructor(
                 tags = memory.tags,
                 type = memory.type,
                 confidence = memory.confidence,
+                expectedVersion = memory.version,
             ),
+            memoryError = null,
         )
     }
 
@@ -3270,6 +3272,7 @@ class XiaoLingViewModel @JvmOverloads constructor(
         mutateMemory(
             memoryId = draft.id,
             successMessage = "记忆内容和检索索引已更新",
+            savedDraft = draft,
         ) {
             agentMemoryStore.update(
                 memoryId = draft.id,
@@ -3279,29 +3282,30 @@ class XiaoLingViewModel @JvmOverloads constructor(
                     type = draft.type,
                     confidence = draft.confidence,
                 ),
+                expectedVersion = draft.expectedVersion,
             )
         }
     }
 
-    override fun setMemoryEnabled(memoryId: String, enabled: Boolean) {
+    override fun setMemoryEnabled(memoryId: String, enabled: Boolean, expectedVersion: Long) {
         mutateMemory(
             memoryId = memoryId,
             successMessage = if (enabled) "记忆已启用" else "记忆已禁用，不再参与 Agent 检索",
         ) {
-            agentMemoryStore.setEnabled(memoryId, enabled)
+            agentMemoryStore.setEnabled(memoryId, enabled, expectedVersion)
         }
     }
 
-    override fun setMemoryPinned(memoryId: String, pinned: Boolean) {
+    override fun setMemoryPinned(memoryId: String, pinned: Boolean, expectedVersion: Long) {
         mutateMemory(
             memoryId = memoryId,
             successMessage = if (pinned) "记忆已置顶" else "已取消置顶",
         ) {
-            agentMemoryStore.setPinned(memoryId, pinned)
+            agentMemoryStore.setPinned(memoryId, pinned, expectedVersion)
         }
     }
 
-    override fun setMemoryExpiry(memoryId: String, option: AgentMemoryExpiryOption) {
+    override fun setMemoryExpiry(memoryId: String, option: AgentMemoryExpiryOption, expectedVersion: Long) {
         mutateMemory(
             memoryId = memoryId,
             successMessage = "记忆过期策略已更新",
@@ -3309,6 +3313,7 @@ class XiaoLingViewModel @JvmOverloads constructor(
             agentMemoryStore.setExpiresAt(
                 memoryId = memoryId,
                 expiresAt = AgentMemoryDecayPolicy.expiresAt(option, System.currentTimeMillis()),
+                expectedVersion = expectedVersion,
             )
         }
     }
@@ -3331,7 +3336,7 @@ class XiaoLingViewModel @JvmOverloads constructor(
         )
         viewModelScope.launch {
             runCatching {
-                withContext(Dispatchers.IO) { agentMemoryStore.delete(memory.id) }
+                withContext(Dispatchers.IO) { agentMemoryStore.delete(memory.id, memory.version) }
             }.onSuccess { deleted ->
                 uiState = uiState.copy(
                     mutatingMemoryIds = uiState.mutatingMemoryIds - memory.id,
@@ -3344,8 +3349,10 @@ class XiaoLingViewModel @JvmOverloads constructor(
                 )
                 loadMemories()
             }.onFailure { error ->
+                val current = (error as? com.longdev.xiaoling.agent.AgentMemoryVersionConflictException)?.current
                 uiState = uiState.copy(
                     mutatingMemoryIds = uiState.mutatingMemoryIds - memory.id,
+                    memories = if (current == null) uiState.memories else uiState.memories.map { if (it.id == current.id) current else it },
                     memoryError = error.message ?: "删除记忆失败",
                 )
             }
@@ -3642,6 +3649,7 @@ class XiaoLingViewModel @JvmOverloads constructor(
     private fun mutateMemory(
         memoryId: String,
         successMessage: String,
+        savedDraft: AgentMemoryEditUiState? = null,
         operation: suspend () -> AgentMemoryRecord?,
     ) {
         if (memoryId in uiState.mutatingMemoryIds) return
@@ -3652,7 +3660,8 @@ class XiaoLingViewModel @JvmOverloads constructor(
             }.onSuccess { updated ->
                 uiState = uiState.copy(
                     mutatingMemoryIds = uiState.mutatingMemoryIds - memoryId,
-                    editingMemory = null,
+                    // long: 仅关闭刚提交且仍相同的编辑快照，治理操作或保存中出现的新草稿不能被成功回调丢弃。
+                    editingMemory = if (updated != null && savedDraft != null && uiState.editingMemory == savedDraft) null else uiState.editingMemory,
                     result = OperationResult(
                         success = updated != null,
                         title = if (updated != null) "已更新" else "更新失败",
@@ -3661,8 +3670,12 @@ class XiaoLingViewModel @JvmOverloads constructor(
                 )
                 loadMemories()
             }.onFailure { error ->
+                val current = (error as? com.longdev.xiaoling.agent.AgentMemoryVersionConflictException)?.current
                 uiState = uiState.copy(
                     mutatingMemoryIds = uiState.mutatingMemoryIds - memoryId,
+                    // long: 冲突不关闭草稿、不自动套用新版本；当前记录用于比较及显式重新载入。
+                    editingMemory = uiState.editingMemory?.let { if (it.id == memoryId && current != null) it.copy(conflict = current) else it },
+                    memories = if (current == null) uiState.memories else uiState.memories.map { if (it.id == current.id) current else it },
                     memoryError = error.message ?: "更新记忆失败",
                 )
             }

@@ -12,6 +12,8 @@ data class AgentMemoryEditUiState(
     val tags: String,
     val type: String,
     val confidence: Double,
+    val expectedVersion: Long = 1,
+    val conflict: AgentMemoryRecord? = null,
 )
 
 interface MemoryManagementActions {
@@ -31,11 +33,11 @@ interface MemoryManagementActions {
 
     fun selectMemory(memoryId: String)
 
-    fun setMemoryPinned(memoryId: String, pinned: Boolean)
+    fun setMemoryPinned(memoryId: String, pinned: Boolean, expectedVersion: Long)
 
-    fun setMemoryEnabled(memoryId: String, enabled: Boolean)
+    fun setMemoryEnabled(memoryId: String, enabled: Boolean, expectedVersion: Long)
 
-    fun setMemoryExpiry(memoryId: String, option: AgentMemoryExpiryOption)
+    fun setMemoryExpiry(memoryId: String, option: AgentMemoryExpiryOption, expectedVersion: Long)
 
     fun openMemoryEdit(memoryId: String)
 

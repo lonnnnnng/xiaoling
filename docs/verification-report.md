@@ -2,6 +2,18 @@
 
 验证日期：2026-10-18（北京时间）
 
+# 2026-10-18 第 287 阶段第一片：Memory CAS
+
+- 主线：第 2 点 MCP 已收口，当前推进第 3 点 Context/Memory。本片收口显式 Memory version/CAS、冲突草稿、版本化删除与撤销；下一片进入 bounded transcript/context snapshot，其后是压缩、进程恢复和后台整理。整个第 3 点仍未完成，详见[Memory CAS](memory-cas.md)与[路线图](personal-agent-roadmap.md)。
+- 实现：Room 40→41 为旧记忆补 version=1、旧 operation 补 nullable expectedVersion；保留业务、治理、时间和 FTS。有效编辑/治理条件更新并递增一次，同值、引用时间与重复 remember 不递增；冲突回传当前记录、不自动重试。新建/恢复用 ABORT insert，恢复仅接受最新持久快照且身份不存在、版本递增。undo 写格式 2、读格式 1，旧删除 hash 只读兼容，新无版本删除拒绝。
+- UI/Agent：编辑保留旧草稿和版本，显式重新载入；保存禁用正文/标签，成功只关闭同份提交草稿。治理/删除传呈现或确认版本；同 Run 唯一搜索/详情冻结版本，执行冲突撤销旧授权、不生成 COMMITTED 回执。禁用/过期正文不进入 Agent 冲突结果，自然过期即使版本未变也拒绝 Agent 删除。
+- 构建/JVM：JDK 21、仓库 wrapper 执行 `:app:testDebugUnitTest --tests '*Memory*' --tests '*XiaoLingToolRegistryTest' :app:assembleDebug :app:assembleDebugAndroidTest`，最终含文档版本为 `BUILD SUCCESSFUL in 6s`，聚焦 JVM `160/160`，0 failure/error/skip。首次 AndroidTest 编译失败来自测试批量适配误改其他 Store 参数和假实现签名；仅撤回本轮误改并修正，后续构建通过。失败日志保留。
+- Redmi：仅 `wsvwypiz7xwslvl7 / begonia / SDK 36`，主包和测试包 `install -r` 均成功，保留设备数据与权限。CAS 7 项、既有 Memory Store/幂等门禁、40→41 新迁移与既有全迁移类合计 `OK (58 tests)`、`14.587s`，无跳过。覆盖真实双 Room 连接同版本一赢一冲突、直接 FTS 查询、治理/Agent 删除旧版本拒绝、独立 FTS 表故障回滚、关闭重开、同值/引用/remember、最新 undo、旧格式恢复与自然过期。
+- UI：生产 `XiaoLingViewModelMemoryCasInstrumentedTest` 及管理 Dialog/Page 合计 `OK (7 tests)`、`12.693s`，无跳过。确认旧草稿/旧 expectedVersion 保留、conflict/current 正文回传、显式重载后 v3 成功、旧删除确认拒绝，以及冲突正文展示和保存中输入禁用。生产 Room 只创建/精确清理 UUID 记忆，其余 Store/迁移均使用独立测试数据库和撤销文件，避免触碰正式 undo。
+- 文档：新增旧删除 operation 固定历史 hash 的只读兼容断言后单项复验，与 `RoomKnowledgeDocumentStoreInstrumentedTest#projectDocumentationCorpusMeetsGoldenQueryRecallGate` 合计 `OK (2 tests)`、`4.644s`；本报告写回后重新打包，六份长期文档的语料单项复验为 `OK (1 test)`，日志保存为 `corpus-final.log`。
+- 证据边界：数据库关闭重开是持久化验证，不是自然进程恢复；Registry 竞争测试直接调用执行入口，未走完整 Runtime 审批 UI。文件与 Room 两个持久边界仍通过存在性对账，没有跨存储原子提交证据。本轮未请求真实模型、未运行完整 JVM/Lint/全量 instrumentation/Release，也未实现 context snapshot、压缩、后台整理或自然 LMK。
+- 交付：发布版本保持 `0.1.22 (23)`，仅 Room 升至 41。本轮构建、JVM摘要、设备与语料证据保存在忽略的 `outputs/verification/stage287-memory-cas/`；以本机两份实际凭据检查任务源码/文档、证据与两 APK 全部解压条目，0 命中，差异空白检查通过。只做中文本地提交，不推送、不发版；无关 `refs/` 保留。
+
 # 2026-10-18 第 286 阶段：Context7 与真实模型联合验收收口
 
 - 范围：补齐第 2 点 MCP 的真实网络/模型证据，未扩展 Remote Channel。`AgentRunUseCase` 增加可选 Registry 注入以隔离测试配置，生产默认仍取 Application 单例；Profile/Skill/Runtime/审批/Run/Tool Ledger 使用生产实现。版本保持 `0.1.22 (23)`、Room v40，未推送/发版。

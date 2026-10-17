@@ -1,6 +1,10 @@
 # 文档索引
 
-## 当前阶段：第 286 阶段 MCP 注册表与 SSE
+## 当前阶段：第 287 阶段 Context/Memory（第一片 Memory CAS）
+
+- 正式 Memory 已接入版本/CAS、当前内容冲突返回、管理页旧草稿保留、版本化删除与撤销，以及 Room 40→41 兼容迁移。详见[Memory CAS](memory-cas.md)与[验证报告](verification-report.md)。后续为 context snapshot、压缩、进程恢复和后台整理，整个第 3 点仍在推进。
+
+## 第 286 阶段 MCP（已收口）
 
 - 已统一 Application `McpSessionRegistry`，设置/Run owner 分离、完整握手和 schema 分页后发布 READY，配置变更永久撤销旧连接；新增 legacy SSE 与设置入口、取消/断流恢复及禁止自动重放 RPC。见[MCP 注册表与 SSE](mcp-session-registry.md)与[当前验证报告](verification-report.md)。
 - 第 285 阶段按原定 Remote Channel 功能收口；稳定部署、长期保留/容量回收、自然系统恢复、真实通知及 Release 验收作为[路线图](personal-agent-roadmap.md)中的独立待办，不阻塞 MCP。

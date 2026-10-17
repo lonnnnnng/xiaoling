@@ -255,7 +255,7 @@ class Stage253MemoryRememberInstrumentedTest {
         val fixtureRun = recordedRun ?: conversationId?.let { id -> RoomAgentRunRepository(context).recentRunDetails(30).firstOrNull { it.snapshot.run.conversationId == id } }
         val storedMemoryId = state.getString(KEY_MEMORY_ID, null) ?: fixtureRun?.committedMemoryId()
         // long: 只按本阶段成功回执绑定的稳定 ID 清理，避免正文搜索误触用户真实记忆。
-        storedMemoryId?.let { memoryStore.delete(it) }
+        storedMemoryId?.let { memoryStore.delete(it, expectedVersion = (memoryStore.get(it)?.version ?: 1L)) }
         originalProfileId?.let { profileStore.select(it) }
         profileId?.let { profileStore.delete(it) }
         if (!conversationId.isNullOrBlank()) {

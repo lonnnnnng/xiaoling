@@ -13,6 +13,7 @@ import com.longdev.xiaoling.agent.AgentMemoryRecord
 import com.longdev.xiaoling.agent.AgentMemorySource
 import com.longdev.xiaoling.agent.AgentMemoryStore
 import com.longdev.xiaoling.agent.AgentMemoryUpdate
+import com.longdev.xiaoling.agent.AgentMemoryVersionConflictException
 import com.longdev.xiaoling.agent.AgentMemorySensitiveCategory
 import com.longdev.xiaoling.agent.AgentMemoryDecayPolicy
 import com.longdev.xiaoling.agent.AgentMemoryDeleteOperationVerification
@@ -28,12 +29,14 @@ import com.longdev.xiaoling.data.AgentMemoryOperationEntity
 import com.longdev.xiaoling.data.XiaoLingDatabase
 import java.security.MessageDigest
 import java.util.UUID
+import java.io.File
 
 class RoomAgentMemoryStore(
     context: Context,
     private val database: XiaoLingDatabase = XiaoLingDatabase.getInstance(context),
+    undoFile: File = File(context.applicationContext.filesDir, "agent-memory-delete-undo.json"),
 ) : AgentMemoryStore, AgentMemoryManager, AgentMemoryCandidateManager {
-    private val deleteUndoStore = AgentMemoryDeleteUndoStore(context.applicationContext)
+    private val deleteUndoStore = AgentMemoryDeleteUndoStore(context.applicationContext, undoFile)
 
     override suspend fun remember(
         content: String,
@@ -159,65 +162,58 @@ class RoomAgentMemoryStore(
             .take(safeLimit)
     }
 
-    override suspend fun update(memoryId: String, update: AgentMemoryUpdate): AgentMemoryRecord? {
+    override suspend fun update(memoryId: String, update: AgentMemoryUpdate, expectedVersion: Long): AgentMemoryRecord? {
         val content = update.content.trim()
         if (content.isBlank()) return null
         AgentMemoryCandidatePolicy.sensitiveCategoryIn("$content\n${update.tags}")?.let { category ->
             throw IllegalArgumentException("检测到${category.displayName}，未保存原文")
         }
-        return database.withTransaction {
-            val current = database.agentMemoryDao().getMemory(memoryId)?.toRecord() ?: return@withTransaction null
-            val updated = current.copy(
+        return mutate(memoryId, expectedVersion) {
+            copy(
                 content = content,
                 tags = update.tags.trim(),
                 type = update.type.normalizeMemoryType(),
                 confidence = update.confidence.coerceIn(0.0, 1.0),
                 updatedAt = System.currentTimeMillis(),
             )
-            database.agentMemoryDao().upsertMemory(updated.toEntity())
-            replaceMemoryIndex(updated)
-            updated
         }
     }
 
-    override suspend fun setEnabled(memoryId: String, enabled: Boolean): AgentMemoryRecord? {
-        return mutate(memoryId) { copy(enabled = enabled, updatedAt = System.currentTimeMillis()) }
+    override suspend fun setEnabled(memoryId: String, enabled: Boolean, expectedVersion: Long): AgentMemoryRecord? {
+        return mutate(memoryId, expectedVersion) { copy(enabled = enabled, updatedAt = System.currentTimeMillis()) }
     }
 
-    override suspend fun setPinned(memoryId: String, pinned: Boolean): AgentMemoryRecord? {
-        return mutate(memoryId) { copy(pinned = pinned, updatedAt = System.currentTimeMillis()) }
+    override suspend fun setPinned(memoryId: String, pinned: Boolean, expectedVersion: Long): AgentMemoryRecord? {
+        return mutate(memoryId, expectedVersion) { copy(pinned = pinned, updatedAt = System.currentTimeMillis()) }
     }
 
-    override suspend fun setExpiresAt(memoryId: String, expiresAt: Long?): AgentMemoryRecord? {
+    override suspend fun setExpiresAt(memoryId: String, expiresAt: Long?, expectedVersion: Long): AgentMemoryRecord? {
         require(expiresAt == null || expiresAt > System.currentTimeMillis()) { "过期时间必须晚于当前时间" }
-        return mutate(memoryId) { copy(expiresAt = expiresAt, updatedAt = System.currentTimeMillis()) }
+        return mutate(memoryId, expectedVersion) { copy(expiresAt = expiresAt, updatedAt = System.currentTimeMillis()) }
     }
 
-    override suspend fun delete(memoryId: String): AgentMemoryRecord? {
-        return try {
-            database.withTransaction {
-                val current = database.agentMemoryDao().getMemory(memoryId)?.toRecord()
-                    ?: return@withTransaction null
-                // long: 先原子保存完整撤销快照再删除 Room 和 FTS；进程在任一步退出后，启动校验都能判断快照是否真实对应已删除记录。
-                deleteUndoStore.save(current)
-                database.agentMemoryDao().deleteMemoryIndex(memoryId)
-                database.agentMemoryDao().deleteMemory(memoryId)
-                current
-            }
-        } catch (error: Throwable) {
-            deleteUndoStore.clear(memoryId)
-            throw error
+    override suspend fun delete(memoryId: String, expectedVersion: Long): AgentMemoryRecord? {
+        require(expectedVersion > 0) { "记忆预期版本无效" }
+        return database.withTransaction {
+            val current = database.agentMemoryDao().getMemory(memoryId)?.toRecord()
+                ?: return@withTransaction null
+            checkVersion(current, expectedVersion)
+            // long: 先原子保存完整撤销快照再删除 Room 和 FTS；进程在任一步退出后，启动校验都能判断快照是否真实对应已删除记录。
+            deleteUndoStore.save(current)
+            database.agentMemoryDao().deleteMemoryIndex(memoryId)
+            check(database.agentMemoryDao().deleteMemoryIfVersionMatches(memoryId, expectedVersion) == 1)
+            current
         }
     }
 
-    override suspend fun deleteForAgent(memoryId: String, idempotencyKey: String): Boolean {
+    override suspend fun deleteForAgent(memoryId: String, idempotencyKey: String, expectedVersion: Long?): Boolean {
         require(memoryId.isNotBlank()) { "长期记忆 ID 不能为空" }
         require(idempotencyKey.isNotBlank()) { "长期记忆删除幂等键不能为空" }
         require(idempotencyKey.length <= 200) { "长期记忆删除幂等键不能超过 200 个字符" }
-        val payloadHash = memoryDeletePayloadHash(memoryId)
+        if (expectedVersion == null || expectedVersion <= 0) return false
+        val payloadHash = memoryDeletePayloadHash(memoryId, expectedVersion)
         val resultHash = memoryDeleteResultHash(memoryId)
-        return try {
-            database.withTransaction {
+        return database.withTransaction {
                 val dao = database.agentMemoryDao()
                 dao.getMemoryOperation(idempotencyKey)?.let { operation ->
                     if (
@@ -231,6 +227,9 @@ class RoomAgentMemoryStore(
                     return@withTransaction true
                 }
                 val current = dao.getMemory(memoryId)?.toRecord() ?: return@withTransaction false
+                checkVersion(current, expectedVersion)
+                // long: 审批等待可能跨越过期时间，即使版本未变也不能继续删除已退出召回范围的记录。
+                if (!current.enabled || AgentMemoryDecayPolicy.isExpired(current, System.currentTimeMillis())) return@withTransaction false
                 // long: 删除 operation、FTS 和主记录必须处于同一 Room 事务；崩溃后要么三者都存在，要么只留下可证明已提交且当前不可见的删除账本。
                 deleteUndoStore.save(current)
                 dao.insertMemoryOperation(
@@ -240,16 +239,13 @@ class RoomAgentMemoryStore(
                         payloadHash = payloadHash,
                         resultHash = resultHash,
                         createdAt = System.currentTimeMillis(),
+                        expectedVersion = expectedVersion,
                     ),
                 )
                 dao.deleteMemoryIndex(memoryId)
-                check(dao.deleteMemory(memoryId) == 1) { "长期记忆删除提交失败" }
+                check(dao.deleteMemoryIfVersionMatches(memoryId, expectedVersion) == 1) { "长期记忆删除提交失败" }
                 check(dao.getMemory(memoryId) == null) { "长期记忆删除后回读验证失败" }
                 true
-            }
-        } catch (error: Throwable) {
-            deleteUndoStore.clear(memoryId)
-            throw error
         }
     }
 
@@ -266,7 +262,7 @@ class RoomAgentMemoryStore(
                 AgentMemoryDeleteOperationVerificationFailure.OPERATION_MISMATCH,
             )
         }
-        if (operation.payloadHash != memoryDeletePayloadHash(memoryId)) {
+        if (operation.payloadHash != memoryDeletePayloadHash(memoryId, operation.expectedVersion)) {
             return AgentMemoryDeleteOperationVerification.Failed(
                 AgentMemoryDeleteOperationVerificationFailure.PAYLOAD_MISMATCH,
             )
@@ -286,24 +282,31 @@ class RoomAgentMemoryStore(
     }
 
     override suspend fun latestDeleted(): AgentMemoryRecord? {
-        val staged = deleteUndoStore.load() ?: return null
-        if (database.agentMemoryDao().getMemory(staged.id) != null) {
-            // long: 快照写入后若进程在 Room 删除前退出，正式记忆仍存在；此时清理陈旧快照，避免 UI 把未删除记录显示成可撤销。
-            deleteUndoStore.clear(staged.id)
-            return null
+        return database.withTransaction {
+            val staged = deleteUndoStore.load() ?: return@withTransaction null
+            if (database.agentMemoryDao().getMemory(staged.id) != null) {
+                // long: 快照写入后若进程在 Room 删除前退出，正式记忆仍存在；此时清理陈旧快照，避免 UI 把未删除记录显示成可撤销。
+                deleteUndoStore.clear(staged.id)
+                return@withTransaction null
+            }
+            staged
         }
-        return staged
     }
 
     override suspend fun restore(memory: AgentMemoryRecord): AgentMemoryRecord {
-        val staged = deleteUndoStore.load()?.takeIf { it.id == memory.id } ?: memory
-        val restored = database.withTransaction {
-            database.agentMemoryDao().upsertMemory(staged.toEntity())
-            replaceMemoryIndex(staged)
-            staged
+        return database.withTransaction {
+            val dao = database.agentMemoryDao()
+            dao.getMemory(memory.id)?.toRecord()?.let { throw AgentMemoryVersionConflictException(it) }
+            // long: 仅最新持久删除快照可恢复；禁止旧对象或任意传入记录重建身份，也不能覆盖现存同 ID。
+            val staged = deleteUndoStore.load()?.takeIf { it == memory }
+                ?: error("撤销快照已变化，请重新读取可撤销的记忆")
+            check(staged.version in 1 until Long.MAX_VALUE) { "记忆版本已耗尽，不能恢复" }
+            val restored = staged.copy(version = staged.version + 1)
+            dao.insertMemory(restored.toEntity())
+            replaceMemoryIndex(restored)
+            // long: 提交前保留撤销文件，失败回滚后仍可重试；提交成功后 latestDeleted 按当前 Room 存在性清理旧快照。
+            restored
         }
-        deleteUndoStore.clear(restored.id)
-        return restored
     }
 
     override suspend fun createCandidate(
@@ -404,15 +407,35 @@ class RoomAgentMemoryStore(
 
     private suspend fun mutate(
         memoryId: String,
+        expectedVersion: Long,
         block: AgentMemoryRecord.() -> AgentMemoryRecord,
     ): AgentMemoryRecord? {
+        require(expectedVersion > 0) { "记忆预期版本无效" }
         return database.withTransaction {
             val current = database.agentMemoryDao().getMemory(memoryId)?.toRecord() ?: return@withTransaction null
-            val updated = current.block()
-            database.agentMemoryDao().upsertMemory(updated.toEntity())
+            checkVersion(current, expectedVersion)
+            val proposed = current.block()
+            if (proposed.copy(updatedAt = current.updatedAt) == current) return@withTransaction current
+            check(current.version < Long.MAX_VALUE) { "记忆版本已耗尽，不能修改" }
+            val dao = database.agentMemoryDao()
+            // long: 版本条件留在 SQL 中，主记录与 FTS 同次提交；失败者回传赢家的当前内容，不自动重试旧草稿。
+            val changed = dao.updateMemoryIfVersionMatches(
+                memoryId, proposed.content, proposed.tags, proposed.type, proposed.confidence,
+                proposed.enabled, proposed.pinned, proposed.expiresAt, proposed.updatedAt, expectedVersion,
+            )
+            if (changed != 1) {
+                val latest = dao.getMemory(memoryId)?.toRecord() ?: return@withTransaction null
+                throw AgentMemoryVersionConflictException(latest)
+            }
+            val updated = checkNotNull(dao.getMemory(memoryId)).toRecord()
+            check(updated.version == current.version + 1)
             replaceMemoryIndex(updated)
             updated
         }
+    }
+
+    private fun checkVersion(current: AgentMemoryRecord, expectedVersion: Long) {
+        if (current.version != expectedVersion) throw AgentMemoryVersionConflictException(current)
     }
 
     private suspend fun replaceMemoryIndex(record: AgentMemoryRecord) {
@@ -489,7 +512,7 @@ class RoomAgentMemoryStore(
             updatedAt = now,
         )
         // long: 无论来自候选确认还是 memory.remember，正式写入前都执行同一套敏感过滤与去重；这样工具入口不能绕过候选页的隐私边界。
-        dao.upsertMemory(record.toEntity())
+        dao.insertMemory(record.toEntity())
         replaceMemoryIndex(record)
         bindMemoryOperation(idempotencyKey, payloadHash, record)
         return record
@@ -548,8 +571,9 @@ class RoomAgentMemoryStore(
         )
     }
 
-    private fun memoryDeletePayloadHash(memoryId: String): String =
-        sha256Canonical(listOf("memory.delete", memoryId))
+    private fun memoryDeletePayloadHash(memoryId: String, expectedVersion: Long?): String =
+        // long: 历史账本仍按原载荷只读核验，新删除同时绑定详情确认时的版本，旧审批不能删除更新后的正文。
+        sha256Canonical(listOf("memory.delete", memoryId) + listOfNotNull(expectedVersion?.toString()))
 
     private fun memoryDeleteResultHash(memoryId: String): String =
         sha256Canonical(listOf("memory.deleted", memoryId))
@@ -578,6 +602,7 @@ class RoomAgentMemoryStore(
         pinned = pinned,
         expiresAt = expiresAt,
         lastReferencedAt = lastReferencedAt,
+        version = version,
     )
 
     private fun AgentMemoryRecord.toFtsEntity() = AgentMemoryFtsEntity(
@@ -603,6 +628,7 @@ class RoomAgentMemoryStore(
         pinned = pinned,
         expiresAt = expiresAt,
         lastReferencedAt = lastReferencedAt,
+        version = version,
     )
 
     private fun AgentMemoryCandidateRecord.toEntity() = AgentMemoryCandidateEntity(

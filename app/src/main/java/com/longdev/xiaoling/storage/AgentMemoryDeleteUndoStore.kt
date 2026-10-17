@@ -44,6 +44,7 @@ internal class AgentMemoryDeleteUndoStore(
 
     private fun AgentMemoryRecord.toJson() = JSONObject()
         .put("version", FORMAT_VERSION)
+        .put("memoryVersion", version)
         .put("id", id)
         .put("content", content)
         .put("tags", tags)
@@ -60,7 +61,11 @@ internal class AgentMemoryDeleteUndoStore(
         .put("lastReferencedAt", lastReferencedAt ?: JSONObject.NULL)
 
     private fun JSONObject.toMemoryRecord(): AgentMemoryRecord {
-        require(getInt("version") == FORMAT_VERSION) { "不支持的记忆撤销快照版本" }
+        val format = getInt("version")
+        require(format in 1..FORMAT_VERSION) { "不支持的记忆撤销快照版本" }
+        // long: 文件格式与业务版本分别保存；旧快照的版本 1 与 Room 迁移基线一致，恢复后仍递增。
+        val memoryVersion = if (format == 1) 1L else getLong("memoryVersion")
+        require(memoryVersion > 0) { "记忆撤销版本无效" }
         return AgentMemoryRecord(
             id = getString("id"),
             content = getString("content"),
@@ -76,6 +81,7 @@ internal class AgentMemoryDeleteUndoStore(
             pinned = getBoolean("pinned"),
             expiresAt = nullableLong("expiresAt"),
             lastReferencedAt = nullableLong("lastReferencedAt"),
+            version = memoryVersion,
         )
     }
 
@@ -89,6 +95,6 @@ internal class AgentMemoryDeleteUndoStore(
 
     private companion object {
         const val FILE_NAME = "agent-memory-delete-undo.json"
-        const val FORMAT_VERSION = 1
+        const val FORMAT_VERSION = 2
     }
 }

@@ -81,6 +81,8 @@ class XiaoLingToolRegistry(
     private var pendingDirectTypeTextPrivacy: DirectAgentDeviceSnapshotPrivacyProjection? = null
     private var searchedMemoryDeleteCandidateId: String? = null
     private var confirmedMemoryDeleteCandidateId: String? = null
+    private var searchedMemoryDeleteCandidateVersion: Long? = null
+    private var confirmedMemoryDeleteCandidateVersion: Long? = null
     private var searchedContactCandidateIds: Set<Long> = emptySet()
     private var verifiedContactDialerCandidate: ContactDialerCandidate? = null
     private val approvedContactDialerCallIds = mutableSetOf<String>()
@@ -1448,7 +1450,9 @@ class XiaoLingToolRegistry(
             clearWorkflowDeviceActionState()
             pendingDirectTypeTextPrivacy = null
             searchedMemoryDeleteCandidateId = null
+            searchedMemoryDeleteCandidateVersion = null
             confirmedMemoryDeleteCandidateId = null
+            confirmedMemoryDeleteCandidateVersion = null
             searchedContactCandidateIds = emptySet()
             verifiedContactDialerCandidate = null
             approvedContactDialerCallIds.clear()
@@ -1480,7 +1484,9 @@ class XiaoLingToolRegistry(
         clearWorkflowDeviceActionState()
         pendingDirectTypeTextPrivacy = null
         searchedMemoryDeleteCandidateId = null
+        searchedMemoryDeleteCandidateVersion = null
         confirmedMemoryDeleteCandidateId = null
+        confirmedMemoryDeleteCandidateVersion = null
         searchedContactCandidateIds = emptySet()
         verifiedContactDialerCandidate = null
         approvedContactDialerCallIds.clear()
@@ -4579,7 +4585,9 @@ class XiaoLingToolRegistry(
 
     private suspend fun searchMemory(call: ToolCall): ToolExecutionResult {
         searchedMemoryDeleteCandidateId = null
+        searchedMemoryDeleteCandidateVersion = null
         confirmedMemoryDeleteCandidateId = null
+        confirmedMemoryDeleteCandidateVersion = null
         if (runContext?.memoryRecallEnabled == false) {
             return ToolExecutionResult(success = true, content = "本次 Run 已关闭长期记忆召回。")
         }
@@ -4595,6 +4603,7 @@ class XiaoLingToolRegistry(
         if (memories.isEmpty()) return ToolExecutionResult(success = true, content = "未找到匹配长期记忆。")
         // long: 删除只能从唯一搜索结果建立短期候选；多结果仍可用于普通回答，但不能让后续详情任选一个就获得删除授权。
         searchedMemoryDeleteCandidateId = candidateProbe.singleOrNull()?.id
+        searchedMemoryDeleteCandidateVersion = candidateProbe.singleOrNull()?.version
         return ToolExecutionResult(
             success = true,
             memoryIdsUsed = memories.map { it.id },
@@ -4607,6 +4616,7 @@ class XiaoLingToolRegistry(
 
     private suspend fun getMemory(call: ToolCall): ToolExecutionResult {
         confirmedMemoryDeleteCandidateId = null
+        confirmedMemoryDeleteCandidateVersion = null
         if (runContext?.memoryRecallEnabled == false) {
             return ToolExecutionResult(success = true, content = "本次 Run 已关闭长期记忆召回。")
         }
@@ -4618,9 +4628,10 @@ class XiaoLingToolRegistry(
         val memory = memoryStore.get(memoryId)
             ?.takeIf { it.enabled && !AgentMemoryDecayPolicy.isExpired(it, clock.nowMillis()) }
             ?: return ToolExecutionResult(success = false, content = "未找到可用的长期记忆。")
-        if (searchedMemoryDeleteCandidateId == memoryId) {
+        if (searchedMemoryDeleteCandidateId == memoryId && searchedMemoryDeleteCandidateVersion == memory.version) {
             // long: 只有同 Run 唯一搜索候选的当前详情回读成功后才允许删除；ID 漂移、禁用、过期或不存在都不会生成授权。
             confirmedMemoryDeleteCandidateId = memoryId
+            confirmedMemoryDeleteCandidateVersion = memory.version
         }
         val tags = memory.tags.takeIf { it.isNotBlank() }?.let { " · 标签：$it" }.orEmpty()
         return ToolExecutionResult(
@@ -4641,11 +4652,32 @@ class XiaoLingToolRegistry(
                 content = "删除前必须在同一 Run 先搜索并读取详情，且三步使用同一长期记忆 ID。",
             )
         }
-        if (!memoryStore.deleteForAgent(memoryId = memoryId, idempotencyKey = call.id)) {
+        // long: 审批等待期间用户可能编辑正文；执行仍绑定详情回读时的版本，不允许旧删除决定作用于新事实。
+        val deleted = try {
+            memoryStore.deleteForAgent(
+                memoryId = memoryId,
+                idempotencyKey = call.id,
+                expectedVersion = confirmedMemoryDeleteCandidateVersion,
+            )
+        } catch (error: AgentMemoryVersionConflictException) {
+            // long: 旧版本的删除决定已失效，必须重新搜索、读详情及审批；失败不能生成提交回执。
+            searchedMemoryDeleteCandidateId = null
+            searchedMemoryDeleteCandidateVersion = null
+            confirmedMemoryDeleteCandidateId = null
+            confirmedMemoryDeleteCandidateVersion = null
+            val current = error.current.takeIf { it.enabled && !AgentMemoryDecayPolicy.isExpired(it, clock.nowMillis()) }
+            return ToolExecutionResult(
+                success = false,
+                content = if (current == null) "未找到可用的长期记忆，请重新搜索。" else "${error.message}。当前内容：${current.content}",
+            )
+        }
+        if (!deleted) {
             return ToolExecutionResult(success = false, content = "未找到长期记忆或记忆已被删除。")
         }
         searchedMemoryDeleteCandidateId = null
+        searchedMemoryDeleteCandidateVersion = null
         confirmedMemoryDeleteCandidateId = null
+        confirmedMemoryDeleteCandidateVersion = null
         val receipt = ToolExecutionReceipt(
             toolCallId = call.id,
             operationId = memoryId,

@@ -1174,6 +1174,65 @@ class XiaoLingToolRegistryTest {
     }
 
     @Test
+    fun memoryDeleteRejectsVersionChangesBeforeDetailAndBeforeExecution() = runTest {
+        for (changeBeforeDetail in listOf(true, false)) {
+            val id = "memory-12345678-1234-1234-1234-123456789abc"
+            val store = InMemoryAgentMemoryStore()
+            val original = store.remember("stage287旧事实", "stage287", "Episode", AgentMemorySource(null, null, "夹具"), 0.8)
+                .copy(id = id)
+            store.records.clear()
+            store.records += original
+            val registry = testRegistry(memoryStore = store)
+            registry.bindRunContext(AgentToolExecutionContext(
+                conversationId = "stage287-conversation", userMessageId = "stage287-message", runId = "stage287-run",
+                goal = "删除这条长期记忆", executionOrigin = AgentExecutionOrigin.FOREGROUND,
+                invocationSource = AgentInvocationSource.DIRECT,
+            ))
+            registry.execute(ToolCall(name = "memory.search", arguments = mapOf("query" to "stage287"), risk = ToolRisk.SAFE))
+            val current = original.copy(content = "stage287当前事实", version = 2)
+            if (changeBeforeDetail) store.records[0] = current
+            assertTrue(registry.execute(ToolCall(name = "memory.get", arguments = mapOf("memory_id" to id), risk = ToolRisk.SAFE)).success)
+            if (!changeBeforeDetail) store.records[0] = current
+            val deletion = ToolCall(id = "stage287-delete", name = "memory.delete", arguments = mapOf("memory_id" to id), risk = ToolRisk.REQUIRES_APPROVAL)
+            val result = registry.execute(deletion)
+            assertFalse(result.success)
+            assertNull(result.executionReceipt)
+            assertEquals(current, store.get(id))
+            assertEquals(if (changeBeforeDetail) 0 else 1, store.deleteCallCount)
+            if (!changeBeforeDetail) assertTrue(result.content.contains(current.content))
+            // long: 冲突后旧授权失效，重复调用不能偷偷借用最新版本删除。
+            assertFalse(registry.execute(deletion).success)
+            assertEquals(if (changeBeforeDetail) 0 else 1, store.deleteCallCount)
+        }
+    }
+
+    @Test
+    fun memoryDeleteConflictDoesNotExposeDisabledOrExpiredContent() = runTest {
+        for (disabled in listOf(true, false)) {
+            val id = "memory-12345678-1234-1234-1234-123456789abc"
+            val store = InMemoryAgentMemoryStore()
+            val original = store.remember("stage287旧事实", "stage287", "Episode", AgentMemorySource(null, null, "夹具"), 0.8).copy(id = id)
+            store.records.clear()
+            store.records += original
+            val registry = testRegistry(memoryStore = store)
+            registry.bindRunContext(AgentToolExecutionContext(
+                conversationId = "stage287-conversation", userMessageId = "stage287-message", runId = "stage287-run",
+                goal = "删除这条长期记忆", executionOrigin = AgentExecutionOrigin.FOREGROUND,
+                invocationSource = AgentInvocationSource.DIRECT,
+            ))
+            registry.execute(ToolCall(name = "memory.search", arguments = mapOf("query" to "stage287"), risk = ToolRisk.SAFE))
+            registry.execute(ToolCall(name = "memory.get", arguments = mapOf("memory_id" to id), risk = ToolRisk.SAFE))
+            val hidden = original.copy(content = "stage287治理隐藏正文", version = 2, enabled = !disabled, expiresAt = if (disabled) null else 1L)
+            store.records[0] = hidden
+            val result = registry.execute(ToolCall(name = "memory.delete", arguments = mapOf("memory_id" to id), risk = ToolRisk.REQUIRES_APPROVAL))
+            assertFalse(result.success)
+            assertNull(result.executionReceipt)
+            assertFalse(result.content.contains(hidden.content))
+            assertEquals(hidden, store.get(id))
+        }
+    }
+
+    @Test
     fun memoryDeleteCommitsStableIdAndRecoveryOnlyVerifiesCurrentAbsence() = runTest {
         val memoryId = "memory-12345678-1234-1234-1234-123456789abc"
         val memoryStore = InMemoryAgentMemoryStore().apply {
@@ -6003,9 +6062,10 @@ private open class InMemoryAgentMemoryStore : AgentMemoryStore {
             .take(limit)
     }
 
-    override suspend fun deleteForAgent(memoryId: String, idempotencyKey: String): Boolean {
+    override suspend fun deleteForAgent(memoryId: String, idempotencyKey: String, expectedVersion: Long?): Boolean {
         deleteCallCount += 1
         val memory = records.firstOrNull { it.id == memoryId } ?: return false
+        if (memory.version != expectedVersion) throw AgentMemoryVersionConflictException(memory)
         deletedRecord = memory
         records.remove(memory)
         return true

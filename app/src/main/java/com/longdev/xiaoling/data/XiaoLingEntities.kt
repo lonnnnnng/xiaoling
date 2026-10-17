@@ -241,6 +241,7 @@ data class AgentMemoryEntity(
     @ColumnInfo(defaultValue = "0") val pinned: Boolean,
     val expiresAt: Long?,
     val lastReferencedAt: Long?,
+    @ColumnInfo(defaultValue = "1") val version: Long = 1,
 )
 
 @Entity(
@@ -253,6 +254,7 @@ data class AgentMemoryOperationEntity(
     val payloadHash: String,
     val resultHash: String?,
     val createdAt: Long,
+    val expectedVersion: Long? = null,
 )
 
 @Fts4(tokenizer = FtsOptions.TOKENIZER_UNICODE61)

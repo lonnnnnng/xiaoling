@@ -153,11 +153,11 @@ class MemoryManagementPageInstrumentedTest {
             onMemorySelected(memoryId)
         }
 
-        override fun setMemoryPinned(memoryId: String, pinned: Boolean) = Unit
+        override fun setMemoryPinned(memoryId: String, pinned: Boolean, expectedVersion: Long) = Unit
 
-        override fun setMemoryEnabled(memoryId: String, enabled: Boolean) = Unit
+        override fun setMemoryEnabled(memoryId: String, enabled: Boolean, expectedVersion: Long) = Unit
 
-        override fun setMemoryExpiry(memoryId: String, option: AgentMemoryExpiryOption) = Unit
+        override fun setMemoryExpiry(memoryId: String, option: AgentMemoryExpiryOption, expectedVersion: Long) = Unit
 
         override fun openMemoryEdit(memoryId: String) {
             editedMemoryIds += memoryId

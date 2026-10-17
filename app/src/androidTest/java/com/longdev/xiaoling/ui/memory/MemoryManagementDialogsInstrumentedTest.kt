@@ -5,6 +5,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.test.assertIsNotEnabled
+import androidx.compose.ui.test.assertTextContains
 import androidx.compose.ui.test.junit4.v2.createComposeRule
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
@@ -79,6 +80,25 @@ class MemoryManagementDialogsInstrumentedTest {
     }
 
     @Test
+    fun conflictShowsCurrentContentAndReloadsOnlyOnExplicitAction() {
+        val current = memory().copy(content = "当前赢家的内容", version = 2)
+        var state by mutableStateOf(MemoryManagementUiState(editingMemory = AgentMemoryEditUiState(
+            id = current.id, content = "用户旧草稿", tags = current.tags, type = current.type,
+            confidence = current.confidence, expectedVersion = 1, conflict = current,
+        )))
+        val actions = FakeMemoryManagementActions(onEditOpened = {
+            state = state.copy(editingMemory = state.editingMemory?.copy(content = current.content, expectedVersion = current.version, conflict = null))
+        })
+        composeRule.setContent { MaterialTheme { MemoryManagementDialogs(state, actions) } }
+        composeRule.onNodeWithTag("memory-edit-content").assertTextContains("用户旧草稿")
+        composeRule.onNodeWithTag("memory-edit-current-content").assertTextContains(current.content)
+        composeRule.onNodeWithTag("memory-edit-reload").performClick()
+        composeRule.onNodeWithTag("memory-edit-content").assertTextContains(current.content)
+        composeRule.onNodeWithTag("memory-edit-current-content").assertDoesNotExist()
+        composeRule.runOnIdle { assertEquals(2L, state.editingMemory?.expectedVersion) }
+    }
+
+    @Test
     fun savingEditDisablesSaveCancelAndTypeChange() {
         composeRule.setContent {
             MaterialTheme {
@@ -101,6 +121,8 @@ class MemoryManagementDialogsInstrumentedTest {
         composeRule.onNodeWithTag("memory-edit-save").assertIsNotEnabled()
         composeRule.onNodeWithTag("memory-edit-cancel").assertIsNotEnabled()
         composeRule.onNodeWithTag("memory-edit-type-ProfileFact").assertIsNotEnabled()
+        composeRule.onNodeWithTag("memory-edit-content").assertIsNotEnabled()
+        composeRule.onNodeWithTag("memory-edit-tags").assertIsNotEnabled()
     }
 
     @Test
@@ -154,6 +176,7 @@ class MemoryManagementDialogsInstrumentedTest {
         private val onContentUpdated: (String) -> Unit = {},
         private val onTagsUpdated: (String) -> Unit = {},
         private val onTypeUpdated: (String) -> Unit = {},
+        private val onEditOpened: () -> Unit = {},
         private val onSaved: () -> Unit = {},
         private val onEditCancelled: () -> Unit = {},
         private val onDeleteConfirmed: () -> Unit = {},
@@ -183,13 +206,13 @@ class MemoryManagementDialogsInstrumentedTest {
 
         override fun selectMemory(memoryId: String) = Unit
 
-        override fun setMemoryPinned(memoryId: String, pinned: Boolean) = Unit
+        override fun setMemoryPinned(memoryId: String, pinned: Boolean, expectedVersion: Long) = Unit
 
-        override fun setMemoryEnabled(memoryId: String, enabled: Boolean) = Unit
+        override fun setMemoryEnabled(memoryId: String, enabled: Boolean, expectedVersion: Long) = Unit
 
-        override fun setMemoryExpiry(memoryId: String, option: AgentMemoryExpiryOption) = Unit
+        override fun setMemoryExpiry(memoryId: String, option: AgentMemoryExpiryOption, expectedVersion: Long) = Unit
 
-        override fun openMemoryEdit(memoryId: String) = Unit
+        override fun openMemoryEdit(memoryId: String) = onEditOpened()
 
         override fun updateMemoryEditContent(value: String) {
             contents += value

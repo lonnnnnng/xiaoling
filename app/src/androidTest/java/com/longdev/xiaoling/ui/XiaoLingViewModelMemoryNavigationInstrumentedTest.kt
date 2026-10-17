@@ -49,7 +49,7 @@ class XiaoLingViewModelMemoryNavigationInstrumentedTest {
                 assertEquals(memory.id, viewModel.uiState.memories.firstOrNull()?.id)
             }
 
-            runBlocking { store.delete(memory.id) }
+            runBlocking { store.delete(memory.id, expectedVersion = (store.get(memory.id)?.version ?: 1L)) }
             val staleNavigation = AtomicBoolean(false)
             InstrumentationRegistry.getInstrumentation().runOnMainSync {
                 viewModel.refreshMemoriesAndResolveNavigation(memory.id) { staleNavigation.set(true) }
@@ -62,7 +62,7 @@ class XiaoLingViewModelMemoryNavigationInstrumentedTest {
                 assertTrue(viewModel.uiState.memoryError?.contains("已不存在") == true)
             }
         } finally {
-            runBlocking { store.delete(memory.id) }
+            runBlocking { store.delete(memory.id, expectedVersion = (store.get(memory.id)?.version ?: 1L)) }
         }
     }
 

@@ -87,8 +87,16 @@ private fun AgentMemoryEditDialog(
                     .verticalScroll(rememberScrollState()),
                 verticalArrangement = Arrangement.spacedBy(10.dp),
             ) {
+                draft.conflict?.let { current ->
+                    // long: 旧草稿继续留给用户比较，只有显式重新载入才更换内容和基准版本。
+                    Text("记忆已被更新，草稿尚未保存。当前内容：", color = MaterialTheme.colorScheme.error)
+                    Text(current.content, style = MaterialTheme.typography.bodySmall, modifier = Modifier.testTag("memory-edit-current-content"))
+                    TextButton(onClick = { actions.openMemoryEdit(draft.id) }, enabled = !saving,
+                        modifier = Modifier.testTag("memory-edit-reload")) { Text("重新载入当前内容") }
+                }
                 OutlinedTextField(
                     value = draft.content,
+                    enabled = !saving,
                     onValueChange = actions::updateMemoryEditContent,
                     label = { Text("记忆内容") },
                     minLines = 3,
@@ -100,6 +108,7 @@ private fun AgentMemoryEditDialog(
                 )
                 OutlinedTextField(
                     value = draft.tags,
+                    enabled = !saving,
                     onValueChange = actions::updateMemoryEditTags,
                     label = { Text("标签") },
                     singleLine = true,

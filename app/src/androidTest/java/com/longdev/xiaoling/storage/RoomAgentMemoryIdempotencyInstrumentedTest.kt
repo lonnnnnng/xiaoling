@@ -1,6 +1,7 @@
 package com.longdev.xiaoling.storage
 
 import android.content.Context
+import java.io.File
 import androidx.room.Room
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
@@ -30,12 +31,14 @@ class RoomAgentMemoryIdempotencyInstrumentedTest {
     fun setUp() {
         context = ApplicationProvider.getApplicationContext()
         context.deleteDatabase(DATABASE_NAME)
+        AgentMemoryDeleteUndoStore(context, File(context.cacheDir, "stage287-memory-idempotency-undo.json")).clear()
     }
 
     @After
     fun tearDown() {
         database?.close()
         context.deleteDatabase(DATABASE_NAME)
+        AgentMemoryDeleteUndoStore(context, File(context.cacheDir, "stage287-memory-idempotency-undo.json")).clear()
     }
 
     @Test
@@ -78,7 +81,7 @@ class RoomAgentMemoryIdempotencyInstrumentedTest {
         assertEquals(listOf(first.id), store.list("", com.longdev.xiaoling.agent.AgentMemoryFilter.ALL).map { it.id })
         assertTrue(conflict is AgentMemoryIdempotencyConflictException)
 
-        store.delete(first.id)
+        store.delete(first.id, expectedVersion = (store.get(first.id)?.version ?: 1L))
         val deletedTargetReplay = runCatching {
             store.remember(
                 content = "用户喜欢紧凑界面",
@@ -137,7 +140,7 @@ class RoomAgentMemoryIdempotencyInstrumentedTest {
             val request = verificationRequest("edit-$index")
             val key = "tool-call-memory-edit-$index"
             val created = rememberOperation(store, key, request)
-            store.update(created.id, update(request))
+            store.update(created.id, update(request), expectedVersion = (store.get(created.id)?.version ?: 1L))
 
             val verification = store.verifyRememberedOperation(
                 key,
@@ -178,8 +181,8 @@ class RoomAgentMemoryIdempotencyInstrumentedTest {
         val key = "tool-call-memory-governance"
         val created = rememberOperation(store, key, request)
         val now = System.currentTimeMillis()
-        store.setPinned(created.id, true)
-        store.setExpiresAt(created.id, now + 60_000L)
+        store.setPinned(created.id, true, expectedVersion = (store.get(created.id)?.version ?: 1L))
+        store.setExpiresAt(created.id, now + 60_000L, expectedVersion = (store.get(created.id)?.version ?: 1L))
         store.search(request.content, 10, enabledOnly = true)
 
         val verification = store.verifyRememberedOperation(
@@ -200,7 +203,7 @@ class RoomAgentMemoryIdempotencyInstrumentedTest {
         val store = openStore()
         val disabledRequest = verificationRequest("disabled")
         val disabled = rememberOperation(store, "tool-call-memory-disabled", disabledRequest)
-        store.setEnabled(disabled.id, false)
+        store.setEnabled(disabled.id, false, expectedVersion = (store.get(disabled.id)?.version ?: 1L))
         val disabledVerification = store.verifyRememberedOperation(
             "tool-call-memory-disabled",
             disabled.id,
@@ -211,7 +214,7 @@ class RoomAgentMemoryIdempotencyInstrumentedTest {
         val expiredRequest = verificationRequest("expired")
         val expired = rememberOperation(store, "tool-call-memory-expired", expiredRequest)
         val expiresAt = System.currentTimeMillis() + 60_000L
-        store.setExpiresAt(expired.id, expiresAt)
+        store.setExpiresAt(expired.id, expiresAt, expectedVersion = (store.get(expired.id)?.version ?: 1L))
         val expiredVerification = store.verifyRememberedOperation(
             "tool-call-memory-expired",
             expired.id,
@@ -234,7 +237,7 @@ class RoomAgentMemoryIdempotencyInstrumentedTest {
         val request = verificationRequest("restore")
         val store = openStore()
         val created = rememberOperation(store, "tool-call-memory-restore", request)
-        val deleted = checkNotNull(store.delete(created.id))
+        val deleted = checkNotNull(store.delete(created.id, expectedVersion = (store.get(created.id)?.version ?: 1L)))
 
         val deletedVerification = store.verifyRememberedOperation(
             "tool-call-memory-restore",
@@ -254,7 +257,7 @@ class RoomAgentMemoryIdempotencyInstrumentedTest {
             AgentMemoryOperationVerificationFailure.MEMORY_NOT_FOUND,
             (deletedVerification as AgentMemoryOperationVerification.Failed).reason,
         )
-        assertEquals(created, (restoredVerification as AgentMemoryOperationVerification.Verified).memory)
+        assertEquals(created.copy(version = created.version + 1), (restoredVerification as AgentMemoryOperationVerification.Verified).memory)
     }
 
     @Test
@@ -291,7 +294,7 @@ class RoomAgentMemoryIdempotencyInstrumentedTest {
             confidence = 0.8,
         )
 
-        assertTrue(store.deleteForAgent(created.id, "tool-call-memory-delete"))
+        assertTrue(store.deleteForAgent(created.id, "tool-call-memory-delete", created.version))
         assertEquals(null, store.get(created.id))
         database?.close()
         database = null
@@ -301,7 +304,7 @@ class RoomAgentMemoryIdempotencyInstrumentedTest {
             AgentMemoryDeleteOperationVerification.Verified,
             store.verifyDeletedOperation("tool-call-memory-delete", created.id),
         )
-        assertTrue(store.deleteForAgent(created.id, "tool-call-memory-delete"))
+        assertTrue(store.deleteForAgent(created.id, "tool-call-memory-delete", created.version))
         store.restore(checkNotNull(store.latestDeleted()))
 
         assertEquals(
@@ -309,7 +312,7 @@ class RoomAgentMemoryIdempotencyInstrumentedTest {
             (store.verifyDeletedOperation("tool-call-memory-delete", created.id) as AgentMemoryDeleteOperationVerification.Failed).reason,
         )
         assertTrue(
-            runCatching { store.deleteForAgent(created.id, "tool-call-memory-delete") }
+            runCatching { store.deleteForAgent(created.id, "tool-call-memory-delete", created.version) }
                 .exceptionOrNull() is AgentMemoryIdempotencyConflictException,
         )
     }
@@ -341,7 +344,7 @@ class RoomAgentMemoryIdempotencyInstrumentedTest {
             .allowMainThreadQueries()
             .build()
         database = opened
-        return RoomAgentMemoryStore(context, opened)
+        return RoomAgentMemoryStore(context, opened, File(context.cacheDir, "stage287-memory-idempotency-undo.json"))
     }
 
     companion object {

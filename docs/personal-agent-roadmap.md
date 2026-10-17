@@ -21,7 +21,7 @@
 
 1. Remote Channel 第 285 阶段按原定 cursor、批次、ACK、重试、过期、后台收件和通知功能收口。稳定部署与长期验收列为独立待办，不阻塞后续主线；临时公网认证互通不代表稳定服务和自然系统恢复已验收。
 2. 第 286 阶段 MCP 已收口：统一 `McpSessionRegistry`、legacy SSE、真实模型 SSE 联合验收及 Context7 认证 HTTPS 只读验收已完成。stdio 等待进程沙箱和生命周期机制，OAuth、Tasks 后置。
-3. 下一主线为第 287 阶段 Context/Memory：先补 Memory CAS、context snapshot、压缩、进程恢复和有界后台整理。
+3. 当前主线为第 287 阶段 Context/Memory：第一片 Memory CAS 已实现并验收，继续 context snapshot、压缩、进程恢复和有界后台整理。
 4. Skill 已可从 GitHub 导入并固定提交，但插件仍是声明/只读投影，缺少签名 manifest、版本回滚和 SAFE 前台可执行扩展。
 5. 多 Agent 仍限前台 Direct、最多两个只读 child；后续补 child checkpoint、预算、取消、失败聚合和恢复。
 6. Workspace/Browser/GenUI 合为后续一组：补 session transcript、DOM/action、版本化组件和显式 action。
@@ -62,7 +62,10 @@
 - 验证分级：JVM 覆盖 connect/disconnect/race/cancel/reconnect，Redmi 默认 OkHttp 验证隔离 loopback SSE 与既有 MCP 回归；2026-10-18 补齐真实 `gpt-6-luna` 的 SSE 成功/取消/停用和 Context7 认证 HTTPS 发现/只读解析，生产 Run/Room 联合门禁通过。外部 Context7 为 Streamable HTTP，SSE 服务端仍是 loopback，认证失败与显式匿名轮分别保留，见[验证报告](verification-report.md)。
 - 本阶段原定统一 Registry/SSE 功能与联合验收收口；stdio、OAuth、Tasks、后台 MCP 和正式 Release 独立后置，不追加到本阶段。
 
-#### 第 287 阶段：运行上下文、Memory CAS 与后台恢复（下一主线，第 3 点）
+#### 第 287 阶段：运行上下文、Memory CAS 与后台恢复（当前主线，第 3 点）
+
+- 第一片 Memory CAS：显式版本、条件修改、当前内容冲突返回、保留旧草稿、版本化 Agent/管理删除与最新快照撤销，以及 Room 40→41 兼容迁移已实现；聚焦 JVM、Redmi 存储/迁移及生产 ViewModel/UI 验收见[验证报告](verification-report.md)，契约见[Memory CAS](memory-cas.md)。此处只收口 CAS，不收口整个第 3 点。
+- 下一片进入 bounded transcript/context snapshot；其后为压缩、进程恢复和后台整理，不追加 MCP/Remote Channel 的独立长期待办。
 
 - 在现有 Room Memory 上增加显式 `version`/CAS 冲突返回和当前内容回传，避免多轮 Agent、后台整理覆盖用户编辑；禁止默认删除。
 - 为 Agent Run 持久化 bounded transcript、context snapshot 和压缩版本；压缩前冻结未完成 tool response，失败保留原上下文并允许重试。

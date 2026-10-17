@@ -270,7 +270,7 @@ class Stage254MemoryRecallInstrumentedTest {
         val originalProfileId = state.getString(KEY_ORIGINAL_PROFILE_ID, null)
         val originalConversationId = state.getString(KEY_ORIGINAL_CONVERSATION_ID, null)
         // long: 只按创建夹具时持久化的稳定 ID 清理，搜索正文不能成为删除用户真实记忆的依据。
-        state.getString(KEY_MEMORY_ID, null)?.let { memoryStore.delete(it) }
+        state.getString(KEY_MEMORY_ID, null)?.let { memoryStore.delete(it, expectedVersion = (memoryStore.get(it)?.version ?: 1L)) }
         // long: 生产删除会保留一次撤销快照；验收夹具不属于用户数据，清理时必须同步移除，避免临时偏好正文滞留在设备文件中。
         File(context.filesDir, MEMORY_DELETE_UNDO_FILE).delete()
         originalProfileId?.let { profileStore.select(it) }

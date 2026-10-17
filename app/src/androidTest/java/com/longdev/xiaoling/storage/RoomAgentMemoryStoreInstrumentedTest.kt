@@ -26,6 +26,7 @@ import java.io.File
 class RoomAgentMemoryStoreInstrumentedTest {
     private lateinit var database: XiaoLingDatabase
     private lateinit var store: RoomAgentMemoryStore
+    private lateinit var undoFile: File
     private lateinit var deleteUndoStore: AgentMemoryDeleteUndoStore
 
     @Before
@@ -34,9 +35,10 @@ class RoomAgentMemoryStoreInstrumentedTest {
         database = Room.inMemoryDatabaseBuilder(context, XiaoLingDatabase::class.java)
             .allowMainThreadQueries()
             .build()
-        deleteUndoStore = AgentMemoryDeleteUndoStore(context)
+        undoFile = File(context.cacheDir, "stage287-memory-store-undo.json")
+        deleteUndoStore = AgentMemoryDeleteUndoStore(context, undoFile)
         deleteUndoStore.clear()
-        store = RoomAgentMemoryStore(context, database)
+        store = RoomAgentMemoryStore(context, database, undoFile)
     }
 
     @After
@@ -88,11 +90,11 @@ class RoomAgentMemoryStoreInstrumentedTest {
         assertEquals(listOf(chinese.id), store.list("紧凑 界面", AgentMemoryFilter.ALL).map { it.id })
         assertEquals(listOf(literalWildcard.id), store.list("%_", AgentMemoryFilter.ALL).map { it.id })
 
-        val pinned = store.setPinned(chinese.id, true)
+        val pinned = store.setPinned(chinese.id, true, expectedVersion = (store.get(chinese.id)?.version ?: 1L))
         assertEquals(true, pinned?.pinned)
         assertEquals(chinese.id, store.list("", AgentMemoryFilter.ALL).first().id)
 
-        val disabled = store.setEnabled(compact.id, false)
+        val disabled = store.setEnabled(compact.id, false, expectedVersion = (store.get(compact.id)?.version ?: 1L))
         assertEquals(false, disabled?.enabled)
         assertFalse(store.search("compact", limit = 10, enabledOnly = true).any { it.id == compact.id })
         assertEquals(listOf(compact.id), store.list("compact", AgentMemoryFilter.DISABLED).map { it.id })
@@ -105,18 +107,18 @@ class RoomAgentMemoryStoreInstrumentedTest {
                 type = "ProfileFact",
                 confidence = 0.95,
             ),
-        )
+         expectedVersion = (store.get(chinese.id)?.version ?: 1L))
         assertEquals("ProfileFact", updated?.type)
         assertEquals("conversation-2", updated?.sourceConversationId)
         assertEquals("run-2", updated?.sourceRunId)
         assertTrue(store.list("信息密度", AgentMemoryFilter.ALL).any { it.id == chinese.id })
         assertFalse(store.list("紧凑界面", AgentMemoryFilter.ALL).any { it.id == chinese.id })
 
-        val deletedSnapshot = store.delete(chinese.id)
+        val deletedSnapshot = store.delete(chinese.id, expectedVersion = (store.get(chinese.id)?.version ?: 1L))
         assertEquals(chinese.id, deletedSnapshot?.id)
         assertNull(database.agentMemoryDao().getMemory(chinese.id))
         assertFalse(store.list("信息密度", AgentMemoryFilter.ALL).any { it.id == chinese.id })
-        assertNull(store.delete(chinese.id))
+        assertNull(store.delete(chinese.id, expectedVersion = (store.get(chinese.id)?.version ?: 1L)))
 
         val restored = store.restore(checkNotNull(deletedSnapshot))
         assertEquals(chinese.id, restored.id)
@@ -132,18 +134,19 @@ class RoomAgentMemoryStoreInstrumentedTest {
             source = AgentMemorySource("conversation-undo", "run-undo", "用户确认保存"),
             confidence = 0.92,
         )
-        store.setPinned(created.id, true)
+        store.setPinned(created.id, true, expectedVersion = (store.get(created.id)?.version ?: 1L))
         store.setExpiresAt(
             created.id,
             AgentMemoryDecayPolicy.expiresAt(AgentMemoryExpiryOption.NINETY_DAYS, System.currentTimeMillis()),
-        )
+         expectedVersion = (store.get(created.id)?.version ?: 1L))
         store.search("跨进程撤销", 10)
         val beforeDelete = checkNotNull(store.get(created.id))
-        val deleted = checkNotNull(store.delete(created.id))
+        val deleted = checkNotNull(store.delete(created.id, expectedVersion = (store.get(created.id)?.version ?: 1L)))
 
         val restartedStore = RoomAgentMemoryStore(
             ApplicationProvider.getApplicationContext<Context>(),
             database,
+            undoFile,
         )
         val recoveredUndo = checkNotNull(restartedStore.latestDeleted())
         assertEquals(beforeDelete, deleted)
@@ -152,7 +155,7 @@ class RoomAgentMemoryStoreInstrumentedTest {
         assertFalse(restartedStore.search("跨进程撤销", 10).any { it.id == created.id })
 
         val restored = restartedStore.restore(recoveredUndo)
-        assertEquals(beforeDelete, restored)
+        assertEquals(beforeDelete.copy(version = beforeDelete.version + 1), restored)
         assertTrue(restartedStore.search("跨进程撤销", 10).any { it.id == created.id })
         assertNull(restartedStore.latestDeleted())
 
@@ -232,7 +235,7 @@ class RoomAgentMemoryStoreInstrumentedTest {
                     type = first.type,
                     confidence = first.confidence,
                 ),
-            )
+             expectedVersion = (store.get(first.id)?.version ?: 1L))
         }.exceptionOrNull()
         assertTrue(edited is IllegalArgumentException)
     }
@@ -246,7 +249,7 @@ class RoomAgentMemoryStoreInstrumentedTest {
             source = AgentMemorySource("conversation-expiry", "run-expiry", "临时事实"),
             confidence = 0.7,
         )
-        store.setExpiresAt(memory.id, System.currentTimeMillis() + 60_000)
+        store.setExpiresAt(memory.id, System.currentTimeMillis() + 60_000, expectedVersion = (store.get(memory.id)?.version ?: 1L))
         // long: 生产入口只接受未来过期时间；测试通过数据库推进到“时间已流逝”后的状态，避免 1ms 夹具在慢设备上先于校验过期并误报业务回归。
         database.openHelper.writableDatabase.execSQL(
             "UPDATE agent_memories SET expiresAt = ? WHERE id = ?",
@@ -258,7 +261,7 @@ class RoomAgentMemoryStoreInstrumentedTest {
         assertTrue(store.list("临时项目", AgentMemoryFilter.ALL).any { it.id == memory.id })
         assertTrue(AgentMemoryDecayPolicy.isExpired(checkNotNull(expired), System.currentTimeMillis()))
 
-        val restored = store.setExpiresAt(memory.id, AgentMemoryDecayPolicy.expiresAt(AgentMemoryExpiryOption.NINETY_DAYS, System.currentTimeMillis()))
+        val restored = store.setExpiresAt(memory.id, AgentMemoryDecayPolicy.expiresAt(AgentMemoryExpiryOption.NINETY_DAYS, System.currentTimeMillis()), expectedVersion = (store.get(memory.id)?.version ?: 1L))
         assertTrue(store.search("临时项目", 10).any { it.id == memory.id })
         assertTrue(restored?.expiresAt ?: 0L > System.currentTimeMillis())
     }

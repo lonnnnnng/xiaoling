@@ -793,7 +793,12 @@ data class AgentMemoryRecord(
     val pinned: Boolean = false,
     val expiresAt: Long? = null,
     val lastReferencedAt: Long? = null,
+    val version: Long = 1,
 )
+
+/** long: 冲突携带提交时的当前事实，调用方保留旧草稿供用户比较，不能自动换成新版本重试。 */
+class AgentMemoryVersionConflictException(val current: AgentMemoryRecord) :
+    IllegalStateException("记忆已被更新，请重新读取当前内容后再决定")
 
 enum class AgentMemoryExpiryOption(val label: String) {
     NEVER("永久保留"),
@@ -896,7 +901,7 @@ interface AgentMemoryStore {
     ): AgentMemoryOperationVerification = AgentMemoryOperationVerification.Failed(
         AgentMemoryOperationVerificationFailure.EVIDENCE_INCOMPLETE,
     )
-    suspend fun deleteForAgent(memoryId: String, idempotencyKey: String): Boolean = false
+    suspend fun deleteForAgent(memoryId: String, idempotencyKey: String, expectedVersion: Long? = null): Boolean = false
     suspend fun verifyDeletedOperation(
         idempotencyKey: String,
         memoryId: String,
@@ -920,11 +925,11 @@ data class AgentMemoryUpdate(
 
 interface AgentMemoryManager {
     suspend fun list(query: String, filter: AgentMemoryFilter, limit: Int = 100): List<AgentMemoryRecord>
-    suspend fun update(memoryId: String, update: AgentMemoryUpdate): AgentMemoryRecord?
-    suspend fun setEnabled(memoryId: String, enabled: Boolean): AgentMemoryRecord?
-    suspend fun setPinned(memoryId: String, pinned: Boolean): AgentMemoryRecord?
-    suspend fun setExpiresAt(memoryId: String, expiresAt: Long?): AgentMemoryRecord?
-    suspend fun delete(memoryId: String): AgentMemoryRecord?
+    suspend fun update(memoryId: String, update: AgentMemoryUpdate, expectedVersion: Long): AgentMemoryRecord?
+    suspend fun setEnabled(memoryId: String, enabled: Boolean, expectedVersion: Long): AgentMemoryRecord?
+    suspend fun setPinned(memoryId: String, pinned: Boolean, expectedVersion: Long): AgentMemoryRecord?
+    suspend fun setExpiresAt(memoryId: String, expiresAt: Long?, expectedVersion: Long): AgentMemoryRecord?
+    suspend fun delete(memoryId: String, expectedVersion: Long): AgentMemoryRecord?
     suspend fun latestDeleted(): AgentMemoryRecord?
     suspend fun restore(memory: AgentMemoryRecord): AgentMemoryRecord
 }
