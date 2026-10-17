@@ -1,5 +1,7 @@
 package com.longdev.xiaoling.agent
 
+import java.util.Collections
+
 /**
  * 插件系统第一版只管理声明，不加载外部代码。
  *
@@ -41,6 +43,10 @@ data class AgentPluginSource(
 data class InstalledAgentPlugin(
     val manifest: AgentPluginManifest,
     val enabled: Boolean = false,
+    val signedManifest: AgentPluginSignedManifest? = null,
+    val highestSignedManifest: AgentPluginSignedManifest? = null,
+    val history: List<AgentPluginSignedManifest> = emptyList(),
+    val removed: Boolean = false,
 )
 
 sealed interface AgentPluginInstallResult {
@@ -64,11 +70,13 @@ object AgentPluginPolicy {
             "插件 API 版本不受支持：${manifest.apiVersion}，当前仅支持 $SUPPORTED_API_VERSION"
         }
         require(manifest.id.length in 1..MAX_ID_LENGTH && ID.matches(manifest.id)) { "插件 ID 格式无效" }
-        require(VERSION.matches(manifest.version) && versionParts(manifest.version) != null) { "插件版本必须是 x.y.z" }
-        require(manifest.name.trim().length in 1..MAX_NAME_LENGTH) { "插件名称长度无效" }
-        require(manifest.description.trim().length in 1..MAX_DESCRIPTION_LENGTH) { "插件描述长度无效" }
-        require(manifest.publisher.isNotBlank()) { "插件发布者不能为空" }
-        require(manifest.capabilities.none { it.isBlank() }) { "插件能力 ID 不能为空" }
+        require(manifest.version.length <= 32 && VERSION.matches(manifest.version) && versionParts(manifest.version) != null) { "插件版本必须是 x.y.z" }
+        require(manifest.name.isNotBlank() && manifest.name.length <= MAX_NAME_LENGTH) { "插件名称长度无效" }
+        require(manifest.description.isNotBlank() && manifest.description.length <= MAX_DESCRIPTION_LENGTH) { "插件描述长度无效" }
+        require(manifest.publisher.isNotBlank() && manifest.publisher.length <= 200) { "插件发布者长度无效" }
+        require(manifest.capabilities.size <= 64 && manifest.capabilities.all { it.isNotBlank() && it.length <= 120 }) {
+            "插件能力数量或 ID 长度无效"
+        }
         require(manifest.executionMode == AgentPluginExecutionMode.DECLARATIVE_MANIFEST_ONLY) {
             "插件执行模式未被当前版本允许"
         }
@@ -123,7 +131,7 @@ class AgentPluginRegistry(
             .onSuccess { restored ->
                 synchronized(this) {
                     plugins.clear()
-                    restored.forEach { plugins[it.manifest.id] = it }
+                    restored.forEach { plugins[it.manifest.id] = immutable(it) }
                     persistenceFailureReason = null
                 }
             }
@@ -135,9 +143,10 @@ class AgentPluginRegistry(
     }
 
     private fun persist(candidate: Collection<InstalledAgentPlugin>): Boolean {
-        val store = stateStore ?: return true
         return runCatching {
-            store.saveState(AgentPluginJsonCodec.encode(candidate))
+            // long: 内存 Registry 也执行容量和签名账本校验，避免无持久化的调用者绕开相同边界。
+            val encoded = AgentPluginJsonCodec.encode(candidate)
+            stateStore?.saveState(encoded)
             persistenceFailureReason = null
         }.onFailure {
             persistenceFailureReason = it.message ?: "插件状态写入失败"
@@ -150,6 +159,7 @@ class AgentPluginRegistry(
         runCatching { AgentPluginPolicy.validate(manifest) }
             .onFailure { return AgentPluginInstallResult.Rejected(it.message ?: "插件 manifest 无效") }
         val existing = plugins[manifest.id]
+        if (existing?.signedManifest != null) return AgentPluginInstallResult.Rejected("已确认签名的插件不能被无签名声明替换")
         if (existing != null) {
             val comparison = AgentPluginPolicy.compareVersions(manifest.version, existing.manifest.version)
             if (comparison < 0) return AgentPluginInstallResult.Rejected("插件版本不能回退")
@@ -162,7 +172,7 @@ class AgentPluginRegistry(
             }
         }
         // long: 安装或升级默认保持停用，避免新 manifest 在没有用户确认时改变可用能力面。
-        val installed = InstalledAgentPlugin(manifest = manifest, enabled = false)
+        val installed = immutable(InstalledAgentPlugin(manifest = manifest, enabled = false))
         val candidate = plugins.toMutableMap().apply { put(manifest.id, installed) }
         if (!persist(candidate.values)) {
             return AgentPluginInstallResult.Rejected("插件状态无法持久化")
@@ -172,15 +182,116 @@ class AgentPluginRegistry(
     }
 
     @Synchronized
-    fun list(): List<InstalledAgentPlugin> = plugins.values.sortedBy { it.manifest.id }
+    fun list(): List<InstalledAgentPlugin> = plugins.values.filterNot { it.removed }.sortedBy { it.manifest.id }
 
     @Synchronized
-    fun get(id: String): InstalledAgentPlugin? = plugins[id]
+    fun get(id: String): InstalledAgentPlugin? = plugins[id]?.takeUnless { it.removed }
+
+    @Synchronized
+    fun installSigned(
+        input: AgentPluginSignedManifest,
+        confirmation: AgentPluginPublisherConfirmation? = null,
+    ): AgentPluginInstallResult {
+        if (restoreBlocked) return AgentPluginInstallResult.Rejected("插件历史状态损坏，安装已冻结")
+        val signed = immutable(input)
+        val verified = runCatching { AgentPluginSigning.verify(signed) }
+            .getOrElse { return AgentPluginInstallResult.Rejected(it.message ?: "插件签名无效") }
+        val existing = plugins[signed.manifest.id]
+        val previous = existing?.signedManifest
+        if (previous == null) {
+            // long: envelope 自带公钥只能证明持有人签署；首装或旧声明转签名必须由前台确认具体内容与指纹。
+            if (confirmation != verified) return AgentPluginInstallResult.Rejected("请先确认本次 manifest 与发布者公钥指纹")
+            if (existing != null) {
+                val compare = AgentPluginPolicy.compareVersions(signed.manifest.version, existing.manifest.version)
+                if (compare < 0 || signed.manifest.publisher != existing.manifest.publisher ||
+                    (compare == 0 && signed.manifest != existing.manifest)) {
+                    return AgentPluginInstallResult.Rejected("签名声明与旧插件身份或版本不一致")
+                }
+            }
+        } else {
+            if (previous.publicKeySpkiBase64 != signed.publicKeySpkiBase64 ||
+                previous.manifest.publisher != signed.manifest.publisher) {
+                return AgentPluginInstallResult.Rejected("插件发布者公钥或名称不能隐式更换")
+            }
+            if (!existing.removed && signed.manifest == existing.manifest) {
+                // long: ECDSA 的随机签名字节不作为版本身份；同内容重新签署保持当前启停状态。
+                return AgentPluginInstallResult.AlreadyInstalled(existing)
+            }
+            val highest = requireNotNull(existing.highestSignedManifest)
+            val compare = AgentPluginPolicy.compareVersions(signed.manifest.version, highest.manifest.version)
+            if (compare < 0) return AgentPluginInstallResult.Rejected("旧版本只能从已保存历史显式回滚")
+            if (compare == 0 && signed.manifest != highest.manifest) {
+                return AgentPluginInstallResult.Rejected("相同版本的插件 manifest 不一致")
+            }
+        }
+        val highest = existing?.highestSignedManifest?.takeIf {
+            AgentPluginPolicy.compareVersions(it.manifest.version, signed.manifest.version) >= 0
+        } ?: signed
+        val installed = immutable(InstalledAgentPlugin(
+            manifest = signed.manifest, signedManifest = signed, highestSignedManifest = highest,
+            history = retainedHistory(existing, signed),
+        ))
+        return if (replace(installed)) AgentPluginInstallResult.Installed(installed)
+        else AgentPluginInstallResult.Rejected("插件状态无法持久化")
+    }
+
+    @Synchronized
+    fun rollbackVersions(id: String): List<String> = get(id)?.let { plugin ->
+        (plugin.history + listOfNotNull(plugin.highestSignedManifest))
+            .map { it.manifest.version }.distinct()
+            .filter { AgentPluginPolicy.compareVersions(it, plugin.manifest.version) < 0 }
+            .sortedWith { a, b -> AgentPluginPolicy.compareVersions(b, a) }
+    }.orEmpty()
+
+    @Synchronized
+    fun rollback(id: String, version: String, expectedCurrentManifest: AgentPluginManifest? = null): AgentPluginInstallResult {
+        if (restoreBlocked) return AgentPluginInstallResult.Rejected("插件历史状态损坏，回滚已冻结")
+        val current = get(id) ?: return AgentPluginInstallResult.Rejected("插件未安装")
+        if (expectedCurrentManifest != null && current.manifest != expectedCurrentManifest) {
+            return AgentPluginInstallResult.Rejected("插件当前版本已变化，请重新选择回滚")
+        }
+        if (version !in rollbackVersions(id)) return AgentPluginInstallResult.Rejected("该版本不在可回滚历史中")
+        val target = (current.history + listOfNotNull(current.highestSignedManifest)).first { it.manifest.version == version }
+        // long: 回滚只使用本机已确认身份下的保存版本，每次重新验签并停用；最高版本锚点仍保留。
+        val updated = immutable(current.copy(manifest = target.manifest, enabled = false, signedManifest = target,
+            history = retainedHistory(current, target)))
+        return if (replace(updated)) AgentPluginInstallResult.Installed(updated)
+        else AgentPluginInstallResult.Rejected("插件回滚状态无法持久化")
+    }
+
+    private fun retainedHistory(previous: InstalledAgentPlugin?, target: AgentPluginSignedManifest): List<AgentPluginSignedManifest> =
+        (previous?.history.orEmpty() + listOfNotNull(previous?.signedManifest, previous?.highestSignedManifest))
+            .filter { it.manifest.version != target.manifest.version }.distinctBy { it.manifest.version }
+            .sortedWith { a, b -> AgentPluginPolicy.compareVersions(b.manifest.version, a.manifest.version) }
+            .take(AgentPluginSigning.MAX_HISTORY)
+
+    private fun replace(updated: InstalledAgentPlugin): Boolean {
+        val owned = immutable(updated)
+        val candidate = plugins.toMutableMap().apply { put(owned.manifest.id, owned) }
+        if (!persist(candidate.values)) return false
+        plugins[owned.manifest.id] = owned
+        return true
+    }
+
+    private fun immutable(manifest: AgentPluginManifest): AgentPluginManifest = manifest.copy(
+        capabilities = Collections.unmodifiableSet(LinkedHashSet(manifest.capabilities)),
+        permissions = Collections.unmodifiableSet(LinkedHashSet(manifest.permissions)),
+    )
+
+    private fun immutable(signed: AgentPluginSignedManifest): AgentPluginSignedManifest =
+        signed.copy(manifest = immutable(signed.manifest))
+
+    private fun immutable(plugin: InstalledAgentPlugin): InstalledAgentPlugin = plugin.copy(
+        // long: Kotlin Set/List 只是只读接口；不可修改且无输入别名的集合保证调用者不能绕过验签和写盘改账本。
+        manifest = immutable(plugin.manifest), signedManifest = plugin.signedManifest?.let(::immutable),
+        highestSignedManifest = plugin.highestSignedManifest?.let(::immutable),
+        history = Collections.unmodifiableList(plugin.history.map(::immutable)),
+    )
 
     @Synchronized
     fun setEnabled(id: String, enabled: Boolean): InstalledAgentPlugin? {
         if (restoreBlocked) return null
-        val current = plugins[id] ?: return null
+        val current = get(id) ?: return null
         val updated = current.copy(enabled = enabled)
         val candidate = plugins.toMutableMap().apply { put(id, updated) }
         if (!persist(candidate.values)) return null
@@ -188,12 +299,17 @@ class AgentPluginRegistry(
     }
 
     @Synchronized
-    fun uninstall(id: String): Boolean {
+    fun uninstall(id: String, expectedCurrentManifest: AgentPluginManifest? = null): Boolean {
         if (restoreBlocked) return false
-        if (id !in plugins) return false
-        val candidate = plugins.toMutableMap().apply { remove(id) }
+        val current = get(id) ?: return false
+        if (expectedCurrentManifest != null && current.manifest != expectedCurrentManifest) return false
+        // long: 签名插件移除后留下停用身份和最高版本，防止卸载重装绕过公钥绑定及降版门禁。
+        val candidate = plugins.toMutableMap().apply {
+            if (current.signedManifest != null) put(id, current.copy(enabled = false, removed = true)) else remove(id)
+        }
         if (!persist(candidate.values)) return false
-        plugins.remove(id)
+        plugins.clear()
+        plugins.putAll(candidate)
         return true
     }
 }

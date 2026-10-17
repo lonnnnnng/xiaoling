@@ -114,6 +114,10 @@ tasks.withType<Test>().configureEach {
     inputs.files(rootProject.file("tools/remote_channel_sender.py"), rootProject.file("tools/remote_channel_receiver_auth.py"))
         .withPropertyName("remoteChannelSenderCli")
         .withPathSensitivity(PathSensitivity.RELATIVE)
+    // long: 独立签名 CLI 的规范字节变化必须使 JVM 互通验签重新运行，不能复用旧测试结果。
+    inputs.file(rootProject.file("tools/plugin_manifest_signer.py"))
+        .withPropertyName("pluginManifestSignerCli")
+        .withPathSensitivity(PathSensitivity.RELATIVE)
 }
 
 dependencies {

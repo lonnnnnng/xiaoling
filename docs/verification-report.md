@@ -2,6 +2,18 @@
 
 验证日期：2026-10-18（北京时间）
 
+# 2026-10-18 第 288 阶段第一片：签名插件、公钥确认与版本回滚
+
+- 主线：第 4 点 Skill/插件第一片完成签名与版本账本；SAFE 前台执行、权限交集、冻结目录、即时撤销、超时取消和 Tool Ledger 为下一片，第 4 点尚未收口。Room v44/发布版本 `0.1.22 (23)` 不变。详见[插件签名契约](agent-plugin-signing.md)及[路线图](personal-agent-roadmap.md)。
+- 实现：全 manifest/source 字段域隔离签名，固定顺序/长度前缀/UTF-16 集合排序；named P-256 SPKI、标准 Base64、最小 DER 与严格 UTF-8。首装前台确认内容/公钥双摘要，升级绑定原身份；schema v1→v2 保存最高版本与最多 3 项历史，移除保留签名身份，回滚重新验签且默认停用。旧声明仅预览，source artifact 未下载，签名不认证 publisher 真实身份。
+- 只读复核与修正：数字精度/非法 `1.`、空白填充原字符串长度、Registry 集合别名、旧移除弹窗版本漂移均已修正并回归。最后复核无阻塞问题，将离线 signer 的显式 null API 默认值与 App 统一。离线 CLI 不覆盖输出、不保存私钥；独立 Python/OpenSSL → 生产 Kotlin 验签覆盖补充 Unicode 字符排序。Gradle 输入绑定 signer 脚本。
+- JVM/构建：JDK 21 wrapper 定向 `:app:testDebugUnitTest --tests '*AgentPluginSigningTest' --tests '*AgentPluginPersistenceTest' --tests '*AgentPluginCapabilityProjectionTest' --tests '*SecondGroupFoundationTest'`，最终 `43 tests / 0 failures / 0 errors / 0 skipped`；签名类 17、存储 7、能力投影 7、基础类 12。Debug/AndroidTest APK 构建成功（最终源码 `BUILD SUCCESSFUL in 6s`），signer 默认值统一后 JVM `BUILD SUCCESSFUL in 2s`。主机离线输入拒绝 4 项与复用进程结果解析反例 2 项合计 6/6，通过后没有无理由扩跑全量。
+- Redmi：仅 `wsvwypiz7xwslvl7 / begonia / SDK 36`，主/测试 APK `install -r`，最终同向量签名存储 16、既有 SharedPreferences 3、管理页 5 合计 `OK (24 tests)`、14.348s，逐项 0 failed/skipped。覆盖确认取消/无落盘、升级/回滚停用、失败冻结无信任落盘、旧移除弹窗不能删除确认后新版本；签名测试使用 UUID 隔离偏好，旧存储测试使用既有专用账本，不触碰正式插件、Provider/MCP 或 Memory undo。
+- 独立进程：`tools/verify_plugin_signing_process.py` 三轮各 `OK (1 test)`，最终 PID `27605 → 27647 → 27687`，`process-final/result.json completed=true`。首轮保存确认公钥/启用升级版本，第二轮新进程回读并回滚停用，第三轮再次回读后验证移除身份/拒绝旧签名和无签名替换、原最高版本重装停用；公钥与最高内容摘要全程相同，全部通过才清空严格 UUID 隔离账本。受控 force-stop，不是自然 LMK/Doze/系统重启。
+- 失败与保护：主机 `adb ... run-as` 被 SELinux 拒绝（`couldn't set SELinux security context ... Permission denied`），未提权；改用应用 UID 内只读摘要，6 个正式偏好文件前后哈希相同，Memory undo 前后均不存在。新增互通测试首轮 `Files.writeString/readString Unresolved reference` 编译失败，改为字节 API 后通过；失败日志与成功日志分别保留，不用构建成功代替设备验收。
+- 验证范围：没有模型/MCP 请求、外部 artifact 下载或插件真实执行。未运行完整 JVM、Lint、全量 instrumentation 或正式 Release；未 push/tag/发版，`refs/` 保留。文档语料与最终制品/凭据审计另记下方收尾项，本片证据位于忽略目录 `outputs/verification/stage288-plugin-signing/`。
+- 收尾：六份长期文档重新打入测试 APK 后 corpus `OK (1 test)`、3.735s；本段写回后的最终包复验保存在 `corpus-current.log`。132 个本地链接有效；实际 2 份凭据仅在内存比对，20 个任务文件、证据及两 APK 全解压条目均 0 命中，制品摘要另存 `artifact-audit.json`。本机互通环境为 OpenSSL `4.0.3`、Python `3.14.8`；规范依据与真实兼容测试分开记录。
+
 # 2026-10-18 第 287 阶段第五片：有界后台整理建议
 
 - 主线：第 3 点 Context/Memory 五片实现基线收口，下一主线为第 4 点 Skill/插件；自然系统恢复、完整 Activity 专项、模型质量、大规模耗时及正式 Release 独立后置。详见[整理契约](memory-maintenance.md)与[路线图](personal-agent-roadmap.md)，不提升前四片既有证据等级。

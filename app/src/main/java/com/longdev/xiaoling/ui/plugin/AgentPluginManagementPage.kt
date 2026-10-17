@@ -32,6 +32,9 @@ import androidx.compose.ui.unit.dp
 import com.longdev.xiaoling.agent.AgentPluginInstallResult
 import com.longdev.xiaoling.agent.AgentPluginJsonCodec
 import com.longdev.xiaoling.agent.AgentPluginRegistry
+import com.longdev.xiaoling.agent.AgentPluginSignedManifest
+import com.longdev.xiaoling.agent.AgentPluginSigning
+import com.longdev.xiaoling.agent.InstalledAgentPlugin
 
 @Composable
 internal fun AgentPluginManagementPage(
@@ -41,7 +44,9 @@ internal fun AgentPluginManagementPage(
 ) {
     var rawManifest by remember { mutableStateOf("") }
     var notice by remember { mutableStateOf<String?>(null) }
-    var deleteId by remember { mutableStateOf<String?>(null) }
+    var pendingDelete by remember { mutableStateOf<InstalledAgentPlugin?>(null) }
+    var pendingSigned by remember { mutableStateOf<AgentPluginSignedManifest?>(null) }
+    var pendingRollback by remember { mutableStateOf<Pair<InstalledAgentPlugin, String>?>(null) }
     var revision by remember { mutableStateOf(0) }
     // long: Registry 在成功写盘后才更新内存；显式操作递增 revision 后才重新读取账本，避免输入内容被当作已安装状态。
     val plugins = remember(registry, revision) { registry.list() }
@@ -55,7 +60,7 @@ internal fun AgentPluginManagementPage(
             IconButton(onClick = onBack) {
                 Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "返回设置")
             }
-            Text("Agent 插件声明", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+            Text("Agent 插件", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
         }
         Text(
             "只安装声明式 manifest。启用仅影响只读能力预览，不执行插件代码，也不授予 MCP、终端、网络或设备动作权限。",
@@ -67,9 +72,9 @@ internal fun AgentPluginManagementPage(
         }
         OutlinedTextField(
             value = rawManifest,
-            onValueChange = { if (it.length <= 16 * 1024) rawManifest = it },
-            label = { Text("粘贴单个 manifest JSON") },
-            supportingText = { Text("填写 id、version、name、description、publisher、capabilities、permissions、executionMode、source；apiVersion 缺省为 1，source 可为 null。") },
+            onValueChange = { if (it.length <= 24 * 1024) rawManifest = it },
+            label = { Text("粘贴 manifest 或签名 envelope JSON") },
+            supportingText = { Text("无签名声明仅供预览；签名 envelope 校验后需确认发布者公钥，签名不证明发布者的真实身份。") },
             modifier = Modifier.fillMaxWidth().testTag("agent-plugin-manifest-input"),
             minLines = 5,
             maxLines = 9,
@@ -93,6 +98,14 @@ internal fun AgentPluginManagementPage(
             enabled = stateFailure == null && rawManifest.isNotBlank(),
             modifier = Modifier.testTag("agent-plugin-install"),
         ) { Text("校验并安装") }
+        Button(
+            onClick = {
+                pendingSigned = runCatching { AgentPluginJsonCodec.decodeSignedManifest(rawManifest) }
+                    .getOrElse { notice = it.message ?: "插件签名无效"; return@Button }
+            },
+            enabled = stateFailure == null && rawManifest.isNotBlank(),
+            modifier = Modifier.testTag("agent-plugin-verify-signature"),
+        ) { Text("校验签名并确认公钥") }
         notice?.let { Text(it, modifier = Modifier.testTag("agent-plugin-notice")) }
 
         Text("已安装声明", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
@@ -105,6 +118,14 @@ internal fun AgentPluginManagementPage(
                 Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                     Text("${manifest.name} · ${manifest.version}", fontWeight = FontWeight.SemiBold)
                     Text(manifest.id, style = MaterialTheme.typography.bodySmall)
+                    Text(if (plugin.signedManifest == null) "无签名声明 · 仅预览" else "签名已校验 · 已确认公钥",
+                        style = MaterialTheme.typography.bodySmall)
+                    plugin.signedManifest?.let { signed ->
+                        Text("公钥 SHA-256：${AgentPluginSigning.verify(signed).publicKeySha256}",
+                            style = MaterialTheme.typography.bodySmall)
+                        Text("最高确认版本：${plugin.highestSignedManifest?.manifest?.version}",
+                            style = MaterialTheme.typography.bodySmall)
+                    }
                     Text("声明能力：${manifest.capabilities.sorted().joinToString().ifEmpty { "无" }}",
                         style = MaterialTheme.typography.bodySmall)
                     Text("声明权限：${manifest.permissions.map { it.name }.sorted().joinToString().ifEmpty { "无" }}",
@@ -126,28 +147,77 @@ internal fun AgentPluginManagementPage(
                         )
                     }
                     TextButton(
-                        onClick = { deleteId = manifest.id },
+                        onClick = { pendingDelete = plugin },
                         enabled = stateFailure == null,
                         modifier = Modifier.testTag("agent-plugin-delete-${manifest.id}"),
                     ) { Text("移除声明") }
+                    registry.rollbackVersions(manifest.id).forEach { version ->
+                        TextButton(
+                            onClick = { pendingRollback = plugin to version }, enabled = stateFailure == null,
+                            modifier = Modifier.testTag("agent-plugin-rollback-${manifest.id}-$version"),
+                        ) { Text("回滚到 $version") }
+                    }
                 }
             }
         }
     }
 
-    deleteId?.let { id ->
+    pendingDelete?.let { plugin ->
+        val id = plugin.manifest.id
         AlertDialog(
-            onDismissRequest = { deleteId = null },
+            onDismissRequest = { pendingDelete = null },
             title = { Text("移除插件声明？") },
-            text = { Text("将移除 $id 的本地 manifest 和启停状态。") },
+            text = { Text("将移除 $id 的已安装声明。签名插件保留已确认公钥、最高版本和有界历史，以约束重装。") },
             confirmButton = {
                 TextButton(onClick = {
-                    notice = if (registry.uninstall(id)) "$id 已移除" else "$id 移除失败"
-                    deleteId = null
+                    notice = if (registry.uninstall(id, plugin.manifest)) "$id 已移除" else "$id 移除失败或版本已变化"
+                    pendingDelete = null
                     revision += 1
                 }, modifier = Modifier.testTag("agent-plugin-confirm-delete")) { Text("移除") }
             },
-            dismissButton = { TextButton(onClick = { deleteId = null }) { Text("取消") } },
+            dismissButton = { TextButton(onClick = { pendingDelete = null }) { Text("取消") } },
+        )
+    }
+
+    pendingSigned?.let { signed ->
+        val confirmation = remember(signed) { AgentPluginSigning.verify(signed) }
+        AlertDialog(
+            onDismissRequest = { pendingSigned = null },
+            title = { Text("确认发布者公钥") },
+            text = { Text("${signed.manifest.id} · ${signed.manifest.version}\n发布者声明：${signed.manifest.publisher}\n公钥 SHA-256：${confirmation.publicKeySha256}\nmanifest SHA-256：${confirmation.manifestSha256}\n请通过可信渠道核对公钥指纹。确认仅绑定此公钥与声明，安装后默认停用，仍不执行插件代码。",
+                modifier = Modifier.testTag("agent-plugin-publisher-confirmation")) },
+            confirmButton = {
+                TextButton(onClick = {
+                    // long: 使用打开对话框时冻结的 envelope，确认后 Registry 再验签，输入变动不会替换批准对象。
+                    notice = when (val result = registry.installSigned(signed, confirmation)) {
+                        is AgentPluginInstallResult.Installed -> "已安装 ${result.plugin.manifest.id}，默认停用"
+                        is AgentPluginInstallResult.AlreadyInstalled -> "${result.plugin.manifest.id} 已是相同版本"
+                        is AgentPluginInstallResult.Rejected -> result.reason
+                    }
+                    pendingSigned = null
+                    revision += 1
+                }, enabled = stateFailure == null, modifier = Modifier.testTag("agent-plugin-confirm-publisher")) { Text("确认公钥并安装") }
+            },
+            dismissButton = { TextButton(onClick = { pendingSigned = null }, modifier = Modifier.testTag("agent-plugin-cancel-publisher")) { Text("取消") } },
+        )
+    }
+
+    pendingRollback?.let { (plugin, version) ->
+        AlertDialog(
+            onDismissRequest = { pendingRollback = null }, title = { Text("回滚插件版本？") },
+            text = { Text("${plugin.manifest.id} 从 ${plugin.manifest.version} 回滚到已保存的 $version；回滚后默认停用，最高版本与公钥绑定继续保留。") },
+            confirmButton = {
+                TextButton(onClick = {
+                    notice = when (val result = registry.rollback(plugin.manifest.id, version, plugin.manifest)) {
+                        is AgentPluginInstallResult.Installed -> "已回滚到 $version，默认停用"
+                        is AgentPluginInstallResult.Rejected -> result.reason
+                        is AgentPluginInstallResult.AlreadyInstalled -> "已是该版本"
+                    }
+                    pendingRollback = null
+                    revision += 1
+                }, enabled = stateFailure == null, modifier = Modifier.testTag("agent-plugin-confirm-rollback")) { Text("回滚") }
+            },
+            dismissButton = { TextButton(onClick = { pendingRollback = null }) { Text("取消") } },
         )
     }
 }

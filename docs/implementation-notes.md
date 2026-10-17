@@ -1,5 +1,12 @@
 # 当前实现说明
 
+## 2026-10-18 第 288 阶段第一片：签名、确认与原子版本账本
+
+- `AgentPluginSigning` 固定 domain/字段顺序/UTF-8 长度前缀与集合 UTF-16 排序，绑定全部 manifest 与 source。只接受 named P-256 SPKI、规范 Base64 和最小 DER，复核完整曲线参数；不以 ECDSA 随机签名字节作为版本身份。
+- `AgentPluginJsonCodec` schema v2 保存当前/最高签名、有界历史和 removed；v1 无签名快照兼容。独立严格词法/重复 key/深度/十进制整数门禁统一 Android 与 JVM，恢复当前、历史和最高记录全部验签并核对身份。
+- `AgentPluginRegistry` 首装匹配内容/公钥双摘要确认，升级沿原身份，旧导入受最高版本门禁；回滚只用保存版本，移除保留签名身份。编码/写盘成功后提交内存，不可修改集合阻断别名变更；回滚与移除确认绑定当前 manifest。
+- 管理页冻结待确认 envelope、公钥摘要及回滚/移除版本；所有版本变化默认停用，签名状态与最高版本可见。`tools/plugin_manifest_signer.py` 为独立 Python/OpenSSL 离线 signer，JVM 互通测试覆盖补充字符排序；Gradle 输入包含 signer，防止脚本变更复用旧测试。Room/Runtime/ToolRegistry 不改，详见[契约](agent-plugin-signing.md)。
+
 ## 2026-10-18 第 287 阶段第五片：整理游标、outbox 和用户候选
 
 - `MemoryMaintenancePolicy` 复用原话候选/敏感规则；SQL keyset 稳定裁决完成时间相同的 Run，原话/附件/origin/完成与取消资格在 Room 读取时过滤，不加载全量历史。
