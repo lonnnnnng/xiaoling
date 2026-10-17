@@ -7,6 +7,8 @@ import com.longdev.xiaoling.agent.ApprovalRequestRecord
 import com.longdev.xiaoling.agent.ApprovalRequestStatus
 import com.longdev.xiaoling.agent.AgentRunLedger
 import com.longdev.xiaoling.agent.AgentContextInput
+import com.longdev.xiaoling.agent.AgentContextRecoveryStatus
+import com.longdev.xiaoling.agent.AgentRunRecoveryExecutionGate
 import com.longdev.xiaoling.agent.AgentContextSnapshotCodec
 import com.longdev.xiaoling.agent.AgentContextSnapshotRecord
 import com.longdev.xiaoling.agent.AgentContextCompressionCandidate
@@ -309,6 +311,7 @@ class RoomAgentRunRepository(
             check(dao.getToolCalls(runId).map { it.id }.toSet() == verifiedIds.toSet()) { "存在尚未验证的工具响应，拒绝冻结下一次模型输入" }
             val frames = dao.getContextSnapshots(runId)
             validateContextTranscript(runId, frames)
+            validateContextCaptureAnchors(runId, frames)
             val compressions = dao.getContextCompressions(runId)
             validateContextCompressions(runId, frames, compressions)
             frozenCandidate?.let { validateCompressionToolSources(runId, it) }
@@ -336,12 +339,45 @@ class RoomAgentRunRepository(
                     AgentContextCompressionPolicy.recordHash(runId, stepId, version, sequence, frozenCandidate.historyStart, sourceJson, hash),
                     System.currentTimeMillis()))
             }
+            // long: 身份锚点和输入/来源一起提交；重启后即使尾帧或所有帧被误删，也不能把已捕获的 Run 当作无快照旧版本。
+            dao.insertEvent(RunEventEntity("event-${UUID.randomUUID()}", runId, CONTEXT_CAPTURE_EVENT,
+                "已保存模型输入快照", JSONObject().put("schemaVersion", 1).put("sequence", sequence)
+                    .put("stepId", stepId).put("recordSha256", hash)
+                    .put("compressionVersion", compressionVersion ?: JSONObject.NULL).toString(), System.currentTimeMillis()))
+        }
+    }
+
+    private suspend fun validateContextCaptureAnchors(runId: String, frames: List<AgentContextSnapshotEntity>) {
+        if (database.agentRunDao().getRun(runId) == null) {
+            // long: 显式删除 Run 会级联清输入，但旧 Event 表保留审计；不存在的父 Run 返回空输入，不把残留锚点误读成活动 Run 的帧丢失。
+            check(frames.isEmpty())
+            return
+        }
+        val markers = database.agentRunDao().getEvents(runId).filter { it.type == CONTEXT_CAPTURE_EVENT }
+        val sequences = markers.map { event ->
+            val value = JSONObject(checkNotNull(event.metadataJson))
+            check(value.keys().asSequence().toSet() == setOf("schemaVersion", "sequence", "stepId", "recordSha256", "compressionVersion"))
+            check(value.get("schemaVersion") == 1)
+            val rawSequence = value.get("sequence")
+            check(rawSequence is Int)
+            val sequence = rawSequence
+            val frame = checkNotNull(frames.singleOrNull { it.sequence == sequence })
+            check(value.get("stepId") == frame.stepId && value.get("recordSha256") == frame.recordSha256)
+            val version = if (value.isNull("compressionVersion")) null else value.get("compressionVersion")
+            check(version == null || version is Int)
+            check(version == frame.compressionVersion)
+            sequence
+        }.sorted()
+        if (sequences.isNotEmpty()) {
+            // long: 升级前帧可以没有锚点；首次新格式捕获之后每个序号必须有且只有一个，缺口和重复都拒绝。
+            check(sequences == (sequences.first()..frames.size).toList()) { "上下文身份锚点不完整" }
         }
     }
 
     override suspend fun contextTranscript(runId: String): List<AgentContextSnapshotRecord> = database.withTransaction {
         val frames = database.agentRunDao().getContextSnapshots(runId)
         validateContextTranscript(runId, frames)
+        validateContextCaptureAnchors(runId, frames)
         validateContextCompressions(runId, frames, database.agentRunDao().getContextCompressions(runId))
         frames.map { frame -> AgentContextSnapshotRecord(frame.runId, frame.stepId, frame.sequence,
             AgentContextSnapshotCodec.decode(frame.payloadJson), frame.recordSha256, frame.payloadBytes, frame.createdAt, frame.compressionVersion) }
@@ -351,6 +387,7 @@ class RoomAgentRunRepository(
         val frames = database.agentRunDao().getContextSnapshots(runId)
         val rows = database.agentRunDao().getContextCompressions(runId)
         validateContextTranscript(runId, frames)
+        validateContextCaptureAnchors(runId, frames)
         validateContextCompressions(runId, frames, rows)
         rows.map { AgentContextCompressionRecord(it.runId, it.stepId, it.version, it.frameSequence,
             AgentContextSnapshotCodec.decode(it.sourceJson), it.historyStart, it.recordSha256, it.createdAt) }
@@ -640,12 +677,13 @@ class RoomAgentRunRepository(
         val dao = database.agentRunDao()
         val resumable = dao.getRunsByStatuses(ACTIVE_RUN_STATUS_NAMES)
             .filter { runIds == null || it.id in runIds }
-            .mapNotNull { run ->
-                if (run.cancelRequestedAt != null) return@mapNotNull null
+            .mapNotNull { candidate -> database.withTransaction {
+                val run = dao.getRun(candidate.id) ?: return@withTransaction null
+                if (run.cancelRequestedAt != null || run.status in TERMINAL_RUN_STATUS_NAMES) return@withTransaction null
                 val detail = loadDetail(run)
                 val assessment = AgentRunResumePolicy.assess(detail)
                 if (assessment.kind != AgentRunResumeKind.APPROVAL_WAIT) {
-                    return@mapNotNull null
+                    return@withTransaction null
                 }
                 val recovery = checkNotNull(assessment.approvalWait) { "恢复策略缺少待审批边界" }
                 val boundaryEventId = detail.snapshot.events.lastOrNull { event ->
@@ -664,15 +702,15 @@ class RoomAgentRunRepository(
                         reason = assessment.reason,
                     ),
                 )
-                if (writeResult == RecoveryMarkerWriteResult.REJECTED) return@mapNotNull null
-                val freshRun = dao.getRun(run.id) ?: return@mapNotNull null
+                if (writeResult == RecoveryMarkerWriteResult.REJECTED) return@withTransaction null
+                val freshRun = dao.getRun(run.id) ?: return@withTransaction null
                 val freshDetail = loadDetail(freshRun)
                 val freshAssessment = AgentRunResumePolicy.assess(freshDetail)
                 freshDetail.takeIf {
                     freshAssessment.kind == AgentRunResumeKind.APPROVAL_WAIT &&
                         freshAssessment.approvalWait?.approvalRequestId == recovery.approvalRequestId
                 }
-            }
+            } }
         return resumable
     }
 
@@ -687,11 +725,13 @@ class RoomAgentRunRepository(
         )
         return candidates
             .filter { (runIds == null || it.id in runIds) && it.cancelRequestedAt == null }
-            .mapNotNull { run ->
+            .mapNotNull { candidate -> database.withTransaction {
+                val run = dao.getRun(candidate.id) ?: return@withTransaction null
+                if (run.cancelRequestedAt != null || run.status in TERMINAL_RUN_STATUS_NAMES) return@withTransaction null
                 val detail = loadDetail(run)
                 val assessment = AgentRunResumePolicy.assess(detail, definitionLookup, committedVerificationSupport)
                 if (assessment.kind != AgentRunResumeKind.COMMITTED_TOOL_VERIFICATION) {
-                    return@mapNotNull null
+                    return@withTransaction null
                 }
                 val recovery = checkNotNull(assessment.committedTool) { "恢复策略缺少已提交工具边界" }
                 val fromStatus = AgentRunStatus.valueOf(run.status)
@@ -710,8 +750,8 @@ class RoomAgentRunRepository(
                         reason = assessment.reason,
                     ),
                 )
-                if (writeResult == RecoveryMarkerWriteResult.REJECTED) return@mapNotNull null
-                val freshRun = dao.getRun(run.id) ?: return@mapNotNull null
+                if (writeResult == RecoveryMarkerWriteResult.REJECTED) return@withTransaction null
+                val freshRun = dao.getRun(run.id) ?: return@withTransaction null
                 val freshDetail = loadDetail(freshRun)
                 val freshAssessment = AgentRunResumePolicy.assess(
                     freshDetail,
@@ -722,18 +762,20 @@ class RoomAgentRunRepository(
                     freshAssessment.kind == AgentRunResumeKind.COMMITTED_TOOL_VERIFICATION &&
                         freshAssessment.committedTool?.toolCall?.id == recovery.toolCall.id
                 }
-            }
+            } }
     }
 
     suspend fun recoverVerifiedToolRuns(runIds: Set<String>? = null): List<AgentRunDetailRecord> {
         val dao = database.agentRunDao()
         return dao.getRunsByStatuses(listOf(AgentRunStatus.VERIFYING.name))
             .filter { (runIds == null || it.id in runIds) && it.cancelRequestedAt == null }
-            .mapNotNull { run ->
+            .mapNotNull { candidate -> database.withTransaction {
+                val run = dao.getRun(candidate.id) ?: return@withTransaction null
+                if (run.cancelRequestedAt != null || run.status in TERMINAL_RUN_STATUS_NAMES) return@withTransaction null
                 val detail = loadDetail(run)
                 val assessment = AgentRunResumePolicy.assess(detail)
                 if (assessment.kind != AgentRunResumeKind.VERIFIED_TOOL_COMPLETION) {
-                    return@mapNotNull null
+                    return@withTransaction null
                 }
                 val recovery = checkNotNull(assessment.verifiedTool) { "恢复策略缺少已验证工具边界" }
                 val boundaryToolCallId = recovery.verifiedTools.last().toolCall.id
@@ -753,15 +795,15 @@ class RoomAgentRunRepository(
                         reason = assessment.reason,
                     ),
                 )
-                if (writeResult == RecoveryMarkerWriteResult.REJECTED) return@mapNotNull null
-                val freshRun = dao.getRun(run.id) ?: return@mapNotNull null
+                if (writeResult == RecoveryMarkerWriteResult.REJECTED) return@withTransaction null
+                val freshRun = dao.getRun(run.id) ?: return@withTransaction null
                 val freshDetail = loadDetail(freshRun)
                 val freshAssessment = AgentRunResumePolicy.assess(freshDetail)
                 freshDetail.takeIf {
                     freshAssessment.kind == AgentRunResumeKind.VERIFIED_TOOL_COMPLETION &&
                         freshAssessment.verifiedTool?.lastVerificationStepId == recovery.lastVerificationStepId
                 }
-            }
+            } }
     }
 
     private suspend fun ensureRecoveryMarker(
@@ -769,7 +811,8 @@ class RoomAgentRunRepository(
     ): RecoveryMarkerWriteResult = database.withTransaction {
         val dao = database.agentRunDao()
         val run = dao.getRun(spec.runId) ?: return@withTransaction RecoveryMarkerWriteResult.REJECTED
-        if (run.status in TERMINAL_RUN_STATUS_NAMES) return@withTransaction RecoveryMarkerWriteResult.REJECTED
+        if (run.status in TERMINAL_RUN_STATUS_NAMES || run.cancelRequestedAt != null) return@withTransaction RecoveryMarkerWriteResult.REJECTED
+        if (loadDetail(run).contextRecoveryStatus == AgentContextRecoveryStatus.INVALID) return@withTransaction RecoveryMarkerWriteResult.REJECTED
         if (run.status != spec.fromStatus.name && run.status != spec.toStatus.name) {
             return@withTransaction RecoveryMarkerWriteResult.REJECTED
         }
@@ -1404,11 +1447,12 @@ class RoomAgentRunRepository(
         }
     }
 
-    private suspend fun loadDetail(run: AgentRunEntity): AgentRunDetailRecord {
+    private suspend fun loadDetail(run: AgentRunEntity): AgentRunDetailRecord = database.withTransaction {
         val dao = database.agentRunDao()
-        return AgentRunDetailRecord(
+        val freshRun = checkNotNull(dao.getRun(run.id)) { "Agent Run 已不存在" }
+        val detail = AgentRunDetailRecord(
             snapshot = AgentRunSnapshot(
-                run = run.toRecord(),
+                run = freshRun.toRecord(),
                 steps = dao.getSteps(run.id).map { it.toRecord() },
                 events = dao.getEvents(run.id).map { it.toRecord() },
             ),
@@ -1418,6 +1462,53 @@ class RoomAgentRunRepository(
                 results = dao.getToolResults(run.id).map { it.toRecord() },
             ),
         )
+        // long: 启动分类和执行回读必须看同一次 Room 事务中的工具事实与上下文，避免校验通过后组合出另一代控制面。
+        val frames = dao.getContextSnapshots(run.id)
+        val compressions = dao.getContextCompressions(run.id)
+        val status = try {
+            validateContextTranscript(run.id, frames)
+            validateContextCaptureAnchors(run.id, frames)
+            validateContextCompressions(run.id, frames, compressions)
+            val results = detail.toolLedger.results.associateBy { it.toolCallId }
+            val calls = detail.toolLedger.calls.associateBy { it.id }
+            frames.forEach { frame ->
+                AgentContextSnapshotCodec.decode(frame.payloadJson).verifiedToolCallIds.forEach { id ->
+                    check(calls[id]?.runId == run.id && results[id]?.runId == run.id &&
+                        results[id]?.success == true && results[id]?.verificationStatus == ToolVerificationStatus.PASSED)
+                }
+            }
+            if (frames.isEmpty()) AgentContextRecoveryStatus.LEGACY_UNCAPTURED else AgentContextRecoveryStatus.VALIDATED
+        } catch (error: Exception) {
+            // long: 数据损坏只返回固定处置，不把正文/解析异常展示给用户；取消和数据库 IO 故障仍传播，不能伪造成业务损坏。
+            if (error is kotlinx.coroutines.CancellationException) throw error
+            if (error !is IllegalArgumentException && error !is IllegalStateException && error !is ClassCastException &&
+                error !is java.nio.charset.CharacterCodingException && error !is org.json.JSONException) throw error
+            AgentContextRecoveryStatus.INVALID
+        }
+        detail.copy(contextRecoveryStatus = status)
+    }
+
+    suspend fun <T> withRecoveryExecution(runId: String, action: suspend (AgentRunDetailRecord) -> T): T =
+        AgentRunRecoveryExecutionGate.withRun(runId) {
+            val detail = database.withTransaction {
+                val run = checkNotNull(database.agentRunDao().getRun(runId)) { "待恢复 Run 不存在" }
+                check(run.status !in TERMINAL_RUN_STATUS_NAMES && run.cancelRequestedAt == null) { "Run 已结束或取消，不能继续恢复" }
+                loadDetail(run).also { check(it.contextRecoveryStatus != AgentContextRecoveryStatus.INVALID) { "上下文恢复证据不完整，请确认后创建新 Run" } }
+            }
+            action(detail)
+        }
+
+    suspend fun approveRecoveredRequest(approval: ApprovalRequestRecord, reason: String): AgentRunDetailRecord? = database.withTransaction {
+        val dao = database.agentRunDao()
+        val run = dao.getRun(approval.runId) ?: return@withTransaction null
+        if (run.status in TERMINAL_RUN_STATUS_NAMES || run.cancelRequestedAt != null) return@withTransaction null
+        val detail = loadDetail(run)
+        val assessment = AgentRunResumePolicy.assess(detail)
+        if (assessment.kind != AgentRunResumeKind.APPROVAL_WAIT || assessment.approvalWait?.approvalRequestId != approval.id ||
+            detail.approvals.singleOrNull { it.id == approval.id } != approval) return@withTransaction null
+        // long: 用户确认的原请求与当前上下文必须在批准同一事务中复核，配置准备期间的取消/来源漂移不能消耗旧确认。
+        decideApprovalRequest(approval.id, ApprovalRequestStatus.APPROVED, reason) ?: return@withTransaction null
+        detail
     }
 
     private suspend fun findStep(stepId: String): AgentStepEntity? {
@@ -1614,6 +1705,7 @@ class RoomAgentRunRepository(
     }
 
     private companion object {
+        const val CONTEXT_CAPTURE_EVENT = "context.snapshot.captured"
         const val ROOM_IN_QUERY_BATCH_SIZE = 900
         const val RECOVERY_EVENT_TYPE = "run.recovered"
         const val TOOL_CALL_PROPOSED_EVENT_TYPE = "tool.call.proposed"

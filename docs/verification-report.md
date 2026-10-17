@@ -2,6 +2,22 @@
 
 验证日期：2026-10-18（北京时间）
 
+# 2026-10-18 第 287 阶段第四片：上下文恢复校验与独立进程验收
+
+- 主线：第 3 点 Context/Memory 第四片将有界输入与压缩来源接入已有恢复门禁，下一片为有界后台整理；整个第 3 点仍未收口，详见[恢复契约](agent-context-recovery.md)与[路线图](personal-agent-roadmap.md)。原恢复类型及审批/预算/提交未知限制保留，不自动重发模型请求或重放工具。
+- 实现：`loadDetail` 同 Room 事务读取最新 Run/Step/Event/Approval/完整 Tool Ledger/快照/压缩来源，结构、序号、Step、字节、摘要、帧/来源及 PASSED ID 校验后给出恢复状态。INVALID 优先返回 `CONTEXT_EVIDENCE_INVALID`，启动关闭旧活动控制面并保留证据，不因来源损坏跳过门禁或伪装成旧版本。
+- 捕获与兼容：新帧 `context.snapshot.captured` 身份锚点只包含 schema/sequence/Step/hash/压缩版本，与快照及来源共事务；插入失败回滚，同 Step 相同输入重试只保存一次。首次新锚点后的缺口/重复/尾帧或全部输入丢失拒绝。旧无帧/无锚点 Run 兼容；旧未锚定帧全部被删的历史限制仍保留。Room v43、发布版本 `0.1.22 (23)` 不变，没有迁移或改写旧行。
+- 竞争与审批：恢复分类、marker、状态迁移与回读共事务并复核持久取消。三个生产 UseCase 入口按 Run 使用进程级 Mutex，取锁后读最新 detail，重复恢复不能重复本地总结或只读回查。审批取锁前绑定 Run，批准事务重新核对完整原请求、上下文和取消；配置准备期间漂移不消费旧确认。锁等待取消/执行异常释放引用，不串行不同 Run。
+- 复核与修正：两路只读复核发现锚点字段 `as Int` 类型损坏会让恢复批次异常外抛，以及 detail A/approval B 可能取得 A 锁却批准 B。已改锚点显式类型检查、codec 类型/孤立 Unicode 代理字符损坏固定 INVALID 且取消/数据库 IO 仍传播，以及取锁前同 Run 校验。新增字段齐全但类型错误、重算摘要后的错误 codec 类型/Unicode 和跨 Run 审批回归。一次机械脚本因 UseCase 方法边界名不符返回 `ValueError: substring not found`，Room 已写、UseCase 未写；随后精确补丁与编译通过。
+- JVM/构建：JDK 21 wrapper 执行 `:app:testDebugUnitTest --tests '*AgentRunRecoveryExecutionGateTest' --tests '*AgentContext*Test' --tests '*AgentRunResumePolicyTest' --tests '*AgentRunRecoveryEvidencePolicyTest' --tests '*MinimalAgentRuntimeTest' --tests '*MultiStepAgentRuntimeTest' :app:assembleDebug :app:assembleDebugAndroidTest --console=plain`，最新 `BUILD SUCCESSFUL in 8s`，七类 `159 tests / 0 failures / 0 errors / 0 skipped`。主机 `python3 -W error::ResourceWarning -m unittest discover -s tools -p 'test_agent_context_process_recovery.py' -v` 为 `2/2`，拒绝 JUnit 失败/跳过/零项/未完成及缺少 PID，不以 ADB 退出 0 代替通过。
+- Redmi 单进程：仅 `wsvwypiz7xwslvl7 / begonia / SDK 36`，主/测试 APK `install -r` 成功，保留数据权限。新增存储/生产入口 5 项 `OK (5 tests)`、`28.973s`，覆盖损坏来源/缺帧/锚点键或类型/codec 类型/完整结果漂移、拒绝恢复并保留 Ledger、两入口只完成一次、审批取消/漂移/错配、锚点写失败回滚与幂等重试。使用 UUID 数据库，不清正式 Memory undo。
+- 独立进程：`tools/verify_agent_context_process_recovery.py` 三轮分别 `OK (1 test)`、无跳过，PID `24788 → 24881 → 24930`。seed 在生产 adapter/Runtime/Room + 手机 loopback 建五个 UUID Run，保存三帧/一个压缩版本，注入第三个工具验证后的执行栈终止或派生输入保存后的请求前终止；后者只发两次模型请求，保留两条 PASSED 工具结果。
+- 恢复与收尾：restore 逐项比对 seed 输入/来源 hash、完整结果内容 hash，生产 UseCase/Runtime 只补已验证工具控制面与本地总结；原模型请求数及三条工具验证事实不增加，来源保留中间完整原文，派生片段仍明确省略。来源损坏、输入全部丢失、取消和 THINKING 请求半写入不恢复，原工具事实不改；重复 marker/关闭/执行不增加终态证据。第三个新进程再次核对 COMPLETED/CANCELLED、原输入与全部工具事实；全部断言通过后只删除本轮 UUID 数据库并验证路径不存在，`result.json completed=true`。
+- 既有回归与失败保留：Run Repository 56 项、快照 9 项和压缩 7 项首轮合计 72，实际为 `70 passed / 2 failed / 0 skipped`、`354.178s`，不记为通过。两项均在显式 Run 删除后回读空输入，旧 Event 表保留锚点而输入已 CASCADE 清除，误报 `IllegalStateException: Required value was null.`。已仅为父 Run 不存在且输入为空的路径保留空读取兼容，父 Run 存在时删光输入仍拒绝；未清理旧审计行。修复后的两项失败复验、增强 Unicode 损坏单项、不同 Repository 的重复恢复和六份语料单项合计 `OK (5 tests)`、`36.681s`，逐项 0 failed/skipped。其他 70 项的首轮成功记录保留，没有宣称最终包完整重跑 72 项。
+- 文档与最终补验：新增恢复契约并同步 requirements、implementation-notes、路线图、索引、快照/压缩契约及根 README；124 个本地链接有效、Room Schema 无变化。摘要增强为完整 Ledger hash 后，最新包三轮均 `OK (1 test)`，PID `25424 → 25519 → 25568`，耗时 `14.803 / 6.130 / 1.273s`，`process-final/result.json completed=true`；全部断言通过后 UUID 数据库清理确认。最终源码/验收增强后 APK 构建通过，删除兼容修复构建 `BUILD SUCCESSFUL in 4s`。本报告写回后重新打包并复验六份长期文档，记录另存 `corpus-final.log`。独立契约与根 README 不属于六份检索语料。
+- 证据边界：本片使用受控 `force-stop`、持久边界故障注入与固定模型响应，不代表自然 LMK/Doze/系统重启、Activity UI 专项或真实模型任务质量。锁只覆盖同一存活进程内恢复入口，不是多 Android 进程租约；快照校验不替代完整 Ledger、审批或提交回执。未运行完整 JVM/Lint/全量 instrumentation/Release，后台整理未实现。
+- 交付：忽略的 `outputs/verification/stage287-process-recovery/` 保存构建/JVM摘要、设备与三轮日志、只含身份及 hash 的 manifest、最终状态与制品检查；本机两份实际凭据只在内存用于匹配，任务源码/文档、证据和两 APK 全部解压条目 0 命中。差异空白检查通过，仅中文本地提交，不推送、不发版，原有 `refs/` 保留。
+
 # 2026-10-18 第 287 阶段第三片：上下文提取压缩
 
 - 主线：第 3 点 Context/Memory 第三片完成确定性提取压缩；Memory CAS 与有界输入快照已提交。下一片为进程恢复，其后是后台整理，整个第 3 点仍未收口，详见[压缩契约](agent-context-compression.md)与[路线图](personal-agent-roadmap.md)。

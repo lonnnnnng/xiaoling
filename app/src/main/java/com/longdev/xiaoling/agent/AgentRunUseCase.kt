@@ -21,6 +21,7 @@ class AgentRunUseCase(
     context: Context,
     private val client: OpenAiCompatibleClient,
     mcpSessionRegistry: McpSessionRegistry? = null,
+    private val baseLedger: RoomAgentRunRepository = RoomAgentRunRepository(context),
 ) {
     private val appContext = context.applicationContext
     // long: 验收可注入独立配置账本，生产未传入时仍共用 Application 注册表，不让测试改动用户的 MCP 配置。
@@ -31,7 +32,6 @@ class AgentRunUseCase(
     private val settingsMcpClient = mcpSessions.client("settings-${java.util.UUID.randomUUID()}")
     // long: 无 Profile 审计的历史 Run 只能继续使用知识工具上线前的集合，避免恢复时因新注册工具扩大旧能力面。
     private val legacyRunToolNames = LEGACY_RUN_TOOL_NAMES
-    private val baseLedger = RoomAgentRunRepository(context)
     private val permissionChecker = AndroidToolPermissionChecker(context)
     private val toolRegistry = XiaoLingToolRegistry(
         clock = SystemAgentClock(),
@@ -365,7 +365,11 @@ class AgentRunUseCase(
         invocationSource: AgentInvocationSource = AgentInvocationSource.DIRECT,
         approvalGate: ApprovalGate = AutoApprovalGate(),
         onSnapshot: suspend (AgentRunSnapshot) -> Unit = {},
-    ): AgentRunSummary {
+    ): AgentRunSummary = baseLedger.withRecoveryExecution(detail.snapshot.run.id.also {
+        // long: 取锁前绑定用户确认的 Run，不能拿 A 的配置/锁去批准 B，随后再把 B 的当前证据当作同一 Run 使用。
+        require(approval.runId == it) { "审批请求不属于当前 Agent Run" }
+    }) { freshDetail ->
+        val detail = freshDetail
         val selectionEvent = detail.snapshot.events.lastOrNull { it.type == "skill.selected" }
         val agentProfile = when (val assessment = detail.inspectAgentProfileAudit()) {
             AgentProfileAuditAssessment.Legacy -> null
@@ -404,11 +408,8 @@ class AgentRunUseCase(
             onSnapshot = onSnapshot,
         )
         // long: 批准决定先写入 Room，再进入同一 Run 的执行入口；应用崩溃时至少能区分“已批准但尚未执行”和“执行中断”。
-        baseLedger.decideApprovalRequest(
-            requestId = approval.id,
-            status = ApprovalRequestStatus.APPROVED,
-            reason = approvalReason,
-        ) ?: error("审批请求不存在：${approval.id}")
+        val approvedDetail = baseLedger.approveRecoveredRequest(approval, approvalReason)
+            ?: error("审批或上下文已变化，不能继续原 Run")
         val runtime = MinimalAgentRuntime(
             ledger = ledger,
             toolRegistry = scopedToolRegistry,
@@ -424,8 +425,8 @@ class AgentRunUseCase(
             permissionChecker = permissionChecker,
             options = agentProfile?.let { runtimeOptionsFor(it, invocationSource) } ?: AgentRuntimeOptions(),
         )
-        return runtime.resumeApprovedRun(
-            detail = detail,
+        runtime.resumeApprovedRun(
+            detail = approvedDetail,
             approval = approval,
             approvalDecision = ApprovalDecision(approved = true, reason = approvalReason),
             executionOrigin = AgentExecutionOrigin.FOREGROUND,
@@ -514,7 +515,8 @@ class AgentRunUseCase(
     suspend fun resumeCommittedToolRun(
         detail: AgentRunDetailRecord,
         onSnapshot: suspend (AgentRunSnapshot) -> Unit = {},
-    ): AgentRunSummary {
+    ): AgentRunSummary = baseLedger.withRecoveryExecution(detail.snapshot.run.id) { freshDetail ->
+        val detail = freshDetail
         val ledger = ReportingAgentRunLedger(
             delegate = baseLedger,
             onSnapshot = onSnapshot,
@@ -530,13 +532,14 @@ class AgentRunUseCase(
             llm = RecoveryOnlyAgentLlm,
             permissionChecker = permissionChecker,
         )
-        return runtime.resumeCommittedToolRun(detail)
+        runtime.resumeCommittedToolRun(detail)
     }
 
     suspend fun resumeVerifiedToolRun(
         detail: AgentRunDetailRecord,
         onSnapshot: suspend (AgentRunSnapshot) -> Unit = {},
-    ): AgentRunSummary {
+    ): AgentRunSummary = baseLedger.withRecoveryExecution(detail.snapshot.run.id) { freshDetail ->
+        val detail = freshDetail
         val ledger = ReportingAgentRunLedger(
             delegate = baseLedger,
             onSnapshot = onSnapshot,
@@ -546,7 +549,7 @@ class AgentRunUseCase(
             llm = RecoveryOnlyAgentLlm,
             permissionChecker = permissionChecker,
         )
-        return runtime.resumeVerifiedToolRun(detail)
+        runtime.resumeVerifiedToolRun(detail)
     }
 
     suspend fun listSkills(): List<AgentSkillRecord> = skillCatalog.list()

@@ -1,8 +1,8 @@
 # 文档索引
 
-## 当前阶段：第 287 阶段 Context/Memory（第三片提取压缩）
+## 当前阶段：第 287 阶段 Context/Memory（第四片进程恢复）
 
-- Memory CAS、有界输入快照与确定性提取压缩已实现。较早大结果显式首尾片段，最近结果完整；原输入/压缩版本/实际帧共事务保存，开发 Room v43。详见[Memory CAS](memory-cas.md)、[输入快照](agent-context-snapshot.md)、[压缩契约](agent-context-compression.md)与[验证报告](verification-report.md)。后续为进程恢复和后台整理，整个第 3 点仍在推进。
+- Memory CAS、有界输入快照、确定性提取压缩与上下文恢复校验已实现；新帧身份锚点共事务，生产恢复按 Run 互斥并回读最新证据，开发 Room v43。详见[Memory CAS](memory-cas.md)、[输入快照](agent-context-snapshot.md)、[压缩契约](agent-context-compression.md)、[恢复契约](agent-context-recovery.md)与[验证报告](verification-report.md)。后续为有界后台整理，整个第 3 点仍在推进。
 
 ## 第 286 阶段 MCP（已收口）
 

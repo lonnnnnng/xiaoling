@@ -1,6 +1,6 @@
 # Agent 上下文提取压缩
 
-第 287 阶段第三片，接在 [输入快照](agent-context-snapshot.md)之后。当前实现是确定性提取压缩，不调用模型生成语义摘要。下一片才是进程恢复，后台整理继续后置；整个第 3 点尚未收口，实际结果见[验证报告](verification-report.md)。
+第 287 阶段第三片，接在 [输入快照](agent-context-snapshot.md)之后。当前实现是确定性提取压缩，不调用模型生成语义摘要。第四片的[上下文恢复校验](agent-context-recovery.md)已接入原恢复门禁，后台整理继续后置；整个第 3 点尚未收口，实际结果见[验证报告](verification-report.md)。
 
 ## 触发与模型输入
 

@@ -8,6 +8,17 @@ import org.junit.Test
 
 class AgentRunResumePolicyTest {
     @Test
+    fun capturedContextCorruptionCannotDowngradeToLegacyApprovalRecovery() {
+        val detail = validPendingApprovalDetail()
+        val legacy = AgentRunResumePolicy.assess(detail)
+        assertEquals(legacy, AgentRunResumePolicy.assess(detail.copy(contextRecoveryStatus = AgentContextRecoveryStatus.VALIDATED)))
+        val invalid = AgentRunResumePolicy.assess(detail.copy(contextRecoveryStatus = AgentContextRecoveryStatus.INVALID))
+        assertEquals(AgentRunResumeKind.RESTART_REQUIRED, invalid.kind)
+        assertEquals(AgentRunRestartDispositionCode.CONTEXT_EVIDENCE_INVALID, invalid.restartDisposition?.code)
+        assertFalse(invalid.canResumeInPlace)
+    }
+
+    @Test
     fun waitingApprovalWithoutExecutionCanResumeInPlace() {
         val assessment = AgentRunResumePolicy.assess(validPendingApprovalDetail())
 

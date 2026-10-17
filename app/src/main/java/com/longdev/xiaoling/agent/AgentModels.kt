@@ -383,6 +383,7 @@ data class AgentRunDetailRecord(
     val snapshot: AgentRunSnapshot,
     val approvals: List<ApprovalRequestRecord>,
     val toolLedger: AgentToolLedgerRecord = AgentToolLedgerRecord(),
+    val contextRecoveryStatus: AgentContextRecoveryStatus = AgentContextRecoveryStatus.LEGACY_UNCAPTURED,
 )
 
 internal fun AgentRunDetailRecord.latestRecoveryMetadata(): RunEventMetadata.Recovery? =

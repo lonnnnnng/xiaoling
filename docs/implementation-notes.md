@@ -1,5 +1,12 @@
 # 当前实现说明
 
+## 2026-10-18 第 287 阶段第四片：上下文恢复事务与执行互斥
+
+- `loadDetail` 同事务组合当前 Run/控制面/完整工具事实和 context 两表；校验后标记恢复状态，`AgentRunResumePolicy` 对 INVALID 优先给出结构化拒绝，不在恢复时降级为旧版本。
+- 每帧 `context.snapshot.captured` 锚点仅绑定序号/Step/hash/压缩版本，与来源和快照同事务；旧行无锚点兼容，新捕获后的缺口/删光/类型错误拒绝。锚点写失败整笔回滚，活动 Step 幂等重试。
+- 三个生产 UseCase 恢复入口共用按 Run 的进程级 Mutex，取锁后读最新 detail；审批取锁前绑定 Run，批准事务重新核对请求、取消与上下文。marker 分类、状态迁移和回读共事务，终态不重复恢复。
+- UUID 磁盘库与三轮 PID 编排覆盖受控进程变化，恢复仍沿用已验证事实本地收尾/已提交只读回查/显式审批路径；不启用模型重发、自然 LMK 或后台整理，Room 保持 v43。详见[恢复契约](agent-context-recovery.md)。
+
 ## 2026-10-18 第 287 阶段第三片：确定性历史投影和来源版本
 
 - `AgentContextCompressionPolicy` v1 按原历史 JSON 64 KiB/收益门禁生成提取投影，最近结果、参数与引用完整；Unicode code point 首尾各 1024B，标注缺口和内容 hash，不产生语义摘要或额外 telemetry。

@@ -104,7 +104,7 @@ Release 签名从未跟踪文件 `local-signing/xiaoling-release.env` 读取。�
 
 ## 当前状态
 
-当前主线是第 3 点 Context/Memory（第 287 阶段）。Memory CAS、有界输入/context snapshot 与确定性提取压缩已实现，开发 Room v43；原输入、压缩版本和实际发送帧共事务保存，较早结果显式省略、最近结果完整。后续依次推进进程恢复和后台整理，详见[Memory CAS](docs/memory-cas.md)、[输入快照](docs/agent-context-snapshot.md)、[压缩契约](docs/agent-context-compression.md)、[路线图](docs/personal-agent-roadmap.md)和[验证报告](docs/verification-report.md)。
+当前主线是第 3 点 Context/Memory（第 287 阶段）。Memory CAS、有界输入/context snapshot、确定性提取压缩与上下文恢复校验已实现，开发 Room v43；新帧身份锚点与原输入/来源共事务，生产恢复按 Run 互斥、回读最新证据，审批批准前原子复核。独立 PID 的受控重启验收见报告；后续推进有界后台整理，整个第 3 点尚未收口。详见[Memory CAS](docs/memory-cas.md)、[输入快照](docs/agent-context-snapshot.md)、[压缩契约](docs/agent-context-compression.md)、[恢复契约](docs/agent-context-recovery.md)、[路线图](docs/personal-agent-roadmap.md)和[验证报告](docs/verification-report.md)。
 
 第 2 点 MCP 已收口：应用级 `McpSessionRegistry` 统一设置/Run 会话，支持 Streamable HTTP 与 legacy SSE；配置变更撤销旧连接，取消/断流清目录，后续显式操作重新发现且不重放工具调用。Redmi 已通过真实 `gpt-6-luna` 的 SSE 成功/取消/停用，以及 Context7 认证 HTTPS 的发现和只读解析。Context7 为真实外部 Streamable HTTP，SSE 服务端仍为隔离 loopback；`query-docs`、OAuth、stdio、Tasks、后台 MCP 和正式 Release 独立后置，详见[MCP 会话契约](docs/mcp-session-registry.md)。
 

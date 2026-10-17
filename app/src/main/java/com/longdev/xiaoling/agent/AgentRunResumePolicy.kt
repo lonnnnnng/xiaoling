@@ -23,6 +23,7 @@ enum class AgentRunRestartDispositionCode {
     COMMITTED_VERIFICATION_UNAVAILABLE,
     TOOL_DEFINITION_UNAVAILABLE,
     COMMITTED_EFFECT_EVIDENCE_INVALID,
+    CONTEXT_EVIDENCE_INVALID,
 }
 
 data class AgentRunRestartDisposition(
@@ -108,6 +109,10 @@ object AgentRunResumePolicy {
         definitionLookup: (String) -> ToolDefinition? = { null },
         committedVerificationSupport: (String) -> Boolean = { false },
     ): AgentRunResumeAssessment {
+        if (detail.contextRecoveryStatus == AgentContextRecoveryStatus.INVALID) {
+            return restartRequired(AgentRunRestartDispositionCode.CONTEXT_EVIDENCE_INVALID,
+                "已保存的上下文或压缩来源不完整，不能原地恢复；保留证据并确认后创建新 Run")
+        }
         val snapshot = detail.snapshot
         val agentProfile = when (val assessment = detail.inspectAgentProfileAudit()) {
             AgentProfileAuditAssessment.Legacy -> null
@@ -1008,5 +1013,7 @@ object AgentRunResumePolicy {
             "当前 Registry 缺少历史工具定义，无法按历史重放声明审计已提交结果。"
         AgentRunRestartDispositionCode.COMMITTED_EFFECT_EVIDENCE_INVALID ->
             "提交回执、幂等键或重放声明不足，不能证明复用历史副作用是安全的。"
+        AgentRunRestartDispositionCode.CONTEXT_EVIDENCE_INVALID ->
+            "已捕获输入的身份锚点、快照或压缩来源不完整或漂移，不能将损坏输入降级为旧版本恢复。"
     }
 }

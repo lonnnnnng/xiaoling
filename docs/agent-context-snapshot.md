@@ -1,6 +1,6 @@
 # Agent 输入序列与 context snapshot
 
-第 287 阶段第二片，属于第 3 点 Context/Memory。第一片 [Memory CAS](memory-cas.md) 已完成，本片提供压缩的持久输入基线；第三片的来源/派生版本扩展见[提取压缩](agent-context-compression.md)，进程恢复和后台整理继续独立推进。[验证报告](verification-report.md)记录实际门禁与失败。
+第 287 阶段第二片，属于第 3 点 Context/Memory。第一片 [Memory CAS](memory-cas.md) 已完成，本片提供压缩的持久输入基线；第三片的来源/派生版本扩展见[提取压缩](agent-context-compression.md)，第四片的[上下文恢复](agent-context-recovery.md)沿用原资格并增加新帧身份锚点，后台整理继续独立推进。[验证报告](verification-report.md)记录实际门禁与失败。
 
 ## 输入契约
 
