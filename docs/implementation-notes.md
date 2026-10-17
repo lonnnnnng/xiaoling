@@ -1,5 +1,11 @@
 # 当前实现说明
 
+## 2026-10-17 第 285 阶段第七片：认证请求与队列共事务
+
+- `RemoteChannelReceiverAuthProtocol` 用独立 domain/长度前缀 canonical 格式摘要完整请求并签 proof，冻结 JSONObject，绑定发送方公钥指纹、endpoint/receiver、操作、nonce 与时效。`AndroidKeystoreRemoteChannelReceiverSigner` 的 alias 绑定同一作用域，只有显式 create 生成；export/sign 核对 P-256 原公钥，缺失不补钥。
+- `AuthenticatedSender` 显式 init 增加 authVersion 1 扩展表，原队列 user_version 仍为 1；本地 authorize/revoke 不清消息或 nonce，同 receiver 不能替换绑定。原队列抽出 `_pull / _acknowledge` 事务内方法，认证、复核时间、操作及收据引用保存共用 BEGIN IMMEDIATE，缓存请求先读许可/验签，ACK 后 GET 引用拒绝而不复活正文。
+- 35 项 Python、97 项聚焦 JVM（含独立 Python/OpenSSL ↔ 生产 Kotlin）和 Redmi 三进程 Keystore/outbox 门禁通过；响应签名期间到期也回滚队列/nonce。两个 Python 文件均为 Gradle Test 输入；没有改现有 HTTPS/Worker/UI 接线，主机明文及全局 4096 nonce 保留边界见[接收端认证](remote-channel-receiver-auth.md)。
+
 ## 2026-10-17 第 285 阶段第六片：独立 Python/OpenSSL 持久发送方
 
 - `LocalSenderQueue` 用 Python 3.12+ 标准库 SQLite 与独立 OpenSSL P-256，显式事务、DELETE/EXTRA/fullfsync、mode=rw 和每进程密钥/metadata/权限校验。`init / register / enqueue / pull / ack / public-info / stats` 只处理仓库外状态目录；已提交快照才响应，固定错误不暴露正文或私钥。

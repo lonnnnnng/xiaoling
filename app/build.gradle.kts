@@ -107,8 +107,8 @@ kotlin {
 }
 
 tasks.withType<Test>().configureEach {
-    // long: 跨实现门禁通过独立进程读取 Python 发送方；把脚本纳入输入，修改签名或持久化逻辑后必须重新验互通。
-    inputs.file(rootProject.file("tools/remote_channel_sender.py"))
+    // long: 跨实现门禁通过独立进程读取发送队列和接收认证；两份脚本都纳入输入，协议或事务变化后必须重新验互通。
+    inputs.files(rootProject.file("tools/remote_channel_sender.py"), rootProject.file("tools/remote_channel_receiver_auth.py"))
         .withPropertyName("remoteChannelSenderCli")
         .withPathSensitivity(PathSensitivity.RELATIVE)
 }

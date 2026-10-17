@@ -8,6 +8,8 @@
 
 该工具不监听网络，不提供 HTTPS URL、接收端注册 UI、部署脚本或密码学接收端认证。调用者权限来自操作系统对状态目录的管理权限；`receiverId` 只用于路由。任何 HTTP 适配层都必须先完成独立的接收端认证和授权，不能把现有 `pull / ack` 直接暴露到公网，也不能把批次签名理解成接收端身份认证。
 
+第七片在独立 `remote_channel_receiver_auth.py` 增加[接收端签名认证与本地授权](remote-channel-receiver-auth.md)，与原队列共事务；本工具仍为本地管理入口，不得作为网络认证 fallback。新核心尚未接 HTTP 或产品注册 UI，第六片以下记录保持其原验收范围。
+
 ## 状态、密钥与持久化
 
 初始化必须指定尚不存在的仓库外目录，目录属主为当前用户，权限为 `0700`；`sender-private.pem / sender-public.der / queue.sqlite3` 为 `0600`。拒绝根状态目录 symlink、状态文件 symlink/hardlink 及 group/other 权限。初始化不覆盖已有目录；失败留下的材料也不自动重置。

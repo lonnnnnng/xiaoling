@@ -43,6 +43,8 @@ GET 附带 `X-Xiaoling-Protocol: 1`、`X-Xiaoling-Receiver: <receiverId>`。有�
 
 `batchDigestSha256` 是上述完整字节的 SHA-256 小写十六进制；外层 batch signature 本身不参与 digest。消息 canonical 格式仍为八字段长度前缀格式，详见[原签名协议](remote-channel-signed-import.md)。临时 HTTPS 夹具参考实现位于 `tools/remote_channel_https_fixture.py`；第六片新增 `tools/remote_channel_sender.py` 的[本地持久发送队列](remote-channel-sender-queue.md)，独立验证签名和 ACK，但不提供 HTTP 或接收端密码学认证，receiverId 不能作为凭据。
 
+第七片的[接收端认证核心](remote-channel-receiver-auth.md)另用 P-256 proof 绑定完整 pull/ACK 请求、来源、receiver 和持久 nonce；不改变本节的 batch/ACK wire，也尚未接现有 HTTPS puller。
+
 ## 原子提交与 ACK outbox
 
 客户端先冻结当前已登记来源并验证 receiverId、requestCursor、有效期及批次外层签名，再在隔离内存事务中逐条验签、去重和检查全局 8 条待确认容量。任一失败整批回滚，cursor 不前进，不产生 ACK；nonce 被其他 messageId 使用过也必须整批拒绝。只有已经持久存在消息去重身份的重复 messageId 才计为重复接收。

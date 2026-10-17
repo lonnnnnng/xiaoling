@@ -1,6 +1,8 @@
 # 文档索引
 
-## 当前阶段：第 285 阶段 Remote Channel 本地持久发送队列
+## 当前阶段：第 285 阶段 Remote Channel 接收端认证核心
+
+- 第七片提供独立 Keystore P-256 接收签名、本地显式公钥授权/撤销、来源与完整请求摘要绑定、共事务持久 nonce；JVM/Python 与 Redmi 三进程离线互通已验证。没有接入注册 UI、HTTPS puller 或 HTTP 服务，见[接收端认证](remote-channel-receiver-auth.md)与[验证报告](verification-report.md)。
 
 - 第六片提供本地 SQLite 发送队列、P-256 签名批次和持久幂等 ACK，已验独立 CLI 与生产 Kotlin、Redmi 跨进程加密 outbox 互通。主机目录存明文，满容量不淘汰，不监听 HTTP，也没有接收端密码学认证。见[发送队列](remote-channel-sender-queue.md)与[验证报告](verification-report.md)。稳定部署、认证/注册、长期保留与自然系统恢复仍待后续。
 

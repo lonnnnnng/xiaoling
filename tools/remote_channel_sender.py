@@ -381,104 +381,110 @@ class LocalSenderQueue:
         cursor(request_cursor)
         now = self._now()
         with self._transaction() as connection:
-            route = self._receiver(connection, receiver)
-            if route["pending"] is not None:
-                delivery = connection.execute("SELECT * FROM deliveries WHERE id=?", (route["pending"],)).fetchone()
-                require(delivery is not None and delivery["receiver"] == receiver and not delivery["acknowledged"], "STATE_UNAVAILABLE")
-                require(route["cursor"] == delivery["request_cursor"], "STATE_UNAVAILABLE")
-                require(request_cursor == delivery["request_cursor"], "ACK_REQUIRED")
-                latest = connection.execute("SELECT * FROM receipts WHERE delivery=? ORDER BY rowid DESC LIMIT 1", (delivery["id"],)).fetchone()
-                require(latest is not None and latest["batch_json"] is not None, "STATE_UNAVAILABLE")
-                batch = stored_json(latest["batch_json"])
-                self._validate_cached_batch(batch)
-                expected = stored_json(latest["request_json"])
-                require(receipt_request(batch) == expected and batch["batchId"] == latest["batch_id"] and
-                        batch["requestCursor"] == delivery["request_cursor"] and batch["nextCursor"] == delivery["next_cursor"] and
-                        expected["messageIds"] == stored_json(delivery["message_ids"]), "STATE_UNAVAILABLE")
-                self._verify(batch_bytes(batch), batch["signature"])
-                if batch["issuedAtMillis"] <= now + 30000 and batch["issuedAtMillis"] >= now - 300000 and now < batch["expiresAtMillis"]:
-                    return batch
-                # long: 重签只更新时间与签名，原消息 ID、nonce、逻辑游标和全部已发收据保留，迟到的旧 ACK 仍可匹配。
-                rows = [connection.execute("SELECT * FROM messages WHERE id=? AND receiver=? AND acknowledged=0", (value, receiver)).fetchone()
-                        for value in stored_json(delivery["message_ids"])]
-                require(all(row is not None and row["text"] is not None for row in rows), "STATE_UNAVAILABLE")
-                messages = [self._envelope(row, now) for row in rows]
-            else:
-                require(request_cursor == route["cursor"], "CURSOR_MISMATCH")
-                # long: 首次空队列也提供非空游标供协议绑定 ACK，后续空批次保留游标，不伪造新正文或跳过排队消息。
-                next_cursor = request_cursor or "cursor-" + uuid.uuid4().hex
-                messages = []
-                rows = connection.execute("SELECT * FROM messages WHERE receiver=? AND acknowledged=0 ORDER BY seq LIMIT ?", (receiver, MAX_BATCH_MESSAGES)).fetchall()
-                if rows:
-                    next_cursor = "cursor-" + uuid.uuid4().hex
-                for row in rows:
-                    # long: 按排队顺序在报文边界截批，不能跳过较大的中间正文，也不能把新正文补入已签发的快照。
-                    candidate = messages + [self._envelope(row, now)]
-                    probe = self._batch(receiver, request_cursor, next_cursor, now, candidate, signed=False)
-                    if len(wire_json(probe).encode("utf-8")) > MAX_WIRE_BYTES:
-                        break
-                    messages = candidate
-                require(not rows or messages, "MESSAGE_TOO_LARGE")
-                delivery = {"id": uuid.uuid4().hex, "receiver": receiver, "request_cursor": request_cursor, "next_cursor": next_cursor}
-                connection.execute("INSERT INTO deliveries VALUES (?,?,?,?,?,0)", (delivery["id"], receiver, request_cursor, next_cursor,
-                                    wire_json([message["messageId"] for message in messages])))
-                connection.execute("UPDATE receivers SET pending=? WHERE id=?", (delivery["id"], receiver))
-            require(connection.execute("SELECT count(*) FROM receipts").fetchone()[0] < MAX_RECEIPTS, "RECEIPT_CAPACITY")
-            batch = self._batch(receiver, delivery["request_cursor"], delivery["next_cursor"], now, messages)
-            raw = wire_json(batch)
-            require(len(raw.encode("utf-8")) <= MAX_WIRE_BYTES, "MESSAGE_TOO_LARGE")
-            connection.execute("INSERT INTO receipts VALUES (?,?,?,?,NULL)",
-                               (batch["batchId"], delivery["id"], wire_json(receipt_request(batch)), raw))
-            return batch
+            return self._pull(connection, receiver, request_cursor, now)
+
+    def _pull(self, connection, receiver, request_cursor, now):
+        route = self._receiver(connection, receiver)
+        if route["pending"] is not None:
+            delivery = connection.execute("SELECT * FROM deliveries WHERE id=?", (route["pending"],)).fetchone()
+            require(delivery is not None and delivery["receiver"] == receiver and not delivery["acknowledged"], "STATE_UNAVAILABLE")
+            require(route["cursor"] == delivery["request_cursor"], "STATE_UNAVAILABLE")
+            require(request_cursor == delivery["request_cursor"], "ACK_REQUIRED")
+            latest = connection.execute("SELECT * FROM receipts WHERE delivery=? ORDER BY rowid DESC LIMIT 1", (delivery["id"],)).fetchone()
+            require(latest is not None and latest["batch_json"] is not None, "STATE_UNAVAILABLE")
+            batch = stored_json(latest["batch_json"])
+            self._validate_cached_batch(batch)
+            expected = stored_json(latest["request_json"])
+            require(receipt_request(batch) == expected and batch["batchId"] == latest["batch_id"] and
+                    batch["requestCursor"] == delivery["request_cursor"] and batch["nextCursor"] == delivery["next_cursor"] and
+                    expected["messageIds"] == stored_json(delivery["message_ids"]), "STATE_UNAVAILABLE")
+            self._verify(batch_bytes(batch), batch["signature"])
+            if batch["issuedAtMillis"] <= now + 30000 and batch["issuedAtMillis"] >= now - 300000 and now < batch["expiresAtMillis"]:
+                return batch
+            # long: 重签只更新时间与签名，原消息 ID、nonce、逻辑游标和全部已发收据保留，迟到的旧 ACK 仍可匹配。
+            rows = [connection.execute("SELECT * FROM messages WHERE id=? AND receiver=? AND acknowledged=0", (value, receiver)).fetchone()
+                    for value in stored_json(delivery["message_ids"])]
+            require(all(row is not None and row["text"] is not None for row in rows), "STATE_UNAVAILABLE")
+            messages = [self._envelope(row, now) for row in rows]
+        else:
+            require(request_cursor == route["cursor"], "CURSOR_MISMATCH")
+            # long: 首次空队列也提供非空游标供协议绑定 ACK，后续空批次保留游标，不伪造新正文或跳过排队消息。
+            next_cursor = request_cursor or "cursor-" + uuid.uuid4().hex
+            messages = []
+            rows = connection.execute("SELECT * FROM messages WHERE receiver=? AND acknowledged=0 ORDER BY seq LIMIT ?", (receiver, MAX_BATCH_MESSAGES)).fetchall()
+            if rows:
+                next_cursor = "cursor-" + uuid.uuid4().hex
+            for row in rows:
+                # long: 按排队顺序在报文边界截批，不能跳过较大的中间正文，也不能把新正文补入已签发的快照。
+                candidate = messages + [self._envelope(row, now)]
+                probe = self._batch(receiver, request_cursor, next_cursor, now, candidate, signed=False)
+                if len(wire_json(probe).encode("utf-8")) > MAX_WIRE_BYTES:
+                    break
+                messages = candidate
+            require(not rows or messages, "MESSAGE_TOO_LARGE")
+            delivery = {"id": uuid.uuid4().hex, "receiver": receiver, "request_cursor": request_cursor, "next_cursor": next_cursor}
+            connection.execute("INSERT INTO deliveries VALUES (?,?,?,?,?,0)", (delivery["id"], receiver, request_cursor, next_cursor,
+                                wire_json([message["messageId"] for message in messages])))
+            connection.execute("UPDATE receivers SET pending=? WHERE id=?", (delivery["id"], receiver))
+        require(connection.execute("SELECT count(*) FROM receipts").fetchone()[0] < MAX_RECEIPTS, "RECEIPT_CAPACITY")
+        batch = self._batch(receiver, delivery["request_cursor"], delivery["next_cursor"], now, messages)
+        raw = wire_json(batch)
+        require(len(raw.encode("utf-8")) <= MAX_WIRE_BYTES, "MESSAGE_TOO_LARGE")
+        connection.execute("INSERT INTO receipts VALUES (?,?,?,?,NULL)",
+                           (batch["batchId"], delivery["id"], wire_json(receipt_request(batch)), raw))
+        return batch
 
     def acknowledge(self, request):
+        with self._transaction() as connection:
+            return self._acknowledge(connection, request)
+
+    def _acknowledge(self, connection, request):
         # long: 本地命令由状态目录属主控制；收据匹配只确认已签发快照，未来网络入口调用前仍必须认证接收端。
         require(type(request) is dict and set(request) == ACK_FIELDS and type(request["protocolVersion"]) is int and
                 request["protocolVersion"] == 1 and request["operation"] == "ack")
         receiver_id(request["receiverId"])
         require(type(request["messageIds"]) is list and len(request["messageIds"]) <= MAX_BATCH_MESSAGES and
                 all(type(value) is str for value in request["messageIds"]))
-        with self._transaction() as connection:
-            self._receiver(connection, request["receiverId"])
-            row = connection.execute("SELECT * FROM receipts WHERE batch_id=?", (identity(request["batchId"]),)).fetchone()
-            require(row is not None, "ACK_MISMATCH")
-            expected = stored_json(row["request_json"])
-            require(type(expected) is dict and set(expected) == ACK_FIELDS and type(expected["protocolVersion"]) is int and
-                    expected["protocolVersion"] == 1 and expected["operation"] == "ack" and expected["batchId"] == row["batch_id"] and
-                    all(expected[name] == self.info[name] for name in PEER_FIELDS), "STATE_UNAVAILABLE")
-            require(expected == request, "ACK_MISMATCH")
-            delivery = connection.execute("SELECT * FROM deliveries WHERE id=?", (row["delivery"],)).fetchone()
-            require(delivery is not None and delivery["receiver"] == request["receiverId"] and delivery["next_cursor"] == request["nextCursor"] and
-                    stored_json(delivery["message_ids"]) == request["messageIds"], "STATE_UNAVAILABLE")
-            expected_reply = {name: value for name, value in request.items() if name != "messageIds"}
-            expected_reply["operation"] = "acknowledged"
-            if row["ack_json"] is not None:
-                reply = stored_json(row["ack_json"])
-                require(type(reply) is dict and set(reply) == set(expected_reply) | {"signature"} and
-                        type(reply["protocolVersion"]) is int and
-                        all(reply[name] == value for name, value in expected_reply.items()), "STATE_UNAVAILABLE")
-                self._verify(ack_bytes(reply), reply["signature"])
-                return reply
-            if not delivery["acknowledged"]:
-                # long: 首次 ACK 还要核对磁盘快照的原签名和 digest；收据、逻辑投递或缓存损坏都不能推进队列。
-                batch = stored_json(row["batch_json"])
-                self._validate_cached_batch(batch)
-                require(receipt_request(batch) == request and batch["requestCursor"] == delivery["request_cursor"], "STATE_UNAVAILABLE")
-                self._verify(batch_bytes(batch), batch["signature"])
-            reply = {**expected_reply, "signature": self._sign(ack_bytes(expected_reply))}
-            if not delivery["acknowledged"]:
-                route = self._receiver(connection, request["receiverId"])
-                require(route["pending"] == delivery["id"] and route["cursor"] == delivery["request_cursor"], "STATE_UNAVAILABLE")
-                # long: 只有精确匹配已提交收据的 ACK 才推进该接收队列；正文逻辑清除与游标同次提交，重复 ACK 不动后来批次。
-                connection.execute("UPDATE receivers SET cursor=?,pending=NULL WHERE id=?", (delivery["next_cursor"], delivery["receiver"]))
-                connection.execute("UPDATE deliveries SET acknowledged=1 WHERE id=?", (delivery["id"],))
-                for value in stored_json(delivery["message_ids"]):
-                    changed = connection.execute("UPDATE messages SET acknowledged=1,text=NULL,conversation=NULL WHERE id=? AND receiver=? AND acknowledged=0",
-                                                 (value, delivery["receiver"])).rowcount
-                    require(changed == 1, "STATE_UNAVAILABLE")
-                connection.execute("UPDATE receipts SET batch_json=NULL WHERE delivery=?", (delivery["id"],))
-            connection.execute("UPDATE receipts SET ack_json=? WHERE batch_id=?", (wire_json(reply), request["batchId"]))
+        self._receiver(connection, request["receiverId"])
+        row = connection.execute("SELECT * FROM receipts WHERE batch_id=?", (identity(request["batchId"]),)).fetchone()
+        require(row is not None, "ACK_MISMATCH")
+        expected = stored_json(row["request_json"])
+        require(type(expected) is dict and set(expected) == ACK_FIELDS and type(expected["protocolVersion"]) is int and
+                expected["protocolVersion"] == 1 and expected["operation"] == "ack" and expected["batchId"] == row["batch_id"] and
+                all(expected[name] == self.info[name] for name in PEER_FIELDS), "STATE_UNAVAILABLE")
+        require(expected == request, "ACK_MISMATCH")
+        delivery = connection.execute("SELECT * FROM deliveries WHERE id=?", (row["delivery"],)).fetchone()
+        require(delivery is not None and delivery["receiver"] == request["receiverId"] and delivery["next_cursor"] == request["nextCursor"] and
+                stored_json(delivery["message_ids"]) == request["messageIds"], "STATE_UNAVAILABLE")
+        expected_reply = {name: value for name, value in request.items() if name != "messageIds"}
+        expected_reply["operation"] = "acknowledged"
+        if row["ack_json"] is not None:
+            reply = stored_json(row["ack_json"])
+            require(type(reply) is dict and set(reply) == set(expected_reply) | {"signature"} and
+                    type(reply["protocolVersion"]) is int and
+                    all(reply[name] == value for name, value in expected_reply.items()), "STATE_UNAVAILABLE")
+            self._verify(ack_bytes(reply), reply["signature"])
             return reply
+        if not delivery["acknowledged"]:
+            # long: 首次 ACK 还要核对磁盘快照的原签名和 digest；收据、逻辑投递或缓存损坏都不能推进队列。
+            batch = stored_json(row["batch_json"])
+            self._validate_cached_batch(batch)
+            require(receipt_request(batch) == request and batch["requestCursor"] == delivery["request_cursor"], "STATE_UNAVAILABLE")
+            self._verify(batch_bytes(batch), batch["signature"])
+        reply = {**expected_reply, "signature": self._sign(ack_bytes(expected_reply))}
+        if not delivery["acknowledged"]:
+            route = self._receiver(connection, request["receiverId"])
+            require(route["pending"] == delivery["id"] and route["cursor"] == delivery["request_cursor"], "STATE_UNAVAILABLE")
+            # long: 只有精确匹配已提交收据的 ACK 才推进该接收队列；正文逻辑清除与游标同次提交，重复 ACK 不动后来批次。
+            connection.execute("UPDATE receivers SET cursor=?,pending=NULL WHERE id=?", (delivery["next_cursor"], delivery["receiver"]))
+            connection.execute("UPDATE deliveries SET acknowledged=1 WHERE id=?", (delivery["id"],))
+            for value in stored_json(delivery["message_ids"]):
+                changed = connection.execute("UPDATE messages SET acknowledged=1,text=NULL,conversation=NULL WHERE id=? AND receiver=? AND acknowledged=0",
+                                             (value, delivery["receiver"])).rowcount
+                require(changed == 1, "STATE_UNAVAILABLE")
+            connection.execute("UPDATE receipts SET batch_json=NULL WHERE delivery=?", (delivery["id"],))
+        connection.execute("UPDATE receipts SET ack_json=? WHERE batch_id=?", (wire_json(reply), request["batchId"]))
+        return reply
 
     def stats(self):
         with self._transaction() as connection:
