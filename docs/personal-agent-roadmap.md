@@ -19,7 +19,7 @@
 
 仍然缺少的主链按影响排序为：
 
-1. Remote Channel 第 285 阶段已补签名批次、cursor、同址 ACK、原子加密 outbox、持久退避、显式后台收件/通知、正文处理审计、异步启动对账、本地持久发送队列、接收端认证核心及产品公钥创建/导出与认证 HTTPS 客户端；服务端 HTTP 映射、稳定部署、长期保留和自然系统恢复仍待后续验收。
+1. Remote Channel 第 285 阶段已补签名批次、cursor、同址 ACK、原子加密 outbox、持久退避、显式后台收件/通知、正文处理审计、异步启动对账、本地持久发送队列、接收端认证及产品创建/导出、认证 HTTPS 客户端与有界 HTTP 服务；临时公网认证互通已补门禁，稳定部署、长期保留和自然系统恢复仍待后续验收。
 2. MCP 当前实际执行面是 Streamable HTTP；SSE、stdio、OAuth 和连接成功后再暴露工具的完整生命周期仍未形成统一运行时。
 3. Skill 已可从 GitHub 导入并固定提交，但插件仍是声明/只读投影，缺少经过签名和权限网关的可执行扩展模型。
 4. 多 Agent 仍限前台 Direct、最多两个只读 child；没有持久 child 生命周期、取消、预算、失败聚合和恢复策略。
@@ -39,7 +39,8 @@
 - 第六片：仓库外本地 SQLite 发送队列、持久签名收据与幂等 ACK 已完成；独立 Python/OpenSSL 与生产 Kotlin、Redmi Keystore/outbox 两进程互通。主机明文、容量含 tombstone/旧收据，无 HTTP 或密码学接收端认证，见[发送队列](remote-channel-sender-queue.md)。
 - 第七片：Keystore P-256 接收签名、本地公钥授权/撤销、完整请求/来源/nonce/时效绑定和队列共事务已完成，Redmi 三进程离线互通；该片仅提供核心，产品入口和客户端由第八片接入，见[接收端认证](remote-channel-receiver-auth.md)。
 - 第八片：产品显式创建/导出、必须认证的持久标记、同址 pull/ACK POST、原公钥核对和后台认证绑定已接入客户端；兼容来源继续旧协议，认证失败不降级，见[认证 HTTPS 客户端](remote-channel-receiver-https.md)。
-- 下一片：实现可信地址/HTTP wire 映射的发送方服务适配，再推进稳定部署；长期保留和自然系统恢复分别验收，本地核心、受控调度与临时公网夹具不能满足第 285 阶段整体退出标准。
+- 第九片：固定启动 endpoint、严格 HTTP wire 映射、有界 loopback listener、连接/速率/累计期限和固定错误已实现；Redmi 默认 HTTPS 传输的未授权、提交后 ACK 故障、撤销及重启恢复由临时公网合成门禁验收，见[认证 HTTP 服务](remote-channel-http-service.md)。
+- 下一片：推进稳定域名/TLS 与受管理服务部署；长期保留和自然系统恢复分别验收，本地核心、受控调度与临时公网夹具不能满足第 285 阶段整体退出标准。
 
 - 先冻结 `cursor / batch / ack / retry / expiry` 协议和服务端错误分类；消息仍必须 P-256 验签、去重、加密入箱，入站只产生待确认草稿。
 - 增加可取消的后台收件调度：优先 WorkManager/Foreground Service 的有界单次执行，网络不可用、进程被杀和身份撤销都要留下可恢复状态；不在后台自动运行 Agent。

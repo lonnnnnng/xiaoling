@@ -8,7 +8,7 @@
 
 该工具不监听网络，不提供 HTTPS URL、接收端注册 UI、部署脚本或密码学接收端认证。调用者权限来自操作系统对状态目录的管理权限；`receiverId` 只用于路由。任何 HTTP 适配层都必须先完成独立的接收端认证和授权，不能把现有 `pull / ack` 直接暴露到公网，也不能把批次签名理解成接收端身份认证。
 
-第七片在独立 `remote_channel_receiver_auth.py` 增加[接收端签名认证与本地授权](remote-channel-receiver-auth.md)，与原队列共事务；本工具仍为本地管理入口，不得作为网络认证 fallback。第八片补[产品公钥创建/导出与认证 HTTPS 客户端](remote-channel-receiver-https.md)，服务端 HTTP listener 与稳定部署仍待后续；第六片以下证据保持其原验收范围。
+第七片在独立 `remote_channel_receiver_auth.py` 增加[接收端签名认证与本地授权](remote-channel-receiver-auth.md)，与原队列共事务；本工具仍为本地管理入口，不得作为网络认证 fallback。第八片补[产品公钥创建/导出与认证 HTTPS 客户端](remote-channel-receiver-https.md)，第九片补[有界认证 HTTP listener](remote-channel-http-service.md)与临时公网验收；稳定部署仍待后续，第六片以下证据保持其原验收范围。
 
 ## 状态、密钥与持久化
 

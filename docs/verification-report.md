@@ -2,6 +2,22 @@
 
 验证日期：2026-10-17（北京时间）
 
+# 2026-10-17 第 285 阶段第九片：认证 HTTP 服务与真实 HTTPS 合成验收
+
+- 范围：新增 `tools/remote_channel_http.py`，只绑定 `127.0.0.1`，固定完整 HTTPS endpoint 来自启动配置。网络只调用 `AuthenticatedSender.execute`，没有裸 GET/ACK 或管理旁路；既有队列/认证扩展/发送私钥缺失或损坏时拒绝启动，不自动初始化或换钥。详细契约见[认证 HTTP 服务](remote-channel-http-service.md)。开发版本仍 `0.1.22 (23)`、Room v40，未推送/发版。
+- HTTP 边界：单连接单请求、固定 POST/raw path/Host、无 query、所有重复头/折行/冒号前空白拒绝；拒绝旧 receiver/cursor 头、TE/Expect/压缩正文。头 8 KiB/48 项，JSON body 64 KiB，严格 UTF-8、重复 key/NaN/孤立 surrogate/嵌套超深拒绝。Forwarded/CF-* 不能改变地址摘要或授权。成功返回原签名 JSON，错误只输出固定码，no-store/close/nosniff。
+- 资源/恢复：默认 4 个处理连接、backlog 16、全局容量 60/每秒补 1 令牌，头/正文各 5 秒累计等待、整请求 15 秒。独立核心 CLI 进程受总预算约束，超时 kill 其进程组并回收，含 OpenSSL 子进程；提交后写失败或超时不宣称回滚，继续由持久 nonce/receipt 恢复。32 receiver、4096 nonce/receipt、主机明文与无长期回收边界保留；全局令牌重启重置，429 沿用客户端普通 4xx 的显式重试策略。
+- Python：最终 `python3 -W error::ResourceWarning -m unittest discover -s tools -p 'test_remote_channel*.py' -v` 为 `48 tests / OK`、`14.662s`（队列 19、认证 16、HTTP 13）。新增真实 loopback socket 门禁覆盖 framing、错误映射、未授权/撤销/冲突/到期、UTF-8/JSON、精确正文上限、慢连接累计时限、并发同 nonce、连接/速率上限、重启、ACK 提交后写响应失败及超时终止持 SQLite 锁的孙进程。首轮 47 项因夹具 shutdown 竞态与改 issued 未同步 expires 出现 3 errors；修正后 47 项通过，再补并发/精确上限与进程组反例至 48 项。全部日志保留。
+- 构建/JVM：`JAVA_HOME=$(/usr/libexec/java_home -v 21) ./gradlew :app:testDebugUnitTest --tests '*RemoteChannel*' :app:assembleDebug :app:assembleDebugAndroidTest --console=plain`，首次 JVM 13 类 `106 tests / 0 failures / 0 errors / 0 skipped` 通过，但 AndroidTest 因测试辅助方法调用 suspend exportReceiver 编译失败；修正 suspend 声明及新增 digest 字段后构建为 `BUILD SUCCESSFUL in 2s`。最终文档另行重新打包，未跑全量 JVM、Lint、Release 或全量 instrumentation。
+- 设备与安装：仅 Redmi `wsvwypiz7xwslvl7 / begonia / SDK 36`，主 APK 和测试 APK 分别 `android install` 成功；保留用户配置/数据库，未卸载、清数据或修改通知权限。设备 `POST_NOTIFICATIONS granted=false`、AppOps `ignore` 保持；没有调用模型 API或操作模拟器。
+- 真实公网门禁：新增 `RemoteChannelAuthenticatedNetworkInstrumentedTest`，全部使用默认 `RemoteChannelHttpsPuller()` / 系统 DNS、公网过滤、系统 TLS 和真实 OkHttp socket，未注入网络拦截器、DNS、证书或响应。`tools/verify_remote_channel_authenticated_https.py` 用现有 cloudflared `2026.10.1` 启动临时 Quick Tunnel，并生成仓库外合成发送身份/SQLite；独立 UUID preferences、AES 与接收 P-256 alias，不触碰正式配对/后台账本。
+- 四轮独立进程分别 `OK (1 test)`、无 assumption skip：create `12.620s / PID 16550`，receive `5.438s / PID 16616`，revoked `29.719s / PID 16667`，restore `6.035s / PID 16724`。create 创建并导出真实 Keystore 清单，真实未授权 pull 得 403；主机核对本轮合成指纹显式 authorize 后入队 2 条。receive 正常 POST 拉取、验签与加密入箱；测试主机适配器在认证 ACK 已提交后返回 503，手机保留原 receipt/cursor 并记录 5xx 退避，后续即时同步被延后。
+- 提交后故障证据：`http-audit.jsonl` 中 ACK 故障行同时为 `acknowledged=2 / queued=0 / pending=0 / signedAcks=1 / nonces=2 / status=503`；先调用完整核心并 COMMIT，再由独立测试适配器丢弃成功响应。正常服务 CLI 没有故障开关。手机测试独立保存 batchId/digest/receiver/cursor，后续两个新进程同步前逐项核对原 outbox，不靠“非空”推断恢复。
+- 撤销/恢复：停止并重建 HTTP 服务后，本地 revoke 提交禁用位，revoked 按原 30 秒退避等待后补 ACK，真实 HTTPS 403；原收据、cursor、2 条 pending 正文和主机 nonce 计数不变。主机显式重新授权同一清单，restore 新进程重签原 ACK 并收到原签名回复，清 outbox、保留 cursor 与 2 条正文；随后空批次同步成功且不重复入箱。最终主机 `acknowledged=2 / queued=0 / pending=0 / signedAcks=2 / nonces=5`，第二收据来自后续空批次。
+- 收尾：恢复断言通过后，测试删除 UUID 接收 alias，缺钥 sign/export 拒绝且不自动重建；再清四份 UUID preferences 与 AES alias并逐项核对。恢复失败不会执行清理；缺钥/清理步骤失败可能保留部分已清状态。编排最终 `completed=true / servicesStopped=true / tunnelStopped=true`，仅通过本轮句柄停止自己的进程。主机合成私钥/SQLite 留在仓库外 `/var/folders/8b/_k4z7q5n4kg7sq5g800_mcs00000gn/T/xiaoling-auth-network-h5h4eyid/state`，未复制到源码/审计目录。
+- 证据与边界：审计位于 `outputs/verification/stage285-authenticated-http/`（忽略），含官方正文、首次失败与最终 Python/构建、安装、四轮网络日志、公开清单、HTTP 计数审计和进程记录。本片证明真实认证 DNS/TLS 下的受控合成互通和显式进程恢复，不能替代稳定域名/代理/服务管理、生产用户指纹核对、长期容量回收、自然周期/Doze/LMK/系统重启或正式 Release。第 285 阶段整体仍进行中。
+- 文档门禁：阶段文档、协议链接、路线和本报告保存后，重新构建 AndroidTest APK并定向执行 Redmi `RoomKnowledgeDocumentStoreInstrumentedTest#projectDocumentationCorpusMeetsGoldenQueryRecallGate`，首次 `OK (1 test)`、`3.749s`。写回结果与复现脚本保护说明后重新打包复验，最终结果保存 `corpus.log`。输出目录复用保护已实际验证；未改版本、权限或 Room schema。凭据/diff检查后只做中文本地提交，保留无关 `refs/`。
+
 # 2026-10-17 第 285 阶段第八片：显式接收公钥登记与认证 HTTPS 客户端
 
 - 开发源码保持 `0.1.22 (23)`、Room v40，未推送、未发版。配对页增加创建二次确认、接收指纹与公开 JSON 文件导出；Application 的统一同步服务接 Keystore 身份，前台和后台共用同址认证 pull/ACK POST。完整边界见[认证 HTTPS 客户端](remote-channel-receiver-https.md)。

@@ -37,11 +37,11 @@
 
 来源、启用配对、后台许可及原接收公钥在建连前、网络返回后和 ACK 清除前复核。批次提交及 ACK 清除还在收件箱锁内复核许可/来源/公钥和配对；排队等待锁期间的撤销不能用锁外旧检查继续清 outbox。已经到达服务端的合法请求不能被客户端撤回，服务端已提交 ACK 与本地许可失效须分别审计；迟到响应不清本地 receipt。ACK 继续仅表示安全入箱，不表示用户批准或 Agent 执行。
 
-## 服务端适配仍待下一片
+## 服务端适配的后续进展
 
-本片实现客户端接线，**没有 HTTP listener、反向代理配置或部署服务**。发送端仍由本地 `AuthenticatedSender.execute(raw, trustedEndpointHash)` 验证；现有 `remote_channel_https_fixture.py` 不能作为新的认证服务使用，旧 sender CLI 也不能充当未认证网络 fallback。
+第八片仅实现客户端接线。第九片在独立 `remote_channel_http.py` 提供有界 loopback 认证 POST listener，从固定启动地址取得摘要，唯一业务入口仍为 `AuthenticatedSender.execute(raw, trustedEndpointHash)`，见[认证 HTTP 服务](remote-channel-http-service.md)。现有 `remote_channel_https_fixture.py` 不能作为认证服务使用，旧 sender CLI 不能充当未认证网络 fallback。稳定反向代理配置与部署仍未交付。
 
-未来服务端必须从可信配置取得完整登记地址摘要，精确匹配 method/path、拒绝 query 和额外 wire 路由字段，按收到的 POST body 严格解析结构化 request/proof；不能相信请求自报 endpoint 摘要，不能给裸 GET/ACK 旁路。还需 TLS、限流、错误到 HTTP 状态映射、服务进程恢复、稳定部署和真实公网互通验收。认证核心的 4096 nonce 上限、32 receiver 上限、主机明文 pending、无长期回收策略保持不变。
+第九片补 method/path/Host/framing 的严格映射、有界连接/速率/累计期限、固定 HTTP 错误和真实公网合成恢复验收。临时 tunnel 承担本轮 TLS；稳定 TLS/域名、服务管理、长期运行与容量恢复仍待后续。认证核心的 4096 nonce 上限、32 receiver 上限、主机明文 pending、无长期回收策略保持不变。
 
 ## 验证边界与官方依据
 
