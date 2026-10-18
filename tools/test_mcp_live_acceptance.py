@@ -94,6 +94,24 @@ class McpLiveAcceptanceAuditTest(unittest.TestCase):
             self.assertFalse(live.instrumentation_verdict(0, True, [line.replace(original, changed) for line in records], spec)["passed"])
         self.assertFalse(live.instrumentation_verdict(0, False, records, spec)["passed"])
 
+    def test_settings_scroll_requires_its_own_direction_approval_and_restore_evidence(self):
+        spec = PHASES["workflow-settings-scroll"]
+        records = [marker + "verified=true\n" for marker in spec["requiredEvidence"]] + ["OK (1 test)\n"]
+        self.assertTrue(live.instrumentation_verdict(0, True, records, spec)["passed"])
+        # long: 同阶段少任意回执、方向错误、滚动人工审批或旧搜索成功都必须失败，不能只认 JUnit 成功和模型完成。
+        for index in range(len(spec["requiredEvidence"])):
+            self.assertFalse(live.instrumentation_verdict(0, True, records[:index] + records[index + 1:], spec)["passed"])
+        for original, changed in (("direction=up", "direction=down"),
+                                  ("executorVerified=true", "executorVerified=false"),
+                                  ("noSwipeApproval=true", "noSwipeApproval=false"),
+                                  ("snapshotContentChanged=true", "snapshotContentChanged=false"),
+                                  ("actionSummaryOnly=true", "actionSummaryOnly=false"),
+                                  ("visibleSwipeAction=true", "visibleSwipeAction=false")):
+            self.assertFalse(live.instrumentation_verdict(0, True, [line.replace(original, changed) for line in records], spec)["passed"])
+        search_records = [marker + "verified=true\n" for marker in PHASES["workflow-settings-search"]["requiredEvidence"]] + ["OK (1 test)\n"]
+        self.assertFalse(live.instrumentation_verdict(0, True, search_records, spec)["passed"])
+        self.assertFalse(live.instrumentation_verdict(0, False, records, spec)["passed"])
+
     def test_startup_and_cleanup_failures_keep_both_causes(self):
         with tempfile.TemporaryDirectory() as folder, \
                 patch.object(live, "adb", side_effect=["34567", RuntimeError("device offline")]), \

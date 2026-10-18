@@ -2,6 +2,15 @@
 
 验证日期：2026-10-18（北京时间）
 
+# 2026-10-18 第 297 阶段：正式 Workflow 设置滚动（同轮通过）
+
+指定 Redmi、用户提供真实 `gpt-6-luna`、Debug `0.1.22 (23)`。`live-navigation` 同轮打开设置与单次向上滚动，六调用/一审批，滚动 SAFE 零审批、同包同窗及真实 snapshot 内容变化，Room `VERIFIED / ALL_CRITERIA_VERIFIED`、结果展示和 Activity 重建通过；Run 为 `workflow-run-eb9bbf5a-a183-4ed9-a74e-f8f42055816d`，主机耗时 88.10s。首步使用既有一次完成纠错补齐后置观察，未扩大预算或修改生产行为。
+
+- 独立进程回读同一 Run/seed、两条严格工具顺序与六项 PASSED、一次批准及滚动零审批；临时定义移除、原配置/偏好和 undo 恢复，成功轮保护 2,272 条旧审计。
+- 定向 JVM 164/164、主机门禁 10/10、Debug/AndroidTest/Lint 通过。首轮仅导航超时，没有实际运行/动作，原 false 报告保留；先等待焦点并收键盘的夹具修正不代表已确认超时根因。
+- `actionSummaryOnly=true` 只核对动作结果白名单，无 viewport/锚点/指纹；不作为全局上下文或正文隐私证明。预置限定应用定义、其他方向/边界、编辑器、复杂任务、自然恢复和正式 Release 边界保持。
+- 最终语料/偏好、文档字节、实际凭据与原授权受控重绑由 `outputs/verification/stage297-workflow-scroll/verification-summary.json` 分项汇总；前两阶段 12 份原报告不改写。详见[正式滚动专项](android-workflow-scroll-acceptance.md)。
+
 # 2026-10-18 第 296 阶段：Workflow 分步完成与输入隐私（同轮通过）
 
 指定 Redmi、授权真实 `gpt-6-luna`、Debug `0.1.22 (23)`。`live-navigation` 同轮通过九次工具调用、三次生产浮层审批、Room `VERIFIED / ALL_CRITERIA_VERIFIED`、精确搜索文本回读、工具事件隐私及 Activity 重建；Run 为 `workflow-run-f4f1575d-b067-49b1-bf3b-ee909a433862`，主机耗时 124.24s。独立进程回读三条严格工具序列、三个 COMPLETED Agent 和 27 条无输入命中的工具事件，临时定义已移除。

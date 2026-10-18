@@ -1,5 +1,9 @@
 # 文档索引
 
+## 第 297 阶段正式 Workflow 滚动
+
+- [正式滚动验收](android-workflow-scroll-acceptance.md)：系统设置两步六调用、一审批和 SAFE 滚动零审批，同轮 VERIFIED、真实内容变化、Activity 重建和独立回读通过；首轮导航失败保留。限定应用定义仍由夹具预置，其他方向/边界、复杂任务和自然恢复独立追踪。
+
 ## 第 296 阶段 Workflow 分步完成与输入隐私
 
 - [分步完成与设置搜索验收](android-workflow-completion-acceptance.md)：补 v2 冻结步骤工具契约、有界完成纠错和 Workflow 输入后 snapshot 投影；指定 Redmi 真实模型同轮九调用/三审批、VERIFIED、精确回读、隐私及 Activity 重建通过。独立进程回读与旧审计/配置保护通过，五轮原失败保留；普通编辑器限定应用和自然恢复继续单列。

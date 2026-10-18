@@ -1,5 +1,11 @@
 # 当前实现说明
 
+## 2026-10-18 第 297 阶段：正式 Workflow 滚动验收入口
+
+- 新增独立 STAGE297 USB/ACK 入口，复用正式 MainActivity 可见手动运行、分步冻结契约和原数据保护；系统设置两步六调用，仅批准 open_app，swipe 使用生产 SAFE 同窗方向门禁，未改 main/schema/版本。
+- 同一 Run 目标 VERIFIED、真实内容变化、动作摘要字段白名单、Activity 重建与独立进程只读回查通过；首步使用一次原有完成纠错，预算保持。先等待真实焦点并收键盘再导航，原入口超时保留且根因未确认。
+- 限定定义仍预置；普通编辑器、其他方向/边界、复杂任务及自然恢复未扩大验收范围，详见[滚动专项](android-workflow-scroll-acceptance.md)。
+
 ## 2026-10-18 第 291 阶段第九片：真实 iOS 前台 loop
 
 - 新增静态 framework 和单窗口 UIKit Simulator 验收宿主，普通非流式 Chat Completions/严格 JSON 规划，仅四个只读 workspace/browser 工具；每 Run 独立真实结果历史和调用身份，8 步/90 秒及输入/响应容量门禁。认证仅宿主内存/请求头，两层 JSON 解码反射拒绝与事件字段脱敏，不保存配置。

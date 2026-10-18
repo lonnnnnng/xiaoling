@@ -52,11 +52,21 @@ class AndroidWorkflowLiveInstrumentedTest {
         runAcceptance(295, "device-search")
     }
 
+    @Test fun actualWorkflowScrollUsesRealModelAndPersistsVerifiedGoal() = runBlocking {
+        runAcceptance(297, "device-scroll")
+    }
+
     private suspend fun runAcceptance(stage: Int, case: String) {
         acceptanceStage = stage
         val config = androidLiveProvider(stage)
-        require(if (stage == 295) case == "device-search" else case in setOf("create-readonly", "device-approve", "device-deny"))
+        require(when (stage) {
+            295 -> case == "device-search"
+            297 -> case == "device-scroll"
+            else -> stage == 294 && case in setOf("create-readonly", "device-approve", "device-deny")
+        })
         val search = case == "device-search"
+        val scroll = case == "device-scroll"
+        val contracted = search || scroll
         val device = case != "create-readonly"
         val context = ApplicationProvider.getApplicationContext<Context>()
         val db = XiaoLingDatabase.getInstance(context)
@@ -86,8 +96,8 @@ class AndroidWorkflowLiveInstrumentedTest {
         val keyConsumers = listOf("xiaoling", "xiaoling_mcp").associateWith { name ->
             context.getSharedPreferences(name, Context.MODE_PRIVATE).let { it to it.all.toMap() }
         }
-        // long: 新装应用没有 Provider 密钥；仅搜索专项且旧审计与 Provider 密文全空时允许本轮临时创建，不能修补已有数据的丢失密钥。
-        check(originalKeyPresent || (search && originalAudit.values.all { it.isEmpty() } &&
+        // long: 新装应用没有 Provider 密钥；仅明确契约专项且旧审计与 Provider 密文全空时允许本轮临时创建，不能修补已有数据的丢失密钥。
+        check(originalKeyPresent || (contracted && originalAudit.values.all { it.isEmpty() } &&
             providers.all { it.apiKeyIv.isEmpty() && it.apiKeyCiphertext.isEmpty() } &&
             keyConsumers.values.all { (_, values) -> values.isEmpty() })) { "既有 Provider 密钥不存在，且不满足新安装空数据门禁" }
         val preferences = listOf("xiaoling_room_state", "xiaoling_ui").associateWith { name ->
@@ -115,9 +125,9 @@ class AndroidWorkflowLiveInstrumentedTest {
             else listOf("app.current_time", "app.get_info")
         val marker = UUID.randomUUID().toString().replace("-", "").take(8).map { ('a'.code + it.digitToInt(16)).toChar() }.joinToString("")
         // long: 每步最多三调用，保留默认预算；节点引用只能来自本步新快照，不能把前步或历史 ref 带入下一个 Agent Run。
-        val actions = listOf("device.open_app", "device.tap_ref", "device.type_text")
+        val actions = if (scroll) listOf("device.open_app", "device.swipe") else listOf("device.open_app", "device.tap_ref", "device.type_text")
         val requiredTools = actions.flatMap { listOf("device.snapshot", it, "device.snapshot") }
-        val contract = if (search) WorkflowGoalVerificationContract("在系统设置搜索框输入本轮公开测试文本",
+        val contract = if (contracted) WorkflowGoalVerificationContract(if (scroll) "打开系统设置并向上滚动设置列表一次" else "在系统设置搜索框输入本轮公开测试文本",
             WorkflowGoalVerificationSpec(requiredTools, "com.android.settings", actions.map { listOf("device.snapshot", it, "device.snapshot") })) else null
         val goals = if (search) listOf(
             "本步严格按顺序调用 device.snapshot、device.open_app(package_name=com.android.settings)、device.snapshot，各一次。只打开系统设置首页并确认后结束，不点击、不输入、不调用其他工具。",
@@ -127,6 +137,10 @@ class AndroidWorkflowLiveInstrumentedTest {
                 "向本步快照中的可编辑搜索框输入下面 JSON 的 text 值，原样复制每个字母，不翻译、不重新生成、不加空格或引号。" +
                 "snapshot_id 和 ref 均来自本步快照。未实际输入并精确回读之前禁止 complete；只读快照不满足目标，不选择搜索结果、不调用其他工具。\n" +
                 "本次已确认的输入参数数据：${JSONObject().put("text", marker)}",
+        ) else if (scroll) listOf(
+            "本步严格按顺序调用 device.snapshot、device.open_app(package_name=com.android.settings)、device.snapshot，各一次。只打开系统设置首页并确认后结束，不点击、不滚动、不调用其他工具。",
+            // long: 正式系统列表必须由模型选择本步真实 SWIPE ref；不使用半屏 Probe 或坐标注入来绕过共同锚点的生产验证。
+            "本步必须按顺序调用 device.snapshot、device.swipe、device.snapshot，各一次。根据本步快照选择 actions 包含 swipe 的设置主列表节点，snapshot_id 和 ref 必须来自本步快照，direction 必须为 up。只向上滚动一次以查看列表下方设置项目，未实际滚动并完成后置观察之前禁止 complete；不点击、不输入、不打开应用、不调用其他工具。",
         ) else if (device) listOf("先调用 device.snapshot，再仅调用一次 device.open_app，package_name 必须为 com.android.settings。目标是打开系统设置首页。依据工具后置验证完成后直接结束，不调用其他工具。")
             else listOf("只调用一次 app.current_time 获取当前时间，使用实际结果总结后结束。", "只调用一次 app.get_info 获取应用版本，使用本步实际结果总结后结束。")
         var ownedWorkflowId: String? = null
@@ -145,7 +159,7 @@ class AndroidWorkflowLiveInstrumentedTest {
         var ownedKeyProbe: EncryptedApiKey? = null
         var ownedKeyCreatedAt: Long? = null
         androidLiveStatus("STAGE${acceptanceStage}_EVIDENCE WORKFLOW_SCOPE businessContentEmpty=true oldAuditRows=${originalAudit.values.sumOf { it.size }} case=$case definitionSeeded=$device")
-        if (search) preferences.forEach { (name, snapshot) ->
+        if (contracted) preferences.forEach { (name, snapshot) ->
             androidLiveStatus("STAGE${stage}_PREF_BASELINE name=$name digest=${androidLivePreferenceDigest(snapshot.second)}")
         }
         try {
@@ -156,8 +170,8 @@ class AndroidWorkflowLiveInstrumentedTest {
                 ownedKeyCreatedAt = requireNotNull(keyStore().getCreationDate(keyAlias)).time
             }
             if (device) rebind(context, automation, requireNotNull(authorization))
-            if (search) {
-                // long: 设置搜索任务会复用旧页面；只结束两个公开目标窗口以从根页启动，不清数据或修改系统设置。
+            if (contracted) {
+                // long: 设置任务会复用旧页面或滚动位置；只结束两个公开目标窗口以从根页启动，不清数据或修改系统设置。
                 listOf("com.android.settings.intelligence", "com.android.settings").forEach { packageName ->
                     automation.executeShellCommand("am force-stop $packageName").use { descriptor ->
                         java.io.FileInputStream(descriptor.fileDescriptor).use { stream -> check(stream.readBytes().isEmpty()) { "目标窗口重置失败" } }
@@ -257,7 +271,7 @@ class AndroidWorkflowLiveInstrumentedTest {
                     } else check(ownedKeyProbe == null) { "本轮临时密钥被同期移除，保留现场" }
                     check(!keyStore().containsAlias(keyAlias))
                 } else check(keyStore().containsAlias(keyAlias)) { "原 Provider 密钥已丢失" }
-                if (search) androidLiveStatus("STAGE${stage}_EVIDENCE WORKFLOW_KEY aliasStateRestored=true originalAliasPresent=$originalKeyPresent temporaryCreated=${ownedKeyProbe != null}")
+                if (contracted) androidLiveStatus("STAGE${stage}_EVIDENCE WORKFLOW_KEY aliasStateRestored=true originalAliasPresent=$originalKeyPresent temporaryCreated=${ownedKeyProbe != null}")
                 androidLiveStatus("STAGE${acceptanceStage}_EVIDENCE WORKFLOW_RESTORE originalProviderAndProfiles=true preferencesEqual=true oldAuditRowsEqual=true memoryUndo=$originalUndo authorizationSelectionEqual=true temporaryDefinitionsRemoved=true runAuditRetained=true")
             }.exceptionOrNull()?.let { failure -> primaryFailure?.addSuppressed(failure) ?: throw failure }
         }
@@ -271,12 +285,21 @@ class AndroidWorkflowLiveInstrumentedTest {
         captureDefinition: suspend (String) -> Unit, recordRun: (String) -> Unit,
         markActorRunning: () -> Unit, markActorStopped: () -> Unit) {
         val search = case == "device-search"
+        val scroll = case == "device-scroll"
+        val contracted = search || scroll
         val device = case != "create-readonly"
         ActivityScenario.launch<MainActivity>(Intent(context, MainActivity::class.java)).use { scenario ->
             markActorRunning()
             var executionFailure: Throwable? = null
             try {
                 scenario.awaitState { !it.loadingConversationMessages && it.selectedConversationId == conversationId && it.selectedAgentProfileId == profileId }
+                // long: 页面入口点击必须发生在宿主取得焦点且键盘收起后；不能让上一窗口的输入法遮住真实底栏触点。
+                awaitAppWindow(automation, context.packageName)
+                scenario.onActivity { activity -> context.getSystemService(InputMethodManager::class.java)
+                    .hideSoftInputFromWindow(activity.window.decorView.windowToken, 0) }
+                withTimeout(10_000) {
+                    while (automation.windows.any { it.type == AccessibilityWindowInfo.TYPE_INPUT_METHOD }) delay(100)
+                }
                 openWorkflowPage()
                 if (!device) {
                     rule.onNodeWithContentDescription("新建工作流").performClick()
@@ -300,10 +323,10 @@ class AndroidWorkflowLiveInstrumentedTest {
                 val workflowRunId = started.workflowRuns.single { it.run.workflowId == definition.id && it.run.id !in priorRunIds }.run.id
                 recordRun(workflowRunId)
                 androidLiveStatus("STAGE${acceptanceStage}_WORKFLOW_RUN case=$case workflowRunId=$workflowRunId visibleRunCreated=true")
-                if (search) {
+                if (contracted) {
                     // long: 多次挂起的审批体独立生成协程状态机，避免巨型内联方法在本机 ART 恢复时触发非法指令；审批断言不放宽。
-                    for (index in actions.indices) approveSearchAction(context, automation, workflowRepo, agentRepo,
-                        workflowRunId, index + 1, actions[index], marker)
+                    for (index in actions.indices) if (actions[index] != "device.swipe")
+                        approveSearchAction(context, automation, workflowRepo, agentRepo, workflowRunId, index + 1, actions[index], marker)
                 } else if (device) {
                     val pending = awaitPending(workflowRunId, workflowRepo, agentRepo)
                     val agentId = pending.runId
@@ -341,18 +364,24 @@ class AndroidWorkflowLiveInstrumentedTest {
                     }
                     assertEquals(listOf(requireNotNull(WorkflowStepSnapshotCodec.outputText(detail.steps[0].outputSnapshot))),
                         WorkflowStepSnapshotCodec.decodeInput(detail.steps[1].inputSnapshot).previousOutputs)
-                } else if (search) {
-                    assertEquals(3, agents.size)
+                } else if (contracted) {
+                    assertEquals(actions.size, agents.size)
                     agents.forEachIndexed { index, agent ->
                         assertEquals(AgentRunStatus.COMPLETED, agent.snapshot.run.status)
                         assertEquals(listOf("device.snapshot", actions[index], "device.snapshot"), agent.toolLedger.calls.map { it.toolName })
                         assertEquals(3, agent.toolLedger.results.size)
                         assertTrue(agent.toolLedger.results.all { it.success && it.verificationStatus == ToolVerificationStatus.PASSED })
                         val call = agent.toolLedger.calls.single { it.toolName == actions[index] }
-                        val approval = agent.approvals.single()
-                        assertEquals(call.id, approval.toolCallId)
-                        assertEquals(ApprovalRequestStatus.APPROVED, approval.status)
-                        assertEquals(call.arguments, approval.arguments)
+                        if (actions[index] == "device.swipe") {
+                            // long: SAFE 滚动不能被夹具人工审批替代；要求本步零审批并消费生产同窗方向验证结果。
+                            assertTrue(agent.approvals.isEmpty())
+                            assertScrollEvidence(agent)
+                        } else {
+                            val approval = agent.approvals.single()
+                            assertEquals(call.id, approval.toolCallId)
+                            assertEquals(ApprovalRequestStatus.APPROVED, approval.status)
+                            assertEquals(call.arguments, approval.arguments)
+                        }
                         assertEquals(true, agent.toolLedger.results.single { it.toolCallId == call.id }.executorVerified)
                         val input = WorkflowStepSnapshotCodec.decodeInput(detail.steps[index].inputSnapshot)
                         assertEquals(contract, input.goalVerificationContract)
@@ -364,13 +393,13 @@ class AndroidWorkflowLiveInstrumentedTest {
                         assertEquals(actions[index].removePrefix("device."), action.action)
                         assertTrue(DeviceActionPolicy.areAllowedInAppFlow("com.android.settings", action.afterPackageName))
                     }
-                    assertSearchPrivacy(agents.last(), marker)
+                    if (search) assertSearchPrivacy(agents.last(), marker)
                     val decision = requireNotNull(detail.run.goalVerificationDecision)
                     assertEquals(WorkflowGoalVerificationStatus.VERIFIED, decision.status)
                     assertEquals(WorkflowGoalVerificationReason.ALL_CRITERIA_VERIFIED, decision.reason)
                     assertEquals(requiredTools, decision.requiredToolNames)
                     assertEquals(requiredTools, decision.matchedRequiredToolNames)
-                    assertEquals(3, decision.completedStepCount); assertEquals(3, decision.totalStepCount)
+                    assertEquals(actions.size, decision.completedStepCount); assertEquals(actions.size, decision.totalStepCount)
                     assertTrue(DeviceActionPolicy.areAllowedInAppFlow("com.android.settings", decision.actualFinalPackageName))
                     awaitSettingsWindow(automation)
                     // long: 审批全部结束后才做独立真实窗口回读；不能在 PENDING 时 capture 替换 Runtime 正在使用的引用。
@@ -378,8 +407,13 @@ class AndroidWorkflowLiveInstrumentedTest {
                     assertNotNull("最终设置窗口读取失败", capture)
                     val snapshot = requireNotNull(capture).snapshot
                     assertTrue(DeviceActionPolicy.areAllowedInAppFlow("com.android.settings", snapshot.packageName))
-                    assertTrue("搜索框未精确回读公开测试文本", snapshot.nodes.any { it.text == marker && DeviceNodeAction.TYPE_TEXT in it.actions })
-                    androidLiveStatus("STAGE${stage}_EVIDENCE WORKFLOW_SEARCH goalStatus=${decision.status} goalReason=${decision.reason} steps=3 toolCalls=9 approvals=3 exactReadBack=true privacyPassed=true workflowRunId=$workflowRunId textSha256=${hash(marker.toByteArray())} textLength=${marker.length} actualPackage=${snapshot.packageName} contractSeeded=true")
+                    if (search) {
+                        assertTrue("搜索框未精确回读公开测试文本", snapshot.nodes.any { it.text == marker && DeviceNodeAction.TYPE_TEXT in it.actions })
+                        androidLiveStatus("STAGE${stage}_EVIDENCE WORKFLOW_SEARCH goalStatus=${decision.status} goalReason=${decision.reason} steps=3 toolCalls=9 approvals=3 exactReadBack=true privacyPassed=true workflowRunId=$workflowRunId textSha256=${hash(marker.toByteArray())} textLength=${marker.length} actualPackage=${snapshot.packageName} contractSeeded=true")
+                    } else {
+                        assertTrue("最终设置窗口没有可滚动列表", snapshot.nodes.any { DeviceNodeAction.SWIPE in it.actions })
+                        androidLiveStatus("STAGE${stage}_EVIDENCE WORKFLOW_SCROLL goalStatus=${decision.status} goalReason=${decision.reason} steps=2 toolCalls=6 approvals=1 direction=up executorVerified=true noSwipeApproval=true snapshotContentChanged=true actionSummaryOnly=true workflowRunId=$workflowRunId actualPackage=${snapshot.packageName} contractSeeded=true")
+                    }
                 } else {
                     val agent = agents.single()
                     assertEquals(listOf("device.snapshot", "device.open_app"), agent.toolLedger.calls.map { it.toolName })
@@ -407,16 +441,16 @@ class AndroidWorkflowLiveInstrumentedTest {
                 // long: 可点击工作流卡片会合并后代语义；结果与动作的独立 tag 仍在真实子树中，必须从未合并树定位而非误判页面缺失。
                 rule.onNodeWithTag("workflow-run-result-$workflowRunId", useUnmergedTree = true).performScrollTo().assertIsDisplayed()
                 if (case == "device-approve") rule.onNodeWithTag("workflow-device-action-$workflowRunId-1-0", useUnmergedTree = true).performScrollTo().assertIsDisplayed()
-                if (search) {
-                    (1..3).forEach { sequence -> rule.onNodeWithTag("workflow-device-action-$workflowRunId-$sequence-0", useUnmergedTree = true).performScrollTo().assertIsDisplayed() }
+                if (contracted) {
+                    (1..actions.size).forEach { sequence -> rule.onNodeWithTag("workflow-device-action-$workflowRunId-$sequence-0", useUnmergedTree = true).performScrollTo().assertIsDisplayed() }
                     scenario.recreate()
                     scenario.awaitState { !it.loadingWorkflows && it.workflows.any { workflow -> workflow.id == definition.id } }
                     openWorkflowPage()
                     rule.onNodeWithTag("workflow-item-${definition.id}").performScrollTo().performClick()
                     rule.onNodeWithTag("workflow-run-result-$workflowRunId", useUnmergedTree = true).performScrollTo().assertIsDisplayed()
-                    rule.onNodeWithTag("workflow-device-action-$workflowRunId-3-0", useUnmergedTree = true).performScrollTo().assertIsDisplayed()
+                    rule.onNodeWithTag("workflow-device-action-$workflowRunId-${actions.size}-0", useUnmergedTree = true).performScrollTo().assertIsDisplayed()
                     assertEquals(detail, workflowRepo.runDetail(workflowRunId))
-                    androidLiveStatus("STAGE${stage}_EVIDENCE WORKFLOW_RECREATE visibleResult=true visibleTypeAction=true roomGoalEqual=true workflowRunId=$workflowRunId")
+                    androidLiveStatus("STAGE${stage}_EVIDENCE WORKFLOW_RECREATE visibleResult=true ${if (scroll) "visibleSwipeAction" else "visibleTypeAction"}=true roomGoalEqual=true workflowRunId=$workflowRunId")
                 }
                 if (case == "device-deny") {
                     val denied = rule.onAllNodes(hasText("工具未获批准", substring = true) and
@@ -542,6 +576,38 @@ class AndroidWorkflowLiveInstrumentedTest {
         assertFalse(result.content.contains(marker)); assertFalse(result.content.contains("\"nodes\"")); assertFalse(result.content.contains("\"ref\""))
         assertTrue(agent.snapshot.events.filter { it.type in setOf("tool.result", "tool.call.proposed", "tool.call.validated") }.none { it.toString().contains(marker) })
     }
+
+    private fun assertScrollEvidence(agent: AgentRunDetailRecord) {
+        val call = agent.toolLedger.calls.single { it.toolName == "device.swipe" }
+        assertEquals(setOf("snapshot_id", "ref", "direction"), call.arguments.keys)
+        assertEquals("up", call.arguments["direction"])
+        val observations = agent.toolLedger.results.filter { it.toolName == "device.snapshot" }.map { JSONObject(it.content) }
+        assertEquals(2, observations.size)
+        val before = observations.first()
+        val after = observations.last()
+        assertEquals(call.arguments["snapshot_id"], before.getString("snapshot_id"))
+        assertEquals("com.android.settings", before.getString("package"))
+        assertEquals(before.getString("package"), after.getString("package"))
+        assertEquals(before.getInt("window_id"), after.getInt("window_id"))
+        assertTrue(after.getLong("window_generation") > before.getLong("window_generation"))
+        val beforeNodes = before.getJSONArray("nodes")
+        val target = (0 until beforeNodes.length()).map(beforeNodes::getJSONObject).single { it.optString("ref") == call.arguments["ref"] }
+        val targetActions = target.getJSONArray("actions")
+        assertTrue((0 until targetActions.length()).any { targetActions.getString(it) == "swipe" })
+        fun visibleContent(json: JSONObject): Set<String> {
+            val nodes = json.getJSONArray("nodes")
+            return (0 until nodes.length()).map(nodes::getJSONObject).flatMap { node ->
+                listOf("text", "description", "hint").map { node.optString(it) }.filter(String::isNotBlank)
+            }.toSet()
+        }
+        // long: 同一 Agent 的真实前后快照须出现内容变化；仅 generation 更新或模型声称已滚动不足以形成独立验收证据。
+        assertNotEquals(visibleContent(before), visibleContent(after))
+        val result = agent.toolLedger.results.single { it.toolCallId == call.id }
+        assertNotNull(WorkflowDeviceActionResultCodec.decode(result.content))
+        listOf("viewport", "anchors", "fingerprint", "snapshot_id", "ref", "nodes").forEach { field ->
+            assertFalse("滚动结果包含执行期证据：$field", result.content.contains("\"$field\""))
+        }
+    }
     private suspend fun awaitSettingsWindow(automation: UiAutomation) = withTimeout(10_000) {
         while (true) {
             val window = automation.windows.singleOrNull { it.type == AccessibilityWindowInfo.TYPE_APPLICATION && (it.isActive || it.isFocused) }
@@ -554,11 +620,17 @@ class AndroidWorkflowLiveInstrumentedTest {
         }
     }
     private fun openWorkflowPage() {
-        rule.onNodeWithTag("bottom_tab_settings").performClick()
+        rule.onNodeWithTag("bottom_tab_settings").assertIsDisplayed().assertIsEnabled().performClick()
         // long: 底栏点击与设置内容重组不共享同步完成点；只等待已知正式入口，避免在页面尚未切换时把缺节点误判为搜索流程失败。
-        rule.waitUntil(timeoutMillis = 10_000) {
-            rule.onAllNodesWithContentDescription("新建工作流").fetchSemanticsNodes().size == 1 ||
-                rule.onAllNodesWithText("工作流").fetchSemanticsNodes().size == 1
+        try {
+            rule.waitUntil(timeoutMillis = 10_000) {
+                rule.onAllNodesWithContentDescription("新建工作流").fetchSemanticsNodes().size == 1 ||
+                    rule.onAllNodesWithText("工作流").fetchSemanticsNodes().size == 1
+            }
+        } catch (error: Throwable) {
+            // long: 只报告固定公开入口的数量，定位页面/语义树差异；不把模型配置、正文或完整语义树写入失败日志。
+            androidLiveStatus("STAGE${acceptanceStage}_WORKFLOW_NAVIGATION workflowMerged=${rule.onAllNodesWithText("工作流").fetchSemanticsNodes().size} workflowUnmerged=${rule.onAllNodesWithText("工作流", useUnmergedTree = true).fetchSemanticsNodes().size} newWorkflow=${rule.onAllNodesWithContentDescription("新建工作流").fetchSemanticsNodes().size} providerEntry=${rule.onAllNodesWithText("模型提供方管理").fetchSemanticsNodes().size} settingsTitle=${rule.onAllNodesWithText("设置").fetchSemanticsNodes().size}")
+            throw error
         }
         if (rule.onAllNodesWithContentDescription("新建工作流").fetchSemanticsNodes().isEmpty())
             rule.onNodeWithText("工作流").performScrollTo().performClick()

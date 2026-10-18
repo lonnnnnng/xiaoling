@@ -2,7 +2,9 @@
 
 ## 2026-10-18：Android 产品验收优先
 
-第 296 阶段已补[Workflow 分步完成与输入隐私](android-workflow-completion-acceptance.md)，正式设置搜索同轮九调用/三审批、目标 VERIFIED、精确回读、隐私与 Activity 重建通过。新鲜前台完成约束及下一次 snapshot 投影已回归；持续隐私、自然恢复、编辑器限定应用和滚动/复杂任务仍独立。
+第 297 阶段已补[正式 Workflow 滚动](android-workflow-scroll-acceptance.md)：打开设置与单次向上滚动同轮六调用、一审批，SAFE 滚动零审批，目标 VERIFIED、真实前后内容变化、Activity 重建和独立新进程回读通过。其他方向/边界、复杂任务、普通编辑器限定应用、持续隐私和自然恢复继续单列。
+
+第 296 阶段已补[Workflow 分步完成与输入隐私](android-workflow-completion-acceptance.md)，正式设置搜索同轮九调用/三审批、目标 VERIFIED、精确回读、隐私与 Activity 重建通过。新鲜前台完成约束及下一次 snapshot 投影已回归；持续隐私、自然恢复、编辑器限定应用和复杂任务仍独立，单次设置滚动由第 297 阶段补验。
 
 用户决定短期不做 iOS 产品。第 291 阶段协议/codec 与宿主验收保留，产品工作暂停；第 292 阶段已有功能真实模型验收见[Android 真实验收](android-live-acceptance.md)。第 293 阶段生产浮层四项同轮通过，见[浮层专项](android-device-approval-acceptance.md)；第 294 阶段补正式 Workflow 页面新建两步只读、预置限定定义的手动运行/打开设置批准与拒绝，三项跨三轮通过，见[Workflow 专项](android-workflow-acceptance.md)。普通编辑器尚无限定应用确认字段，其他设备动作和完整复杂任务仍单列。七点实现基线完成不等于所有产品/长期/Release 验收完成，独立待办保持。
 

@@ -73,6 +73,14 @@ PHASES["workflow-settings-search"] = descriptor("agent.AndroidWorkflowLiveInstru
         "EVIDENCE WORKFLOW_RECREATE visibleResult=true visibleTypeAction=true roomGoalEqual=true ",
         "EVIDENCE WORKFLOW case=device-search ", "EVIDENCE WORKFLOW_KEY aliasStateRestored=true ", "EVIDENCE WORKFLOW_RESTORE "))
 
+# long: 正式滚动须同时通过六调用、SAFE 零滚动审批、同窗内容变化、目标结算和重建，公开 Probe 的滚动不能替代本项。
+PHASES["workflow-settings-scroll"] = descriptor("agent.AndroidWorkflowLiveInstrumentedTest",
+    "actualWorkflowScrollUsesRealModelAndPersistsVerifiedGoal", stage=297, evidence="EVIDENCE WORKFLOW",
+    required_evidence=("EVIDENCE WORKFLOW_SCOPE ",
+        "EVIDENCE WORKFLOW_SCROLL goalStatus=VERIFIED goalReason=ALL_CRITERIA_VERIFIED steps=2 toolCalls=6 approvals=1 direction=up executorVerified=true noSwipeApproval=true snapshotContentChanged=true actionSummaryOnly=true ",
+        "EVIDENCE WORKFLOW_RECREATE visibleResult=true visibleSwipeAction=true roomGoalEqual=true ",
+        "EVIDENCE WORKFLOW case=device-scroll ", "EVIDENCE WORKFLOW_KEY aliasStateRestored=true ", "EVIDENCE WORKFLOW_RESTORE "))
+
 
 def main():
     parser = argparse.ArgumentParser(description="真实 Android 功能验收；APK 需先覆盖安装，不修改正式 Provider")
