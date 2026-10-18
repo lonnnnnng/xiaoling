@@ -80,6 +80,20 @@ class McpLiveAcceptanceAuditTest(unittest.TestCase):
                     self.assertFalse(live.instrumentation_verdict(0, True, incomplete, spec)["passed"])
                 self.assertFalse(live.instrumentation_verdict(0, False, records, spec)["passed"])
 
+    def test_settings_search_requires_business_recreate_restore_and_ack(self):
+        spec = PHASES["workflow-settings-search"]
+        records = [marker + "verified=true\n" for marker in spec["requiredEvidence"]] + ["OK (1 test)\n"]
+        self.assertTrue(live.instrumentation_verdict(0, True, records, spec)["passed"])
+        # long: 打开设置、旧阶段回执和 JUnit 都不能替代搜索输入/目标判定或重建证据；缺任意一段或 USB ACK 必须失败。
+        for index in range(len(spec["requiredEvidence"])):
+            self.assertFalse(live.instrumentation_verdict(0, True, records[:index] + records[index + 1:], spec)["passed"])
+        for original, changed in (("goalStatus=VERIFIED", "goalStatus=PARTIAL"),
+                                  ("exactReadBack=true", "exactReadBack=false"),
+                                  ("privacyPassed=true", "privacyPassed=false"),
+                                  ("aliasStateRestored=true", "aliasStateRestored=false")):
+            self.assertFalse(live.instrumentation_verdict(0, True, [line.replace(original, changed) for line in records], spec)["passed"])
+        self.assertFalse(live.instrumentation_verdict(0, False, records, spec)["passed"])
+
     def test_startup_and_cleanup_failures_keep_both_causes(self):
         with tempfile.TemporaryDirectory() as folder, \
                 patch.object(live, "adb", side_effect=["34567", RuntimeError("device offline")]), \

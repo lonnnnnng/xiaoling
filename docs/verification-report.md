@@ -2,6 +2,15 @@
 
 验证日期：2026-10-18（北京时间）
 
+# 2026-10-18 第 295 阶段：正式 Workflow 设置搜索专项（未通过）
+
+指定 Redmi、授权真实 `gpt-6-luna`、Debug `0.1.22 (23)`；主应用缺失后按用户要求安装，用户已手动开启无障碍。六份 live 原报告均为 false，不合并部分动作作为全链通过。生产 main、Room schema、版本与 iOS 产品范围未改。
+
+- 新安装无 Keystore alias 的夹具门禁已修正；仅空审计/空密文/空共享消费者偏好允许临时创建。原生 ART `unused-41 / SIGABRT` 导致内存归属与偏好原值丢失，独立恢复只清理冻结 seed/UUID/来源消息匹配的测试数据，保留审计与 alias；不宣称恢复了最初无密钥状态或全部旧偏好。页面执行与外层恢复拆分后，后续失败都有恢复回执。
+- 提供方缺少 message.content、模型提前 complete 均保留失败；最后 Run `workflow-run-fead5158-c740-46ea-8c3c-89fe8fdfe439` 首步只 snapshot，无审批，Workflow 被测试停止为 CANCELLED，Agent 的原始 COMPLETED/一条 PASSED 留存。最后本轮偏好、配置与 792 条旧审计行恢复通过，独立进程确认临时定义移除。
+- 前一轮实际打开设置/点击搜索已获生产批准并 PASSED，type_text 请求被旧标签夹具拒绝，输入未执行。已用持久快照定位 ROM 静态占位符，新增已验证前序点击/固定搜索伴随包/唯一编辑框/text=hint 联合身份；完整正向输入、九调用/三审批、VERIFIED、隐私和 Activity 重建仍未通过。普通编辑器限定应用字段不在本轮范围。
+- 主机门禁 9/9，构建/Lint 与只读诊断/定向恢复结果分开记录。最终语料/偏好保护、APK 文档字节/实际凭据/本地链接审计及原授权受控重绑由 `outputs/verification/stage295-workflow-search/verification-summary.json` 汇总；收尾成功不改变功能未通过状态。详见[设置搜索专项](android-workflow-search-acceptance.md)。
+
 # 2026-10-18 第 294 阶段：正式 Workflow 入口专项
 
 指定 Redmi、真实 `gpt-6-luna`、同签名 Debug `0.1.22 (23)`；三项各有通过记录，**选自三轮，不是同轮 3/3**。最终只读来自清理归属及异常链修复后的 `live-editor-final`，批准来自 `live-formal`（该轮拒绝失败、整轮仍为 false），拒绝来自 `live-denial-persistence`。生产 main、Room schema 与发布版本未变，iOS 产品暂停。

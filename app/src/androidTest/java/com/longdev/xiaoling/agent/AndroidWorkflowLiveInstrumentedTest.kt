@@ -22,6 +22,7 @@ import com.longdev.xiaoling.automation.*
 import com.longdev.xiaoling.data.*
 import com.longdev.xiaoling.device.*
 import com.longdev.xiaoling.model.ApiMode
+import com.longdev.xiaoling.model.ProviderRequestConfig
 import com.longdev.xiaoling.storage.RoomAgentProfileStore
 import com.longdev.xiaoling.storage.RoomAgentRunRepository
 import com.longdev.xiaoling.storage.RoomWorkflowRepository
@@ -39,11 +40,22 @@ import java.util.UUID
 /** long: 正式页面发起真实 Workflow；业务内容非空即拒绝，只移除本轮配置/定义并保留实际 Run 与步骤审计。 */
 class AndroidWorkflowLiveInstrumentedTest {
     @get:Rule val rule = createEmptyComposeRule()
+    private var acceptanceStage = 294
 
     @Test fun actualWorkflowPageUsesRealModelAndPersistsResult() = runBlocking {
-        val config = androidLiveProvider(294)
         val case = requireNotNull(InstrumentationRegistry.getArguments().getString("stage294Case"))
-        require(case in setOf("create-readonly", "device-approve", "device-deny"))
+        runAcceptance(294, case)
+    }
+
+    @Test fun actualWorkflowSearchUsesRealModelAndPersistsVerifiedGoal() = runBlocking {
+        runAcceptance(295, "device-search")
+    }
+
+    private suspend fun runAcceptance(stage: Int, case: String) {
+        acceptanceStage = stage
+        val config = androidLiveProvider(stage)
+        require(if (stage == 295) case == "device-search" else case in setOf("create-readonly", "device-approve", "device-deny"))
+        val search = case == "device-search"
         val device = case != "create-readonly"
         val context = ApplicationProvider.getApplicationContext<Context>()
         val db = XiaoLingDatabase.getInstance(context)
@@ -60,12 +72,21 @@ class AndroidWorkflowLiveInstrumentedTest {
         assertZero(db, "SELECT COUNT(*) FROM agent_runs WHERE status NOT IN ('COMPLETED', 'FAILED', 'CANCELLED')", "已有未结束 Agent Run")
         assertZero(db, "SELECT COUNT(*) FROM workflow_runs WHERE status NOT IN ('COMPLETED', 'FAILED', 'CANCELLED', 'BLOCKED')", "已有未结束 Workflow Run")
         assertZero(db, "SELECT COUNT(*) FROM approval_requests WHERE status = 'PENDING'", "已有待审批记录")
-        check(KeyStore.getInstance("AndroidKeyStore").apply { load(null) }.containsAlias("xiaoling_api_key")) { "既有 Provider 密钥不存在，拒绝新增持久密钥" }
+        val keyAlias = "xiaoling_api_key"
+        fun keyStore() = KeyStore.getInstance("AndroidKeyStore").apply { load(null) }
+        val originalKeyPresent = keyStore().containsAlias(keyAlias)
         val auditTables = listOf("agent_runs", "agent_steps", "approval_requests", "run_events", "agent_context_snapshots",
             "agent_context_compressions", "agent_tool_calls", "agent_tool_results", "workflow_runs", "workflow_steps")
         val originalAudit = auditTables.associateWith { rows(db, it) }
         val providers = db.providerDao().getAll().toSet()
         val profiles = db.agentProfileDao().list().toSet()
+        val keyConsumers = listOf("xiaoling", "xiaoling_mcp").associateWith { name ->
+            context.getSharedPreferences(name, Context.MODE_PRIVATE).let { it to it.all.toMap() }
+        }
+        // long: 新装应用没有 Provider 密钥；仅搜索专项且旧审计与 Provider 密文全空时允许本轮临时创建，不能修补已有数据的丢失密钥。
+        check(originalKeyPresent || (search && originalAudit.values.all { it.isEmpty() } &&
+            providers.all { it.apiKeyIv.isEmpty() && it.apiKeyCiphertext.isEmpty() } &&
+            keyConsumers.values.all { (_, values) -> values.isEmpty() })) { "既有 Provider 密钥不存在，且不满足新安装空数据门禁" }
         val preferences = listOf("xiaoling_room_state", "xiaoling_ui").associateWith { name ->
             val prefs = context.getSharedPreferences(name, Context.MODE_PRIVATE)
             Triple(prefs, prefs.all.toMap(), File(context.applicationInfo.dataDir, "shared_prefs/$name.xml").exists())
@@ -77,9 +98,9 @@ class AndroidWorkflowLiveInstrumentedTest {
         val originalUndo = undoHash()
         val authorization = Settings.Secure.getString(context.contentResolver, Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES)
         val id = UUID.randomUUID().toString()
-        val providerId = "stage294-provider-$id"
-        val profileId = "stage294-profile-$id"
-        val conversationId = "conversation-stage294-$id"
+        val providerId = "stage$stage-provider-$id"
+        val profileId = "stage$stage-profile-$id"
+        val conversationId = "conversation-stage$stage-$id"
         val workflowName = "公开工作流验收-${id.take(8)}"
         val roomOwned = mapOf<String, Any>("providers_migrated" to true, "conversations_migrated" to true,
             "selected_provider_id" to providerId, "selected_agent_profile_id" to profileId, "selected_conversation_id" to conversationId)
@@ -89,11 +110,22 @@ class AndroidWorkflowLiveInstrumentedTest {
         }
         val tools = if (device) listOf("device.snapshot", "device.open_app", "device.back", "device.home", "device.tap_ref", "device.type_text", "device.swipe")
             else listOf("app.current_time", "app.get_info")
-        val goals = if (device) listOf("先调用 device.snapshot，再仅调用一次 device.open_app，package_name 必须为 com.android.settings。目标是打开系统设置首页。依据工具后置验证完成后直接结束，不调用其他工具。")
+        val marker = UUID.randomUUID().toString().replace("-", "").take(8).map { ('a'.code + it.digitToInt(16)).toChar() }.joinToString("")
+        // long: 每步最多三调用，保留默认预算；节点引用只能来自本步新快照，不能把前步或历史 ref 带入下一个 Agent Run。
+        val actions = listOf("device.open_app", "device.tap_ref", "device.type_text")
+        val requiredTools = actions.flatMap { listOf("device.snapshot", it, "device.snapshot") }
+        val contract = if (search) WorkflowGoalVerificationContract("在系统设置搜索框输入本轮公开测试文本",
+            WorkflowGoalVerificationSpec(requiredTools, "com.android.settings")) else null
+        val goals = if (search) listOf(
+            "本步严格按顺序调用 device.snapshot、device.open_app(package_name=com.android.settings)、device.snapshot，各一次。只打开系统设置首页并确认后结束，不点击、不输入、不调用其他工具。",
+            "本步必须按顺序调用 device.snapshot、device.tap_ref、device.snapshot，各一次。根据本步快照点击设置首页的搜索设置入口。文字写着搜索设置的节点可能 actions 为空，此时沿 parent_index 找到最近 actions 包含 tap 的父节点，使用该父节点在本步快照中的 ref；其子树只能包含搜索标签，不选择包含其他设置项目的宽容器。未实际执行 device.tap_ref 前禁止 complete。确认搜索页后结束，不输入、不调用其他工具。",
+            "本步的输入动作尚未执行，前序步骤只负责打开搜索页。必须先调用 device.snapshot，然后 device.type_text(text=$marker)，最后 device.snapshot，各一次。必须向本步快照中的可编辑搜索框实际输入公开随机字母文本 $marker，snapshot_id 和 ref 均来自本步快照。未执行 device.type_text 并精确回读之前禁止 complete；只读快照不满足目标，不选择搜索结果、不调用其他工具。",
+        ) else if (device) listOf("先调用 device.snapshot，再仅调用一次 device.open_app，package_name 必须为 com.android.settings。目标是打开系统设置首页。依据工具后置验证完成后直接结束，不调用其他工具。")
             else listOf("只调用一次 app.current_time 获取当前时间，使用实际结果总结后结束。", "只调用一次 app.get_info 获取应用版本，使用本步实际结果总结后结束。")
         var ownedWorkflowId: String? = null
         var ownedDefinitionSnapshot: Pair<WorkflowEntity, List<WorkflowStepDefinitionEntity>>? = null
         suspend fun captureOwnedDefinition(workflowId: String) = db.withTransaction {
+            check(ownedWorkflowId == null || ownedWorkflowId == workflowId) { "页面定义身份发生漂移" }
             ownedWorkflowId = workflowId
             val snapshot = requireNotNull(db.workflowDao().getWorkflow(workflowId)) to db.workflowDao().getWorkflowStepDefinitions(workflowId)
             check(ownedDefinitionSnapshot == null || ownedDefinitionSnapshot == snapshot) { "本轮定义在页面回读前被修改，保留现场" }
@@ -102,9 +134,30 @@ class AndroidWorkflowLiveInstrumentedTest {
         var verifiedWorkflowRunId: String? = null
         var actorStopped = true
         var primaryFailure: Throwable? = null
-        androidLiveStatus("STAGE294_EVIDENCE WORKFLOW_SCOPE businessContentEmpty=true oldAuditRows=${originalAudit.values.sumOf { it.size }} case=$case definitionSeeded=$device")
+        val keyOwnershipProbe = "公开密钥归属-$id"
+        var ownedKeyProbe: EncryptedApiKey? = null
+        var ownedKeyCreatedAt: Long? = null
+        androidLiveStatus("STAGE${acceptanceStage}_EVIDENCE WORKFLOW_SCOPE businessContentEmpty=true oldAuditRows=${originalAudit.values.sumOf { it.size }} case=$case definitionSeeded=$device")
+        if (search) preferences.forEach { (name, snapshot) ->
+            androidLiveStatus("STAGE${stage}_PREF_BASELINE name=$name digest=${androidLivePreferenceDigest(snapshot.second)}")
+        }
         try {
+            if (!originalKeyPresent) {
+                // long: 在写入真实配置前用公开随机探针建立内存归属；恢复时必须同时匹配创建时间与解密结果，不能删除同期替换的密钥。
+                check(!keyStore().containsAlias(keyAlias)) { "Provider 密钥被同期创建，拒绝取得清理归属" }
+                ownedKeyProbe = ApiKeyCipher().encrypt(keyOwnershipProbe)
+                ownedKeyCreatedAt = requireNotNull(keyStore().getCreationDate(keyAlias)).time
+            }
             if (device) rebind(context, automation, requireNotNull(authorization))
+            if (search) {
+                // long: 设置搜索任务会复用旧页面；只结束两个公开目标窗口以从根页启动，不清数据或修改系统设置。
+                listOf("com.android.settings.intelligence", "com.android.settings").forEach { packageName ->
+                    automation.executeShellCommand("am force-stop $packageName").use { descriptor ->
+                        java.io.FileInputStream(descriptor.fileDescriptor).use { stream -> check(stream.readBytes().isEmpty()) { "目标窗口重置失败" } }
+                    }
+                }
+                androidLiveStatus("STAGE${stage}_WORKFLOW_SETUP targetTasksReset=true appDataCleared=false")
+            }
             val encrypted = ApiKeyCipher().encrypt(config.apiKey)
             val now = System.currentTimeMillis()
             db.providerDao().insertAll(listOf(ProviderEntity(providerId, "公开 Workflow 验收", config.baseUrl,
@@ -117,123 +170,15 @@ class AndroidWorkflowLiveInstrumentedTest {
             putOwned(preferences.getValue("xiaoling_ui").first, uiOwned)
             if (device) {
                 // long: 普通编辑器没有目标应用字段；限定应用定义由夹具预置，初始空 Run 取消保留，真正被验收的 Run 必须由可见按钮新建。
-                val seed = workflowRepo.createWorkflowAndManualRun(workflowName, goals.map(::WorkflowStepDefinitionInput), conversationId, "com.android.settings")
+                val seed = workflowRepo.createWorkflowAndManualRun(workflowName, goals.map(::WorkflowStepDefinitionInput), conversationId, "com.android.settings", contract)
                 captureOwnedDefinition(seed.first.id)
                 workflowRepo.completeRun(seed.second.run.id, WorkflowRunStatus.CANCELLED, errorMessage = "公开定义预置，不执行此 Run")
-                androidLiveStatus("STAGE294_WORKFLOW_SEED workflowId=${seed.first.id} seedRunId=${seed.second.run.id} cancelledWithoutAgent=true")
+                androidLiveStatus("STAGE${acceptanceStage}_WORKFLOW_SEED workflowId=${seed.first.id} seedRunId=${seed.second.run.id} cancelledWithoutAgent=true")
             }
-            ActivityScenario.launch<MainActivity>(Intent(context, MainActivity::class.java)).use { scenario ->
-                actorStopped = false
-                var executionFailure: Throwable? = null
-                try {
-                    scenario.awaitState { !it.loadingConversationMessages && it.selectedConversationId == conversationId && it.selectedAgentProfileId == profileId }
-                    openWorkflowPage()
-                    if (!device) {
-                        rule.onNodeWithContentDescription("新建工作流").performClick()
-                        rule.onNode(hasText("名称") and hasSetTextAction()).performTextInput(workflowName)
-                        rule.onAllNodes(hasText("Agent 目标") and hasSetTextAction())[0].performTextInput(goals[0])
-                        rule.onNodeWithText("添加步骤").performScrollTo().performClick()
-                        rule.onAllNodes(hasText("Agent 目标") and hasSetTextAction())[1].performScrollTo().performTextInput(goals[1])
-                        rule.onNode(hasText("保存") and hasClickAction()).performClick()
-                    }
-                    val ready = scenario.awaitState { !it.loadingWorkflows && it.workflows.any { item -> item.name == workflowName } }
-                    val definition = ready.workflows.single { it.name == workflowName }
-                    check(ownedWorkflowId == null || ownedWorkflowId == definition.id)
-                    captureOwnedDefinition(definition.id)
-                    assertEquals(goals, definition.steps.map { it.goal })
-                    assertEquals(if (device) "com.android.settings" else null, definition.targetAppPackage)
-                    val priorRunIds = ready.workflowRuns.map { it.run.id }.toSet()
-                    scenario.onActivity { activity -> context.getSystemService(InputMethodManager::class.java)
-                        .hideSoftInputFromWindow(activity.window.decorView.windowToken, 0) }
-                    rule.onNodeWithTag("workflow-item-${definition.id}").performScrollTo()
-                    rule.onNode(hasContentDescription("手动运行") and hasAnyAncestor(hasTestTag("workflow-item-${definition.id}"))).assertIsEnabled().performClick()
-                    val started = scenario.awaitState { it.workflowRuns.any { detail -> detail.run.workflowId == definition.id && detail.run.id !in priorRunIds } }
-                    val workflowRunId = started.workflowRuns.single { it.run.workflowId == definition.id && it.run.id !in priorRunIds }.run.id
-                    verifiedWorkflowRunId = workflowRunId
-                    androidLiveStatus("STAGE294_WORKFLOW_RUN case=$case workflowRunId=$workflowRunId visibleRunCreated=true")
-                    if (device) {
-                        val pending = awaitPending(workflowRunId, workflowRepo, agentRepo)
-                        val agentId = pending.runId
-                        androidLiveStatus("STAGE294_WORKFLOW_CHECKPOINT case=$case phase=pending runId=$agentId approvalId=${pending.id}")
-                        // long: 完整 device-control 是生产 Skill 的静态配置约束；测试只批准精确 open_app，任何其他可见审批都失败并在 finally 停止本轮。
-                        assertEquals("device.open_app", pending.toolName)
-                        assertEquals(mapOf("package_name" to "com.android.settings"), pending.arguments)
-                        assertTrue(agentRepo.toolLedger(agentId).results.none { it.toolCallId == pending.toolCallId })
-                        val overlay = awaitOverlay(automation)
-                        assertTrue(overlay.texts().contains("小灵设备动作审批"))
-                        assertTrue(overlay.texts().any { it.contains("device.open_app") })
-                        awaitAppWindow(automation, context.packageName)
-                        click(overlay, if (case == "device-approve") "批准执行" else "拒绝")
-                    }
-                    scenario.awaitState(120_000) { !it.sendingMessage && it.runningWorkflowId == null &&
-                        it.workflowRuns.any { detail -> detail.run.id == workflowRunId && detail.run.status in setOf(WorkflowRunStatus.COMPLETED, WorkflowRunStatus.FAILED) } }
-                    val detail = requireNotNull(workflowRepo.runDetail(workflowRunId))
-                    val expected = if (case == "device-deny") WorkflowRunStatus.FAILED else WorkflowRunStatus.COMPLETED
-                    assertEquals(expected, detail.run.status)
-                    assertTrue(detail.steps.all { it.status == if (case == "device-deny") WorkflowStepStatus.FAILED else WorkflowStepStatus.COMPLETED })
-                    val agents = detail.steps.map { requireNotNull(agentRepo.runDetail(requireNotNull(it.agentRunId))) }
-                    agents.forEach { agent ->
-                        val selected = agent.snapshot.events.mapNotNull { (it.metadata as? RunEventMetadata.AgentProfileSelection)?.profile }.single()
-                        assertEquals(profileId, selected.id); assertEquals(config.model, selected.model)
-                        val requests = agent.snapshot.events.mapNotNull { it.metadata as? RunEventMetadata.LlmRequest }
-                        assertTrue(requests.isNotEmpty()); assertTrue(requests.all { it.model == config.model })
-                    }
-                    if (!device) {
-                        assertEquals(2, agents.size)
-                        agents.zip(listOf("app.current_time", "app.get_info")).forEach { (agent, tool) ->
-                            assertEquals(AgentRunStatus.COMPLETED, agent.snapshot.run.status)
-                            assertEquals(listOf(tool), agent.toolLedger.calls.map { it.toolName })
-                            assertEquals(ToolVerificationStatus.PASSED, agent.toolLedger.results.single().verificationStatus)
-                        }
-                        assertEquals(listOf(requireNotNull(WorkflowStepSnapshotCodec.outputText(detail.steps[0].outputSnapshot))),
-                            WorkflowStepSnapshotCodec.decodeInput(detail.steps[1].inputSnapshot).previousOutputs)
-                    } else {
-                        val agent = agents.single()
-                        assertEquals(listOf("device.snapshot", "device.open_app"), agent.toolLedger.calls.map { it.toolName })
-                        assertEquals(if (case == "device-deny") ApprovalRequestStatus.DENIED else ApprovalRequestStatus.APPROVED, agent.approvals.single().status)
-                        assertEquals(if (case == "device-deny") AgentRunStatus.FAILED else AgentRunStatus.COMPLETED, agent.snapshot.run.status)
-                        if (case == "device-deny") {
-                            assertTrue(agent.toolLedger.results.none { it.toolName == "device.open_app" })
-                            // long: 页面刷新会清空临时 workflowError；拒绝原因必须从本次持久化 Run 复核，不能把瞬时提示消失误判为拒绝未落库。
-                            assertTrue(detail.run.errorMessage.orEmpty().contains("工具未获批准"))
-                            awaitAppWindow(automation, context.packageName)
-                        } else {
-                            val result = agent.toolLedger.results.single { it.toolName == "device.open_app" }
-                            assertEquals(ToolVerificationStatus.PASSED, result.verificationStatus); assertEquals(true, result.executorVerified)
-                            val action = requireNotNull(WorkflowStepSnapshotCodec.decodeOutput(detail.steps.single().outputSnapshot)).deviceActionDecisions.single()
-                            assertEquals(WorkflowDeviceActionDecisionStatus.VERIFIED, action.status)
-                            assertEquals("open_app", action.action); assertEquals("com.android.settings", action.afterPackageName)
-                            awaitAppWindow(automation, "com.android.settings")
-                        }
-                    }
-                    // long: 动作后再回小灵只用于查阅已落库的结果；不在审批/执行期间切窗，避免人为撤销真实窗口许可。
-                    context.startActivity(Intent(context, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_REORDER_TO_FRONT))
-                    scenario.awaitState { !it.sendingMessage }
-                    openWorkflowPage()
-                    rule.onNodeWithTag("workflow-item-${definition.id}").performScrollTo().performClick()
-                    // long: 可点击工作流卡片会合并后代语义；结果与动作的独立 tag 仍在真实子树中，必须从未合并树定位而非误判页面缺失。
-                    rule.onNodeWithTag("workflow-run-result-$workflowRunId", useUnmergedTree = true).performScrollTo().assertIsDisplayed()
-                    if (case == "device-approve") rule.onNodeWithTag("workflow-device-action-$workflowRunId-1-0", useUnmergedTree = true).performScrollTo().assertIsDisplayed()
-                    if (case == "device-deny") {
-                        val denied = rule.onAllNodes(hasText("工具未获批准", substring = true) and
-                            hasAnyAncestor(hasTestTag("workflow-item-${definition.id}")), useUnmergedTree = true)
-                        assertTrue(denied.fetchSemanticsNodes().isNotEmpty())
-                        denied[0].performScrollTo().assertIsDisplayed()
-                    }
-                    assertEquals(detail, workflowRepo.runDetail(workflowRunId))
-                    androidLiveStatus("STAGE294_EVIDENCE WORKFLOW case=$case workflowRunId=$workflowRunId agentRunIds=${agents.joinToString(",") { it.snapshot.run.id }} visibleRun=true actualViewModel=true productionUseCase=true editorCreated=${!device} definitionSeeded=$device status=$expected steps=${detail.steps.size} roomVerified=true visibleResult=true")
-                } catch (error: Throwable) {
-                    executionFailure = error
-                    throw error
-                } finally {
-                    // long: 停止超时必须保留正文失败的原因；附加异常留下停止失败，同时让外层拒绝清理尚在执行的配置。
-                    runCatching {
-                        scenario.onActivity { ViewModelProvider(it)[XiaoLingViewModel::class.java].apply { if (uiState.sendingMessage) stopGenerating() } }
-                        scenario.awaitState(30_000) { !it.sendingMessage && it.runningWorkflowId == null }
-                        actorStopped = true
-                    }.exceptionOrNull()?.let { failure -> executionFailure?.addSuppressed(failure) ?: throw failure }
-                }
-            }
+            runWorkflowPage(stage, case, context, automation, config, workflowRepo, agentRepo, workflowName,
+                conversationId, profileId, goals, marker, contract, actions, requiredTools,
+                captureDefinition = { captureOwnedDefinition(it) }, recordRun = { verifiedWorkflowRunId = it },
+                markActorRunning = { actorStopped = false }, markActorStopped = { actorStopped = true })
         } catch (error: Throwable) {
             primaryFailure = error
             throw error
@@ -279,7 +224,7 @@ class AndroidWorkflowLiveInstrumentedTest {
                     }.exceptionOrNull()?.let(errors::add) }
                     runCatching { check(prefs.all == original); if (!existed && prefs.all.isEmpty()) check(context.deleteSharedPreferences(name)) }
                         .exceptionOrNull()?.let(errors::add)
-                    androidLiveStatus("STAGE294_PREF_VALUES name=$name before=${androidLivePreferenceDigest(original)} after=${androidLivePreferenceDigest(prefs.all)}")
+                    androidLiveStatus("STAGE${acceptanceStage}_PREF_VALUES name=$name before=${androidLivePreferenceDigest(original)} after=${androidLivePreferenceDigest(prefs.all)}")
                 }
                 runCatching { check(providers == db.providerDao().getAll().toSet()); check(profiles == db.agentProfileDao().list().toSet()); check(undoHash() == originalUndo) }
                     .exceptionOrNull()?.let(errors::add)
@@ -288,10 +233,203 @@ class AndroidWorkflowLiveInstrumentedTest {
                 runCatching { originalAudit.forEach { (table, before) -> val after = rows(db, table)
                     check(before.all { (key, value) -> after[key] == value }) { "旧审计记录发生变化：$table" } } }
                     .exceptionOrNull()?.let(errors::add)
+                // long: MCP token 与旧版 Provider 也共用 alias；它们出现同期保存时保留密钥，不能只凭本轮探针就认定没有其他消费者。
+                runCatching { keyConsumers.forEach { (name, snapshot) ->
+                    check(snapshot.first.all == snapshot.second) { "密钥消费者配置发生同期变化：$name" }
+                } }.exceptionOrNull()?.let(errors::add)
                 verifiedWorkflowRunId?.let { runId -> runCatching { check(workflowRepo.runDetail(runId) != null) }.exceptionOrNull()?.let(errors::add) }
                 if (errors.isNotEmpty()) throw IllegalStateException("Workflow 专项恢复失败").also { error -> errors.forEach(error::addSuppressed) }
-                androidLiveStatus("STAGE294_EVIDENCE WORKFLOW_RESTORE originalProviderAndProfiles=true preferencesEqual=true oldAuditRowsEqual=true memoryUndo=$originalUndo authorizationSelectionEqual=true temporaryDefinitionsRemoved=true runAuditRetained=true")
+                if (!originalKeyPresent) {
+                    // long: 只有执行停止、配置集合与全部保护项恢复后才移除本轮密钥；归属不明或恢复失败时保留现场，审计 Run 不携带 Provider 密文。
+                    val store = keyStore()
+                    if (store.containsAlias(keyAlias)) {
+                        val probe = requireNotNull(ownedKeyProbe) { "临时密钥归属未建立，保留现场" }
+                        check(store.getCreationDate(keyAlias)?.time == requireNotNull(ownedKeyCreatedAt) &&
+                            ApiKeyCipher().decrypt(probe.iv, probe.ciphertext) == keyOwnershipProbe) { "临时密钥被同期替换，保留现场" }
+                        store.deleteEntry(keyAlias)
+                    } else check(ownedKeyProbe == null) { "本轮临时密钥被同期移除，保留现场" }
+                    check(!keyStore().containsAlias(keyAlias))
+                } else check(keyStore().containsAlias(keyAlias)) { "原 Provider 密钥已丢失" }
+                if (search) androidLiveStatus("STAGE${stage}_EVIDENCE WORKFLOW_KEY aliasStateRestored=true originalAliasPresent=$originalKeyPresent temporaryCreated=${ownedKeyProbe != null}")
+                androidLiveStatus("STAGE${acceptanceStage}_EVIDENCE WORKFLOW_RESTORE originalProviderAndProfiles=true preferencesEqual=true oldAuditRowsEqual=true memoryUndo=$originalUndo authorizationSelectionEqual=true temporaryDefinitionsRemoved=true runAuditRetained=true")
             }.exceptionOrNull()?.let { failure -> primaryFailure?.addSuppressed(failure) ?: throw failure }
+        }
+    }
+
+    // long: 页面执行与配置恢复分别生成较小协程状态机；原生崩溃和提供方异常都必须保留独立恢复证据，不能依赖巨型内联 use 的跳转。
+    private suspend fun runWorkflowPage(stage: Int, case: String, context: Context, automation: UiAutomation,
+        config: ProviderRequestConfig, workflowRepo: RoomWorkflowRepository, agentRepo: RoomAgentRunRepository,
+        workflowName: String, conversationId: String, profileId: String, goals: List<String>, marker: String,
+        contract: WorkflowGoalVerificationContract?, actions: List<String>, requiredTools: List<String>,
+        captureDefinition: suspend (String) -> Unit, recordRun: (String) -> Unit,
+        markActorRunning: () -> Unit, markActorStopped: () -> Unit) {
+        val search = case == "device-search"
+        val device = case != "create-readonly"
+        ActivityScenario.launch<MainActivity>(Intent(context, MainActivity::class.java)).use { scenario ->
+            markActorRunning()
+            var executionFailure: Throwable? = null
+            try {
+                scenario.awaitState { !it.loadingConversationMessages && it.selectedConversationId == conversationId && it.selectedAgentProfileId == profileId }
+                openWorkflowPage()
+                if (!device) {
+                    rule.onNodeWithContentDescription("新建工作流").performClick()
+                    rule.onNode(hasText("名称") and hasSetTextAction()).performTextInput(workflowName)
+                    rule.onAllNodes(hasText("Agent 目标") and hasSetTextAction())[0].performTextInput(goals[0])
+                    rule.onNodeWithText("添加步骤").performScrollTo().performClick()
+                    rule.onAllNodes(hasText("Agent 目标") and hasSetTextAction())[1].performScrollTo().performTextInput(goals[1])
+                    rule.onNode(hasText("保存") and hasClickAction()).performClick()
+                }
+                val ready = scenario.awaitState { !it.loadingWorkflows && it.workflows.any { item -> item.name == workflowName } }
+                val definition = ready.workflows.single { it.name == workflowName }
+                captureDefinition(definition.id)
+                assertEquals(goals, definition.steps.map { it.goal })
+                assertEquals(if (device) "com.android.settings" else null, definition.targetAppPackage)
+                val priorRunIds = ready.workflowRuns.map { it.run.id }.toSet()
+                scenario.onActivity { activity -> context.getSystemService(InputMethodManager::class.java)
+                    .hideSoftInputFromWindow(activity.window.decorView.windowToken, 0) }
+                rule.onNodeWithTag("workflow-item-${definition.id}").performScrollTo()
+                rule.onNode(hasContentDescription("手动运行") and hasAnyAncestor(hasTestTag("workflow-item-${definition.id}"))).assertIsEnabled().performClick()
+                val started = scenario.awaitState { it.workflowRuns.any { detail -> detail.run.workflowId == definition.id && detail.run.id !in priorRunIds } }
+                val workflowRunId = started.workflowRuns.single { it.run.workflowId == definition.id && it.run.id !in priorRunIds }.run.id
+                recordRun(workflowRunId)
+                androidLiveStatus("STAGE${acceptanceStage}_WORKFLOW_RUN case=$case workflowRunId=$workflowRunId visibleRunCreated=true")
+                if (search) {
+                    // long: 多次挂起的审批体独立生成协程状态机，避免巨型内联方法在本机 ART 恢复时触发非法指令；审批断言不放宽。
+                    for (index in actions.indices) approveSearchAction(context, automation, workflowRepo, agentRepo,
+                        workflowRunId, index + 1, actions[index], marker)
+                } else if (device) {
+                    val pending = awaitPending(workflowRunId, workflowRepo, agentRepo)
+                    val agentId = pending.runId
+                    androidLiveStatus("STAGE${acceptanceStage}_WORKFLOW_CHECKPOINT case=$case phase=pending runId=$agentId approvalId=${pending.id}")
+                    // long: 完整 device-control 是生产 Skill 的静态配置约束；测试只批准精确 open_app，任何其他可见审批都失败并在 finally 停止本轮。
+                    assertEquals("device.open_app", pending.toolName)
+                    assertEquals(mapOf("package_name" to "com.android.settings"), pending.arguments)
+                    assertTrue(agentRepo.toolLedger(agentId).results.none { it.toolCallId == pending.toolCallId })
+                    val overlay = awaitOverlay(automation)
+                    assertTrue(overlay.texts().contains("小灵设备动作审批"))
+                    assertTrue(overlay.texts().any { it.contains("device.open_app") })
+                    awaitAppWindow(automation, context.packageName)
+                    click(overlay, if (case == "device-approve") "批准执行" else "拒绝")
+                }
+                scenario.awaitState(120_000) { !it.sendingMessage && it.runningWorkflowId == null &&
+                    it.workflowRuns.any { detail -> detail.run.id == workflowRunId && detail.run.status in setOf(WorkflowRunStatus.COMPLETED, WorkflowRunStatus.FAILED) } }
+                val detail = requireNotNull(workflowRepo.runDetail(workflowRunId))
+                val expected = if (case == "device-deny") WorkflowRunStatus.FAILED else WorkflowRunStatus.COMPLETED
+                assertEquals(expected, detail.run.status)
+                assertTrue(detail.steps.all { it.status == if (case == "device-deny") WorkflowStepStatus.FAILED else WorkflowStepStatus.COMPLETED })
+                val agents = mutableListOf<AgentRunDetailRecord>()
+                for (step in detail.steps) agents.add(requireNotNull(agentRepo.runDetail(requireNotNull(step.agentRunId))))
+                agents.forEach { agent ->
+                    val selected = agent.snapshot.events.mapNotNull { (it.metadata as? RunEventMetadata.AgentProfileSelection)?.profile }.single()
+                    assertEquals(profileId, selected.id); assertEquals(config.model, selected.model)
+                    val requests = agent.snapshot.events.mapNotNull { it.metadata as? RunEventMetadata.LlmRequest }
+                    assertTrue(requests.isNotEmpty()); assertTrue(requests.all { it.model == config.model })
+                }
+                if (!device) {
+                    assertEquals(2, agents.size)
+                    agents.zip(listOf("app.current_time", "app.get_info")).forEach { (agent, tool) ->
+                        assertEquals(AgentRunStatus.COMPLETED, agent.snapshot.run.status)
+                        assertEquals(listOf(tool), agent.toolLedger.calls.map { it.toolName })
+                        assertEquals(ToolVerificationStatus.PASSED, agent.toolLedger.results.single().verificationStatus)
+                    }
+                    assertEquals(listOf(requireNotNull(WorkflowStepSnapshotCodec.outputText(detail.steps[0].outputSnapshot))),
+                        WorkflowStepSnapshotCodec.decodeInput(detail.steps[1].inputSnapshot).previousOutputs)
+                } else if (search) {
+                    assertEquals(3, agents.size)
+                    agents.forEachIndexed { index, agent ->
+                        assertEquals(AgentRunStatus.COMPLETED, agent.snapshot.run.status)
+                        assertEquals(listOf("device.snapshot", actions[index], "device.snapshot"), agent.toolLedger.calls.map { it.toolName })
+                        assertEquals(3, agent.toolLedger.results.size)
+                        assertTrue(agent.toolLedger.results.all { it.success && it.verificationStatus == ToolVerificationStatus.PASSED })
+                        val call = agent.toolLedger.calls.single { it.toolName == actions[index] }
+                        val approval = agent.approvals.single()
+                        assertEquals(call.id, approval.toolCallId)
+                        assertEquals(ApprovalRequestStatus.APPROVED, approval.status)
+                        assertEquals(call.arguments, approval.arguments)
+                        assertEquals(true, agent.toolLedger.results.single { it.toolCallId == call.id }.executorVerified)
+                        val input = WorkflowStepSnapshotCodec.decodeInput(detail.steps[index].inputSnapshot)
+                        assertEquals(contract, input.goalVerificationContract)
+                        val output = requireNotNull(WorkflowStepSnapshotCodec.decodeOutput(detail.steps[index].outputSnapshot))
+                        assertEquals(listOf("device.snapshot", actions[index], "device.snapshot"), output.verifiedToolNames)
+                        val action = output.deviceActionDecisions.single()
+                        assertEquals(WorkflowDeviceActionDecisionStatus.VERIFIED, action.status)
+                        // long: tap_ref 是消费节点引用的工具名，持久动作协议使用 tap；不能把协议命名差异误判为执行失败。
+                        assertEquals(listOf("open_app", "tap", "type_text")[index], action.action)
+                        assertTrue(DeviceActionPolicy.areAllowedInAppFlow("com.android.settings", action.afterPackageName))
+                    }
+                    assertSearchPrivacy(agents.last(), marker)
+                    val decision = requireNotNull(detail.run.goalVerificationDecision)
+                    assertEquals(WorkflowGoalVerificationStatus.VERIFIED, decision.status)
+                    assertEquals(WorkflowGoalVerificationReason.ALL_CRITERIA_VERIFIED, decision.reason)
+                    assertEquals(requiredTools, decision.requiredToolNames)
+                    assertEquals(requiredTools, decision.matchedRequiredToolNames)
+                    assertEquals(3, decision.completedStepCount); assertEquals(3, decision.totalStepCount)
+                    assertTrue(DeviceActionPolicy.areAllowedInAppFlow("com.android.settings", decision.actualFinalPackageName))
+                    awaitSettingsWindow(automation)
+                    // long: 审批全部结束后才做独立真实窗口回读；不能在 PENDING 时 capture 替换 Runtime 正在使用的引用。
+                    val capture = DeviceObservationComponents.controller(context).capture() as? DeviceSnapshotCapture.Success
+                    assertNotNull("最终设置窗口读取失败", capture)
+                    val snapshot = requireNotNull(capture).snapshot
+                    assertTrue(DeviceActionPolicy.areAllowedInAppFlow("com.android.settings", snapshot.packageName))
+                    assertTrue("搜索框未精确回读公开测试文本", snapshot.nodes.any { it.text == marker && DeviceNodeAction.TYPE_TEXT in it.actions })
+                    androidLiveStatus("STAGE${stage}_EVIDENCE WORKFLOW_SEARCH goalStatus=${decision.status} goalReason=${decision.reason} steps=3 toolCalls=9 approvals=3 exactReadBack=true privacyPassed=true workflowRunId=$workflowRunId textSha256=${hash(marker.toByteArray())} textLength=${marker.length} actualPackage=${snapshot.packageName} contractSeeded=true")
+                } else {
+                    val agent = agents.single()
+                    assertEquals(listOf("device.snapshot", "device.open_app"), agent.toolLedger.calls.map { it.toolName })
+                    assertEquals(if (case == "device-deny") ApprovalRequestStatus.DENIED else ApprovalRequestStatus.APPROVED, agent.approvals.single().status)
+                    assertEquals(if (case == "device-deny") AgentRunStatus.FAILED else AgentRunStatus.COMPLETED, agent.snapshot.run.status)
+                    if (case == "device-deny") {
+                        assertTrue(agent.toolLedger.results.none { it.toolName == "device.open_app" })
+                        // long: 页面刷新会清空临时 workflowError；拒绝原因必须从本次持久化 Run 复核，不能把瞬时提示消失误判为拒绝未落库。
+                        assertTrue(detail.run.errorMessage.orEmpty().contains("工具未获批准"))
+                        awaitAppWindow(automation, context.packageName)
+                    } else {
+                        val result = agent.toolLedger.results.single { it.toolName == "device.open_app" }
+                        assertEquals(ToolVerificationStatus.PASSED, result.verificationStatus); assertEquals(true, result.executorVerified)
+                        val action = requireNotNull(WorkflowStepSnapshotCodec.decodeOutput(detail.steps.single().outputSnapshot)).deviceActionDecisions.single()
+                        assertEquals(WorkflowDeviceActionDecisionStatus.VERIFIED, action.status)
+                        assertEquals("open_app", action.action); assertEquals("com.android.settings", action.afterPackageName)
+                        awaitAppWindow(automation, "com.android.settings")
+                    }
+                }
+                // long: 动作后再回小灵只用于查阅已落库的结果；不在审批/执行期间切窗，避免人为撤销真实窗口许可。
+                context.startActivity(Intent(context, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_REORDER_TO_FRONT))
+                scenario.awaitState { !it.sendingMessage }
+                openWorkflowPage()
+                rule.onNodeWithTag("workflow-item-${definition.id}").performScrollTo().performClick()
+                // long: 可点击工作流卡片会合并后代语义；结果与动作的独立 tag 仍在真实子树中，必须从未合并树定位而非误判页面缺失。
+                rule.onNodeWithTag("workflow-run-result-$workflowRunId", useUnmergedTree = true).performScrollTo().assertIsDisplayed()
+                if (case == "device-approve") rule.onNodeWithTag("workflow-device-action-$workflowRunId-1-0", useUnmergedTree = true).performScrollTo().assertIsDisplayed()
+                if (search) {
+                    (1..3).forEach { sequence -> rule.onNodeWithTag("workflow-device-action-$workflowRunId-$sequence-0", useUnmergedTree = true).performScrollTo().assertIsDisplayed() }
+                    scenario.recreate()
+                    scenario.awaitState { !it.loadingWorkflows && it.workflows.any { workflow -> workflow.id == definition.id } }
+                    openWorkflowPage()
+                    rule.onNodeWithTag("workflow-item-${definition.id}").performScrollTo().performClick()
+                    rule.onNodeWithTag("workflow-run-result-$workflowRunId", useUnmergedTree = true).performScrollTo().assertIsDisplayed()
+                    rule.onNodeWithTag("workflow-device-action-$workflowRunId-3-0", useUnmergedTree = true).performScrollTo().assertIsDisplayed()
+                    assertEquals(detail, workflowRepo.runDetail(workflowRunId))
+                    androidLiveStatus("STAGE${stage}_EVIDENCE WORKFLOW_RECREATE visibleResult=true visibleTypeAction=true roomGoalEqual=true workflowRunId=$workflowRunId")
+                }
+                if (case == "device-deny") {
+                    val denied = rule.onAllNodes(hasText("工具未获批准", substring = true) and
+                        hasAnyAncestor(hasTestTag("workflow-item-${definition.id}")), useUnmergedTree = true)
+                    assertTrue(denied.fetchSemanticsNodes().isNotEmpty())
+                    denied[0].performScrollTo().assertIsDisplayed()
+                }
+                assertEquals(detail, workflowRepo.runDetail(workflowRunId))
+                androidLiveStatus("STAGE${acceptanceStage}_EVIDENCE WORKFLOW case=$case workflowRunId=$workflowRunId agentRunIds=${agents.joinToString(",") { it.snapshot.run.id }} visibleRun=true actualViewModel=true productionUseCase=true editorCreated=${!device} definitionSeeded=$device status=$expected steps=${detail.steps.size} roomVerified=true visibleResult=true")
+            } catch (error: Throwable) {
+                executionFailure = error
+                throw error
+            } finally {
+                // long: 停止超时必须保留正文失败的原因；附加异常留下停止失败，同时让外层拒绝清理尚在执行的配置。
+                runCatching {
+                    scenario.onActivity { ViewModelProvider(it)[XiaoLingViewModel::class.java].apply { if (uiState.sendingMessage) stopGenerating() } }
+                    scenario.awaitState(30_000) { !it.sendingMessage && it.runningWorkflowId == null }
+                    markActorStopped()
+                }.exceptionOrNull()?.let { failure -> executionFailure?.addSuppressed(failure) ?: throw failure }
+            }
         }
     }
 
@@ -317,6 +455,97 @@ class AndroidWorkflowLiveInstrumentedTest {
             is String -> edit.putString(key, value); is Boolean -> edit.putBoolean(key, value); else -> error("未知偏好类型")
         } }; check(edit.commit())
     }
+    private suspend fun approveSearchAction(context: Context, automation: UiAutomation, workflows: RoomWorkflowRepository,
+        agents: RoomAgentRunRepository, workflowRunId: String, sequence: Int, tool: String, marker: String) {
+        val pending = awaitPending(workflowRunId, workflows, agents, sequence)
+        assertEquals(tool, pending.toolName)
+        assertTrue(agents.toolLedger(pending.runId).results.none { it.toolCallId == pending.toolCallId })
+        var priorSearchTapVerified = false
+        if (sequence == 3) {
+            // long: 搜索伴随包的占位符会随 ROM 本地化；只有本 Workflow 上一步确已批准并验证搜索点击，才可用唯一编辑框身份替代字面标签。
+            val previous = requireNotNull(workflows.runDetail(workflowRunId)).steps.single { it.sequence == 2 }
+            assertEquals(WorkflowStepStatus.COMPLETED, previous.status)
+            val agent = requireNotNull(agents.runDetail(requireNotNull(previous.agentRunId)))
+            assertEquals(listOf("device.snapshot", "device.tap_ref", "device.snapshot"), agent.toolLedger.calls.map { it.toolName })
+            assertEquals(ApprovalRequestStatus.APPROVED, agent.approvals.single().status)
+            val result = agent.toolLedger.results.single { it.toolName == "device.tap_ref" }
+            assertTrue(result.success && result.verificationStatus == ToolVerificationStatus.PASSED && result.executorVerified == true)
+            priorSearchTapVerified = true
+        }
+        if (sequence == 1) assertEquals(mapOf("package_name" to "com.android.settings"), pending.arguments)
+        else assertSearchReference(context, pending, marker, priorSearchTapVerified)
+        val overlay = awaitOverlay(automation)
+        assertTrue(overlay.texts().contains("小灵设备动作审批"))
+        assertTrue(overlay.texts().any { it.contains(tool) })
+        if (sequence == 1) awaitAppWindow(automation, context.packageName) else awaitSettingsWindow(automation)
+        androidLiveStatus("STAGE${acceptanceStage}_WORKFLOW_CHECKPOINT phase=pending sequence=$sequence tool=$tool runId=${pending.runId} approvalId=${pending.id} noResult=true referenceChecked=true")
+        click(overlay, "批准执行")
+    }
+    private fun assertSearchReference(context: Context, pending: ApprovalRequestRecord, marker: String, priorSearchTapVerified: Boolean) {
+        val typing = pending.toolName == "device.type_text"
+        assertEquals(if (typing) setOf("snapshot_id", "ref", "text_sha256", "text_length") else setOf("snapshot_id", "ref"), pending.arguments.keys)
+        if (typing) {
+            assertEquals(hash(marker.toByteArray()), pending.arguments["text_sha256"])
+            assertEquals(marker.length.toString(), pending.arguments["text_length"])
+            assertFalse(pending.toString().contains(marker))
+        }
+        val snapshotId = requireNotNull(pending.arguments["snapshot_id"])
+        val ref = requireNotNull(pending.arguments["ref"])
+        val controller = DeviceObservationComponents.controller(context)
+        val inspection = controller.inspectReference(snapshotId, ref)
+        assertTrue(inspection.matched)
+        if (typing) assertTrue(requireNotNull(inspection.target).editable)
+        // long: 仅在测试内只读 Runtime 当前快照，不能重新 capture 使待审批 ref 失效；字段漂移即失败，不退化成按坐标或任意节点批准。
+        val field = DeviceObservationController::class.java.getDeclaredField("currentSnapshotCapture").apply { isAccessible = true }
+        val capture = requireNotNull(field.get(controller) as? DeviceSnapshotCapture.Success)
+        assertEquals(snapshotId, capture.snapshot.snapshotId)
+        assertTrue(DeviceActionPolicy.areAllowedInAppFlow("com.android.settings", capture.snapshot.packageName))
+        val node = capture.snapshot.nodes.single { it.ref == ref }
+        assertTrue(node.enabled && !node.redacted)
+        assertTrue((if (typing) DeviceNodeAction.TYPE_TEXT else DeviceNodeAction.TAP) in node.actions)
+        val byIndex = capture.snapshot.nodes.associateBy { it.index }
+        fun withinTarget(candidate: DeviceSnapshotNode): Boolean {
+            var current: DeviceSnapshotNode? = candidate
+            while (current != null) {
+                if (current.index == node.index) return true
+                current = current.parentIndex?.let(byIndex::get)
+            }
+            return false
+        }
+        val labels = capture.snapshot.nodes.filter(::withinTarget).flatMap { listOfNotNull(it.text, it.description, it.hint) }.filter(String::isNotBlank)
+        // long: 只批准搜索入口或搜索框；包含其他设置项的宽容器不能因某个后代写着“搜索”就取得本轮动作许可。
+        val allowedLabels = setOf("搜索设置", "搜索", "Search settings", "Search")
+        val labelledSearchControl = labels.isNotEmpty() && labels.all { it.trim() in allowedLabels }
+        // long: Native 将空输入框的占位符同时暴露为 text/hint；严格绑定已验证搜索流程、固定伴随包与唯一未脱敏编辑框，不批准已有查询或宽容器。
+        val nativeSearchPlaceholder = typing && priorSearchTapVerified && capture.snapshot.packageName == "com.android.settings.intelligence" &&
+            !node.hint.isNullOrBlank() && node.text == node.hint && node.description.isNullOrBlank() &&
+            capture.snapshot.nodes.count { it.enabled && !it.redacted && DeviceNodeAction.TYPE_TEXT in it.actions } == 1 &&
+            labels.all { it == node.hint || it.trim() in allowedLabels }
+        assertTrue("待审批引用不是独立搜索控件", labelledSearchControl || nativeSearchPlaceholder)
+    }
+    private fun assertSearchPrivacy(agent: AgentRunDetailRecord, marker: String) {
+        val call = agent.toolLedger.calls.single { it.toolName == "device.type_text" }
+        val approval = agent.approvals.single()
+        assertEquals(setOf("snapshot_id", "ref", "text_sha256", "text_length"), call.arguments.keys)
+        assertEquals(hash(marker.toByteArray()), call.arguments["text_sha256"])
+        assertEquals(marker.length.toString(), call.arguments["text_length"])
+        assertEquals(call.arguments, approval.arguments)
+        assertFalse(call.toString().contains(marker)); assertFalse(approval.toString().contains(marker))
+        val result = agent.toolLedger.results.single { it.toolCallId == call.id }
+        assertFalse(result.content.contains(marker)); assertFalse(result.content.contains("\"nodes\"")); assertFalse(result.content.contains("\"ref\""))
+        assertTrue(agent.snapshot.events.filter { it.type in setOf("tool.result", "tool.call.proposed", "tool.call.validated") }.none { it.toString().contains(marker) })
+    }
+    private suspend fun awaitSettingsWindow(automation: UiAutomation) = withTimeout(10_000) {
+        while (true) {
+            val window = automation.windows.singleOrNull { it.type == AccessibilityWindowInfo.TYPE_APPLICATION && (it.isActive || it.isFocused) }
+            val packageName = window?.root?.packageName?.toString()
+            if (DeviceActionPolicy.areAllowedInAppFlow("com.android.settings", packageName)) {
+                androidLiveStatus("STAGE${acceptanceStage}_WORKFLOW_CHECKPOINT phase=window package=$packageName active=${window?.isActive} focused=${window?.isFocused}")
+                return@withTimeout
+            }
+            delay(100)
+        }
+    }
     private fun openWorkflowPage() {
         rule.onNodeWithTag("bottom_tab_settings").performClick()
         if (rule.onAllNodesWithContentDescription("新建工作流").fetchSemanticsNodes().isEmpty())
@@ -331,7 +560,7 @@ class AndroidWorkflowLiveInstrumentedTest {
             if (predicate(requireNotNull(latest))) return requireNotNull(latest)
             Thread.sleep(50)
         }
-        androidLiveStatus("STAGE294_WORKFLOW_STATE loading=${latest?.loadingWorkflows} running=${latest?.runningWorkflowId} sending=${latest?.sendingMessage} error=${latest?.workflowError}")
+        androidLiveStatus("STAGE${acceptanceStage}_WORKFLOW_STATE loading=${latest?.loadingWorkflows} running=${latest?.runningWorkflowId} sending=${latest?.sendingMessage} error=${latest?.workflowError}")
         error("正式 Workflow 状态超时")
     }
     private fun overlayRoot(automation: UiAutomation): AccessibilityNodeInfo? = automation.windows
@@ -339,11 +568,15 @@ class AndroidWorkflowLiveInstrumentedTest {
     private suspend fun awaitOverlay(automation: UiAutomation) = withTimeout(15_000) {
         while (true) { overlayRoot(automation)?.let { return@withTimeout it }; delay(100) }; error("unreachable")
     }
-    private suspend fun awaitPending(workflowRunId: String, workflows: RoomWorkflowRepository, agents: RoomAgentRunRepository): ApprovalRequestRecord = withTimeout(120_000) {
+    private suspend fun awaitPending(workflowRunId: String, workflows: RoomWorkflowRepository, agents: RoomAgentRunRepository, sequence: Int = 1): ApprovalRequestRecord = withTimeout(120_000) {
         // long: Runtime 的 WAITING_APPROVAL 快照先于 Gate 创建审批；等待本 Workflow 步骤实际关联的 Room 请求，不能把 UI 状态当成落库完成。
         while (true) {
             rule.waitForIdle()
-            val step = requireNotNull(workflows.runDetail(workflowRunId)).steps.single()
+            val workflow = requireNotNull(workflows.runDetail(workflowRunId))
+            check(workflow.run.status !in setOf(WorkflowRunStatus.COMPLETED, WorkflowRunStatus.FAILED, WorkflowRunStatus.CANCELLED, WorkflowRunStatus.BLOCKED)) {
+                "本 Workflow 已结束但缺少预期审批：${workflow.run.errorMessage}"
+            }
+            val step = workflow.steps.single { it.sequence == sequence }
             step.agentRunId?.let { runId ->
                 val detail = requireNotNull(agents.runDetail(runId))
                 detail.approvals.singleOrNull { it.status == ApprovalRequestStatus.PENDING }?.let { return@withTimeout it }
@@ -359,7 +592,7 @@ class AndroidWorkflowLiveInstrumentedTest {
         while (true) {
             val window = automation.windows.singleOrNull { it.type == AccessibilityWindowInfo.TYPE_APPLICATION && (it.isActive || it.isFocused) }
             if (window?.root?.packageName?.toString() == expected) {
-                androidLiveStatus("STAGE294_WORKFLOW_CHECKPOINT phase=window package=$expected active=${window.isActive} focused=${window.isFocused}")
+                androidLiveStatus("STAGE${acceptanceStage}_WORKFLOW_CHECKPOINT phase=window package=$expected active=${window.isActive} focused=${window.isFocused}")
                 return@withTimeout
             }
             delay(100)

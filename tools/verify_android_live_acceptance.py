@@ -65,6 +65,14 @@ for case in ("create-readonly", "device-approve", "device-deny"):
         required_evidence=("EVIDENCE WORKFLOW_SCOPE ", f"EVIDENCE WORKFLOW case={case} ", "EVIDENCE WORKFLOW_RESTORE "),
         arguments={"stage294Case": case})
 
+# long: 搜索专项须同时满足真实文本回读/目标级判定、重建展示和恢复回执，打开设置成功不能替代节点输入成功。
+PHASES["workflow-settings-search"] = descriptor("agent.AndroidWorkflowLiveInstrumentedTest",
+    "actualWorkflowSearchUsesRealModelAndPersistsVerifiedGoal", stage=295, evidence="EVIDENCE WORKFLOW",
+    required_evidence=("EVIDENCE WORKFLOW_SCOPE ",
+        "EVIDENCE WORKFLOW_SEARCH goalStatus=VERIFIED goalReason=ALL_CRITERIA_VERIFIED steps=3 toolCalls=9 approvals=3 exactReadBack=true privacyPassed=true ",
+        "EVIDENCE WORKFLOW_RECREATE visibleResult=true visibleTypeAction=true roomGoalEqual=true ",
+        "EVIDENCE WORKFLOW case=device-search ", "EVIDENCE WORKFLOW_KEY aliasStateRestored=true ", "EVIDENCE WORKFLOW_RESTORE "))
+
 
 def main():
     parser = argparse.ArgumentParser(description="真实 Android 功能验收；APK 需先覆盖安装，不修改正式 Provider")
