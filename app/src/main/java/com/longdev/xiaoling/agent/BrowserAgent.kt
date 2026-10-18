@@ -52,15 +52,7 @@ data class BrowserSessionOwner(val runId: String, val conversationId: String, va
     }
 }
 
-data class BrowserActionReceipt(val actionId: String, val toolCallId: String, val action: BrowserDomAction,
-    val inputSnapshotId: String, val outputSnapshotId: String, val ref: String,
-    val sessionId: String, val inputContentHash: String) {
-    init {
-        require(actionId.matches(Regex("[a-f0-9]{32}")) && sessionId.matches(Regex("[a-f0-9]{16}")))
-        require(inputSnapshotId.matches(Regex("[a-f0-9]{16}")) && outputSnapshotId.matches(Regex("[a-f0-9]{16}")) && inputSnapshotId != outputSnapshotId)
-        require(toolCallId.length <= 256 && ref.length in 1..128 && inputContentHash.matches(Regex("[a-f0-9]{64}")))
-    }
-}
+typealias BrowserActionReceipt = com.longdev.xiaoling.shared.agent.SharedBrowserActionReceipt
 
 internal const val BROWSER_CLICK_TOOL_NAME = "browser.click"
 

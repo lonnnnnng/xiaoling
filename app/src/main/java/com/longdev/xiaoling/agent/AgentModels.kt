@@ -689,33 +689,9 @@ data class ToolExecutionReceipt(
     }
 }
 
-enum class ToolReadableEvidenceKind {
-    BROWSER_PAGE,
-}
-
-/**
- * long: 页面证据描述读取到的版本；可选动作只证明会话导航或本机草稿变化，不作为可恢复的业务提交回执。
- */
-data class ToolReadableEvidence(
-    val kind: ToolReadableEvidenceKind,
-    val toolCallId: String,
-    val snapshotId: String,
-    val contentHash: String,
-    val sourceRef: String,
-    val browserAction: BrowserActionReceipt? = null,
-) {
-    init {
-        require(toolCallId.isNotBlank()) { "只读证据的工具调用 ID 不能为空" }
-        require(snapshotId.length in 1..64) { "只读证据的快照引用长度无效" }
-        require(contentHash.matches(Regex("[0-9a-f]{64}"))) { "只读证据的内容指纹必须是 64 位小写 SHA-256" }
-        require(sourceRef.length in 1..512) { "只读证据的来源引用长度无效" }
-        require('?' !in sourceRef && '#' !in sourceRef && '@' !in sourceRef) {
-            "只读证据的来源引用不能包含查询参数、片段或账号信息"
-        }
-        require(browserAction == null || (kind == ToolReadableEvidenceKind.BROWSER_PAGE &&
-            browserAction.toolCallId == toolCallId && browserAction.outputSnapshotId == snapshotId)) { "浏览器动作证据与页面调用不一致" }
-    }
-}
+// long: Android 沿用原类型名，证据校验只保留 shared 一份，避免两端恢复相同 wire 时产生不同绑定规则。
+typealias ToolReadableEvidenceKind = com.longdev.xiaoling.shared.agent.SharedToolReadableEvidenceKind
+typealias ToolReadableEvidence = com.longdev.xiaoling.shared.agent.SharedToolReadableEvidence
 
 data class ToolExecutionResult(
     val success: Boolean,

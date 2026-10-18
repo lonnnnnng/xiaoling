@@ -4,8 +4,9 @@
 
 - [GenUI v2 与显式 action](genui-actions.md)：版本化组件、仅内存草稿、短期单次引用、单工具前台审批及旧引用恢复拒绝。Workspace/Browser/GenUI 实现基线收口；完整产品真实模型联合、自然系统、真实渲染 DOM/网页输入与正式 Release 单列，下一主线为第 7 点 KMP 协议/codec。
 
-## 下一主线：第 291 阶段 KMP 协议/codec（第 7 点）
+## 当前主线：第 291 阶段 KMP 协议/codec（第 7 点）
 
+- [共享可读证据 codec](kmp-readable-evidence.md)：第一片固化 commonMain 模型、动作 receipt、严格 JSON、旧 wire 兼容及 Android adapter；shared contract v4。context/MCP/Remote Channel/完整结果协议和 iOS actual 后续推进，平台能力矩阵与验证边界见契约及报告。
 - Workspace 第一片已落地独立原子会话账本、有界 transcript 与中断收敛，见[Workspace 契约](workspace-session-transcript.md)。Browser 第二片补服务端语义 DOM、逐次审批 click/本机草稿 type、引用消费与类型化动作证据，见[Browser 契约](browser-dom-actions.md)和[验证报告](verification-report.md)。GenUI 第三片也已完成，三片实现基线收口；Room v44/发布版本不变。
 
 ## 第 289 阶段多 Agent（两片只读实现基线收口）

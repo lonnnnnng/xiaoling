@@ -5,7 +5,7 @@ import org.jsoup.nodes.Element
 import java.net.URI
 import java.security.MessageDigest
 
-enum class BrowserDomAction { NAVIGATE_LINK, TYPE_DRAFT }
+typealias BrowserDomAction = com.longdev.xiaoling.shared.agent.SharedBrowserDomAction
 
 data class BrowserDomNode(
     val nodeId: String,

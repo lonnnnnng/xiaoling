@@ -20,7 +20,7 @@ class AgentRuntimeContractsTest {
             ),
         )
 
-        assertEquals(3, AgentRuntimeContract.VERSION)
+        assertEquals(4, AgentRuntimeContract.VERSION)
         assertEquals("workspace.list", call.name)
         assertTrue(command.args.single() == "hello")
         assertEquals("workspace.list", catalog.definition("workspace.list")?.name)

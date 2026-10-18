@@ -1,5 +1,10 @@
 # 当前实现说明
 
+## 2026-10-18 第 291 阶段第一片：shared codec 与 Android adapter
+
+- commonMain 新增 SharedToolReadableEvidence/SharedBrowserActionReceipt 与树式 JSON codec，原 Android 类型通过 typealias 共用模型；JSONObject 兼容入口保留。StrictJsonObjectSyntax 从 Android 下沉并新增 Unicode surrogate 校验；shared contract v4 增加可空 readableEvidence，adapter 核对当前调用 ID。
+- 主线为第 7 点进行中；context/MCP/Remote Channel/完整结果协议与 iOS actual 尚待推进。Room v44/发布版本不变，详见[共享证据 codec](kmp-readable-evidence.md)和[验证报告](verification-report.md)。
+
 ## 2026-10-18 第 290 阶段第三片：GenUI 单工具前台审批
 
 - StrictJsonObject 在 Android/JVM 宽松 JSON 前验证完整输入、标准引号及解码后的唯一键。GenUiActionLeases 有界短期引用，ConversationSendScope 冻结普通发送会话/代次；正文恢复不能签发。GenUiActionToolRegistry 冻结 Profile 交集、原定义指纹、参数与 resumed 代次，提升审批策略，固定本地 AgentLlm 及单工具预算沿原 Runtime 验证。Run 与 genui.action.selected 来源共事务，旧 marker 全恢复/重试入口拒绝。

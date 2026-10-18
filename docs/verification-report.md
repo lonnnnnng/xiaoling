@@ -2,6 +2,26 @@
 
 验证日期：2026-10-18（北京时间）
 
+# 2026-10-18 第 291 阶段第一片：shared 可读证据与 JSON codec
+
+- 当前主线为第 7 点 KMP 协议/codec，第一片固化可读 Tool result 子协议。commonMain 保存页面证据、浏览器动作 receipt、严格 JSON 与 codec；Android 原类型经 typealias 共用校验，JSONObject/RunEvent/VerifiedContext/Room 字段与旧无动作 wire 保持兼容。shared contract 升为 v4，Room v44/发布版本 0.1.22 (23) 不变。
+- shared 工具结果新增可空 readableEvidence；Android adapter 核对当前调用 ID，错配返回失败且不泄漏旧页面。页面和动作不生成审批、PASSED 或 COMMITTED，原 Runtime/审批/Profile/前台门禁仍独立核验。
+- JSON 扫描器从 Android 下沉 commonMain：完整标准 object、解码后唯一键、深度32及1,000,000字符上限；新增孤立 surrogate 拒绝。动作 schema v1 九字段严格，类型/未知版本/损坏/错配拒绝整份证据；encoder 也要求输出完整回读，超限或异常直接模型在写入前失败。
+
+| 已执行门禁 | 结果 | 证据边界 |
+| --- | --- | --- |
+| shared Android Debug / Release / iOS Simulator | **各22/22**，0 failure/error/skip | 每端同一11 项既有 contract/简易runtime/session 与11 项新 codec golden/负向测试；不等于 iOS 产品 loop 或平台 actual |
+| iOS arm64 / Simulator arm64 common 编译 | 通过 | macOS arm64、Xcode 16.2、Simulator runtime 18.3.1；没有 iOS App、UI、HTTP/Workspace actual 或签名验收 |
+| App JVM 聚焦回归 | **76/76**、8 suites，0 failure/error/skip | Android/common adapter、RunEvent、浏览器、GenUI action/完成响应、OpenAI parser；不含全量 JVM |
+| Debug / AndroidTest APK、Debug Lint | 最终构建与 Lint 通过；Redmi 覆盖安装通过 | 内部 Debug 证书；没有正式 Release 构建/发版 |
+| 指定 Redmi `wsvwypiz7xwslvl7 / begonia / SDK 36` | **21/21** | adapter 4、隔离 Browser Runtime/Room/取消 4、GenUI 共用协议 13；没有真实模型或公网联合 |
+
+- 独立源码核验指出 encoder 原本可写出超限或含孤立 Unicode 的对象；已补同一 codec 回读门禁及三端直接模型负向测试。首轮两个 GenUI 测试筛选类名写错，随后单独16/16及最终8套76/76补齐；不把未匹配或重复运行计入最终数。
+- 已明确兼容边界：shared 紧凑编码顺序由 golden 固定，Android 保留 JSONObject 输出样式，不承诺跨 JSON 实现字节相同。原 context snapshot 正文/长度前缀/SHA-256 和历史摘要不重写。外层先解析 JSONObject 的 RunEvent/VerifiedContext 无法追溯原始重复键，本片未收口其全部外层 codec；Room 独立证据字符串及 raw decoder 使用严格原文门禁。
+- 最终文档语料、正式偏好/Memory undo 摘要、实际凭据与两 APK 审计、链接检查的结果单列在本轮证据目录；保护只覆盖已报告文件及隔离测试范围，不把数据库 reopen 视为自然 LMK/系统重启。
+- 第 7 点下一切片继续 context snapshot、MCP schema、Remote Channel wire 与完整 Tool result codec，再补 iOS workspace/HTTP/只读浏览器/前台 loop；目前不宣称完整跨平台运行时或 iOS 对等。能力矩阵与 wire 见[共享证据契约](kmp-readable-evidence.md)，顺序见[路线图](personal-agent-roadmap.md)。本轮仅本地提交，没有 push/tag/Release。
+- 证据：`outputs/verification/stage291-kmp-codec/` 的 `final-build-jvm-native.log`、`final-test-results.json`、`redmi.log`、`artifact-build.log`、`install-app.log`、`install-tests.log`、`final-doc-artifact-build.log`、`final-corpus-protection.log`、`protection-comparison.json`、`local-links.json`、`artifact-audit.json`；官方 JSON API与固定依赖正文也保存在该目录。
+
 # 2026-10-18 第 290 阶段第三片：GenUI v2 与显式 action
 
 - 第 6 点 Workspace/Browser/GenUI 三片实现基线收口，下一主线为第 7 点 KMP 协议与 codec 固化。Room v44、发布版本 0.1.22 (23) 不变；没有 push/tag/Release。

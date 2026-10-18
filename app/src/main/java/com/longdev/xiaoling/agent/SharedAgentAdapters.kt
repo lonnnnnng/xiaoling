@@ -53,21 +53,23 @@ fun ToolExecutionResult.toSharedAgentResult(
     val receipt = executionReceipt
     val evidenceToolCallId = evidence?.toolCallId
     val receiptToolCallId = receipt?.toolCallId
+    val readableToolCallId = readableEvidence?.toolCallId
     if (
         expectedToolCallId != null &&
         (
             evidenceToolCallId != null && evidenceToolCallId != expectedToolCallId ||
-                receiptToolCallId != null && receiptToolCallId != expectedToolCallId
+                receiptToolCallId != null && receiptToolCallId != expectedToolCallId ||
+                readableToolCallId != null && readableToolCallId != expectedToolCallId
             )
     ) {
-        // long: typed 验证和执行回执都必须绑定当前 ToolCall；ID 错配时拒绝整条结果，不能把别的调用的事实当成本次结果。
+        // long: typed 验证、执行回执和可读页面都必须绑定当前 ToolCall；ID 错配时拒绝整条结果，不能把别的调用的事实当成本次结果。
         return SharedToolExecutionResult(
             success = false,
             content = "工具验证证据与当前调用不匹配",
             verified = false,
             verification = SharedToolVerificationEvidence(
                 status = SharedToolVerificationStatus.FAILED,
-                toolCallId = evidenceToolCallId ?: receiptToolCallId,
+                toolCallId = evidenceToolCallId ?: receiptToolCallId ?: readableToolCallId,
                 reasonCode = "VERIFICATION_TOOL_CALL_MISMATCH",
             ),
         )
@@ -97,6 +99,7 @@ fun ToolExecutionResult.toSharedAgentResult(
                 reasonCode = it.reasonCode,
             )
         },
+        readableEvidence = readableEvidence,
     )
 }
 

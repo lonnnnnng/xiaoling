@@ -25,7 +25,7 @@
 4. 第 288 阶段 Skill/插件两片原定实现基线已完成：签名 manifest、有界版本回滚、SAFE 前台显式宿主扩展；无签名仅预览、旧 Run 不能继承前台许可。长期系统、完整界面联合和正式 Release 验收独立追踪。
 5. 第 289 阶段多 Agent 两片只读实现基线已收口：持久 child 槽位、来源/预算、原子派生/领取、父取消/恢复收敛，以及任务中心显式入口、父结果单次消费/完成策略和真实提供方联合已完成。仍限前台 Direct、最多两个只读 child；精确共享扣账/费用、完整产品点击联合、自然系统与 Release 独立追踪。
 6. 第 290 阶段 Workspace/Browser/GenUI：三片实现基线收口，包含持久会话 transcript、SERVER_HTML DOM/action、本机草稿及 GenUI v2 单工具显式审批。静态 HTML 不代表真实渲染 DOM/网页输入；完整产品真实模型联合、自然系统与正式 Release 单列，验收分级见报告。下一主线为第 7 点 KMP 协议/codec 固化。
-7. shared 目前主要是 contract，实际 Agent runtime、Memory、MCP、设备和 UI 均在 Android；iOS 不能宣称与 Android 对等。
+7. 第 291 阶段第一片固化 shared 可读工具证据、浏览器动作 receipt 与严格 JSON codec，Android 原持久接口接入；context/MCP/Remote Channel/完整结果协议与 iOS actual 后续推进。实际产品 runtime、Memory、MCP、设备和 UI 仍在 Android，iOS 不能宣称与 Android 对等。
 
 ### 后续执行顺序
 
@@ -128,8 +128,9 @@
 - 完整真实模型→产品 ViewModel→审批点击联合验收、自然 LMK/Doze/系统重启、正式 Release。
 - Workspace 历史显式回收、长期容量/性能；可写或远端 GenUI action 需另行评审。
 
-#### 第 291 阶段：KMP actual 与多平台收口
+#### 第 291 阶段：KMP 协议/codec 与平台 actual（第 7 点进行中）
 
+- 第一片：可读 Tool result 子协议、浏览器动作 receipt、严格 JSON 与 Android 兼容入口下沉 commonMain；shared contract v4 保留可空页面证据及调用绑定。旧无动作 wire 兼容、损坏拒绝，详见[共享证据 codec](kmp-readable-evidence.md)。此处没有 iOS actual 或完整 Tool result codec，第 7 点尚未收口。
 - 先把 shared contract、context snapshot、MCP schema、Remote Channel wire 和 Tool result codec 固化为跨平台模块；Android 保留 Provider/Room/Accessibility 实现。
 - iOS 先实现本地 workspace、HTTP client、只读浏览器和前台 Agent loop；不承诺 Android Phone Use、后台虚拟屏、Root/Shizuku 或持续后台一致性。
 - 退出标准：Android 既有测试不回归，iOS simulator 完成 contract/codec/runtime smoke；平台能力矩阵写入发布文档。
