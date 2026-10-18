@@ -39,13 +39,14 @@ shared encoder 要求输出能由同一 codec 完整回读，直接模型的超�
 | context snapshot DTO/codec/摘要规范字节 | 第二片接入 shared；原 encoder/Room/SHA-256 保留 | common 编译与 Simulator codec 测试；尚无存储/SHA actual |
 | MCP descriptor/有界 validator/raw codec | 第三片 shared 算法，Android 原 JSON 兼容端口 | common 编译与 Simulator 测试；parser 边界见[MCP 契约](kmp-mcp-schema.md) |
 | Remote Channel DTO/wire/canonical bytes | 第四片 shared codec，平台验签/入箱/许可保留 | common 编译与 Simulator；无 crypto/storage actual |
-| 完整 Tool result DTO/v1 codec | 第五片 shared 私有帧及 Android 双向入口；模型投影去除幂等键 | common 编译与 Simulator；无平台执行 actual |
+| 完整 Tool result DTO/v1 codec | 第五片 shared 私有帧及 Android 双向入口；模型投影去除幂等键 | common/Simulator codec；第六片原生文件/scripted loop 联合 |
 | Provider/HTTP、MCP session/transport、Remote Channel 验签与入箱 | 现有 Android 实现 | 尚无 actual |
-| Workspace、Browser reader、Room、前台 Agent 产品入口 | 现有 Android 实现与相应门禁 | 尚无 actual 或 iOS App |
+| Workspace 文件 | 现有 Android 实现与相应门禁 | 第六片[iOS 文件平台实现](ios-workspace.md)、模型前台只读 Executor；无 shell 或真实 UIKit owner |
+| Browser reader、Room、前台 Agent 产品入口 | 现有 Android 实现与相应门禁 | 尚无平台实现或 iOS App |
 | Phone Use、Root/Shizuku、后台虚拟屏 | 按既有 Android 权限边界 | 不承诺能力对齐 |
 
 同一 common suite 在 shared Android Debug/Release 与 iOS Simulator 执行固定旧 wire、动作 golden、Unicode/转义/顺序兼容、错误类型/版本/绑定、损坏拒绝和容量向量。App JVM 与 Redmi 共用 adapter 契约，浏览器专项复核 Runtime/审批/Room reopen/取消。构建和设备实际结果以[验证报告](verification-report.md)为准，证据目录 `outputs/verification/stage291-kmp-codec/`。
 
-第二/三片已继续固化[context snapshot codec](kmp-context-snapshot.md)和[MCP schema codec](kmp-mcp-schema.md)；第四片已固化[Remote Channel wire](kmp-remote-channel-wire.md)，第五片已补齐[完整 Tool result codec](kmp-tool-result.md)；下一切片进入 iOS 本地 workspace、HTTP、只读浏览器和前台 loop。第 7 点或 iOS 产品能力尚未整体收口。
+第二/三片已继续固化[context snapshot codec](kmp-context-snapshot.md)和[MCP schema codec](kmp-mcp-schema.md)；第四片已固化[Remote Channel wire](kmp-remote-channel-wire.md)，第五片已补齐[完整 Tool result codec](kmp-tool-result.md)；第六片已提供[iOS 本地 workspace](ios-workspace.md)，下一切片 HTTP client，随后只读浏览器与真实前台 loop。第 7 点或 iOS 产品能力尚未整体收口。
 
 官方正文：[JSON tree 解析 API](https://kotlinlang.org/api/kotlinx.serialization/kotlinx-serialization-json/kotlinx.serialization.json/-json/parse-to-json-element.html)、[serialization 1.9.0](https://github.com/Kotlin/kotlinx.serialization/releases/tag/v1.9.0)。版本固定 1.9.0，上游要求 Kotlin 2.2，本项目 Kotlin 2.3.20 的实际兼容以本轮编译与测试为证据。

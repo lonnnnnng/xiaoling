@@ -1,5 +1,11 @@
 # 产品需求
 
+## 2026-10-18 第 291 阶段第六片：iOS 本地 workspace
+
+- 宿主注入可信 App 私有根，iOS 平台文件实现提供有界 list/严格 UTF-8 读取及宿主新文件创建；模型目录仅 workspace.list/read_file，禁止写入、shell、后台和自动重放。文件端口独立于原终端端口。
+- 相对路径逐段 NOFOLLOW，拒绝链接/特殊文件/多硬链接普通文件；512 KiB 文件、256 项扫描、64 KiB 路径合计和不切断 emoji 的预览门禁。前台 owner/协程取消检查先于访问并在发布前复核，迟到正文拒绝，结果不生成 PASSED/COMMITTED。
+- 宿主创建不覆盖已有目标，发布后清理失败可能已有目标；mtime 复核不是一致快照。真实 UIKit 生命周期/模型/UI 未接入，Simulator 原生文件与 scripted shared loop 验收不提升为产品完成。shared contract v5/Room v44/发布版本保持，下一片 iOS HTTP client，见[文件契约](ios-workspace.md)与[报告](verification-report.md)。
+
 ## 2026-10-18 第 291 阶段第五片：KMP 完整 Tool result
 
 - 固化单次执行结果九字段、完整知识引用、恢复失败和私有回执幂等键；新增调用绑定的 v1 完整帧及 Android 双向入口。可空字段显式 null，memory/knowledge 每类最多 256 项，整帧严格 UTF-8 1 MiB；坏嵌套证据和调用错配拒绝整帧。

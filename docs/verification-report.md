@@ -2,6 +2,30 @@
 
 验证日期：2026-10-18（北京时间）
 
+# 2026-10-18 第 291 阶段第六片：iOS 本地 workspace 平台实现
+
+- 当前推进第 7 点；前五片协议/codec 固化后，本片新增共享文件端口、只读 Executor 与 `iosMain` 的 IosLocalWorkspace。文件端口独立于原终端命令端口，由宿主注入可信 App 私有根；模型仅 workspace.list/read_file，宿主另有新文件创建接口。shared contract v5、文件策略 v1、Room v44、发布版本 `0.1.22 (23)` 保持。
+- 固定根 fd、相对父路径逐段 openat/NOFOLLOW、独立目录描述和实例 NSLock；拒绝路径越界、链接/特殊文件/多硬链接普通文件。有界512 KiB严格 UTF-8/不切断emoji预览、256项扫描和64 KiB路径合计，读取前后inode/尺寸/mtime与增长探测。宿主创建完整暂存/fsync/linkat，不覆盖旧目标；成功结果只返回内容，不生成 PASSED/COMMITTED/重放许可。
+
+| 验证层 | 本轮结果 | 证据范围 |
+| --- | --- | --- |
+| shared Android Debug / Release | **各85/85** | 既有75项与新增10项路径/预览/目录、参数零访问、owner撤销及取消门禁 |
+| shared iOS Simulator arm64 | **96/96** | 同一85项及11项真实原生文件专项；含创建/读/list/reopen、不覆盖、链接/硬链接/FIFO、坏UTF-8、容量与close |
+| iOS arm64 编译 | **通过** | 包含iosMain平台文件实现；不是iOS设备App验收 |
+| App 聚焦 JVM | **76/76** | 结果/adapter/可读证据、Workspace会话、既有扩展能力与RunEvent兼容 |
+| Debug / AndroidTest / Debug Lint | **通过** | Debug制品；正式Release未构建或发布 |
+| Redmi 专项 | **12/12** | Workspace生产Runtime/审批/typed账本3项与完整结果adapter9项 |
+| 最终文档 corpus / 保护摘要 | **2/2** | 正式7项偏好/Memory undo摘要与验收前一致 |
+
+- native文件 → shared Agent loop → Executor → 完整结果codec联合已通过，使用scripted LLM与恒true测试owner，不是外部真实模型或UIKit生命周期。前台撤销与取消另有负向门禁：宿主回调本身取消Job时不访问文件，读取中取消后不发布成功正文。原生文件操作有界同步，已经开始的系统调用不保证中途立即中断。
+- Simulator为 **iPhone 16 Pro / iOS 18.3**，UUID `EADF8DFC-ED26-4C03-8735-C0889ECB2DA5`；Xcode **16.2 (16C5032a)**，编译SDK **iPhoneSimulator18.2.sdk**。通过 `xcrun simctl spawn --standalone` 运行native `test.kexe`，查询状态为Shutdown，没有启动可见App窗口。原生测试使用NSTemporaryDirectory下UUID夹具并只清自身目录。
+- Redmi仅 `wsvwypiz7xwslvl7 / begonia / Redmi Note 8 Pro / SDK 36`，以install -r保留数据。workspace专项使用UUID私有根与内存Room；未选用会访问正式MCP配置清理钩子的扩展instrumentation。语料门禁使用固定独立测试DB，未卸载或清正式应用数据。
+- 边界：根路径一次open不证明祖先逐段无链接；NSLock只约束当前实例，inode/尺寸/mtime不是一致快照。createText在linkat发布后清理失败时目标可能已创建，不能假定失败无副作用或自动重试；未承诺目录断电持久性。这些边界不因测试成功扩大。
+- 初次native编译遇到Darwin只读errno，改用__error指针；两个native测试末尾assertFails导致返回值不是Unit，已显式标记所有测试Unit并复验通过。独立Executor审查发现owner回调取消后仍可能访问一次文件，已补访问前及发布前ensureActive与取消门禁；失败日志保留，不覆盖审计。
+- 最终AndroidTest内文档assets逐字节一致、本地链接路径及两项实际凭据/源码/本片证据/两APK/native test.kexe审计通过；真实凭据只在进程内匹配，不保存或输出。产物SHA-256与检查计数见 `artifact-audit.json / verification-summary.json`，本地链接仅验证路径，不验证anchor。
+- 下一片推进 **iOS HTTP client**，随后只读浏览器和真实前台loop。本片没有expect/actual factory、framework或Swift App，没有真实UIKit/模型/公网、自然系统恢复或正式Release证据。第7点尚未整体收口，前六点长期独立待办继续单独追踪。中文本地提交，无push/tag/Release，原refs/保留。
+- 契约与矩阵：[iOS文件](ios-workspace.md)、[完整结果](kmp-tool-result.md)、[共享证据](kmp-readable-evidence.md)、[路线图](personal-agent-roadmap.md)。证据目录 `outputs/verification/stage291-ios-workspace/` 保存最终native/JVM XML汇总、Simulator/SDK正文、构建/Lint、Redmi原日志、语料/保护、文档assets/链接及凭据/产物审计。
+
 # 2026-10-18 第 291 阶段第五片：完整 Tool result v1 codec
 
 - 当前主线仍为第 7 点；前五片协议/codec 已具备，第五片将结果引用、恢复失败和私有 receipt 幂等键补为完整数据闭包，shared contract 升为 v5，完整结果 schema v1。Android 双向入口复用 shared codec，原模型投影显式去除幂等键并保留非秘密元数据。Room v44、发布版本 `0.1.22 (23)` 不变。

@@ -25,7 +25,7 @@
 4. 第 288 阶段 Skill/插件两片原定实现基线已完成：签名 manifest、有界版本回滚、SAFE 前台显式宿主扩展；无签名仅预览、旧 Run 不能继承前台许可。长期系统、完整界面联合和正式 Release 验收独立追踪。
 5. 第 289 阶段多 Agent 两片只读实现基线已收口：持久 child 槽位、来源/预算、原子派生/领取、父取消/恢复收敛，以及任务中心显式入口、父结果单次消费/完成策略和真实提供方联合已完成。仍限前台 Direct、最多两个只读 child；精确共享扣账/费用、完整产品点击联合、自然系统与 Release 独立追踪。
 6. 第 290 阶段 Workspace/Browser/GenUI：三片实现基线收口，包含持久会话 transcript、SERVER_HTML DOM/action、本机草稿及 GenUI v2 单工具显式审批。静态 HTML 不代表真实渲染 DOM/网页输入；完整产品真实模型联合、自然系统与正式 Release 单列，验收分级见报告。下一主线为第 7 点 KMP 协议/codec 固化。
-7. 第 291 阶段前五片固化 shared 可读证据、context snapshot、MCP descriptor/有界 schema validator/raw codec、Remote Channel wire/canonical bytes 和完整 Tool result v1 私有帧；shared contract v5，模型投影继续去除幂等键。Android 保留历史持久格式、Room、session/transport、验签及许可；下一片进入 iOS actual。实际产品 runtime、Memory、MCP、设备和 UI 仍在 Android，iOS 不能宣称与 Android 对等。
+7. 第 291 阶段前五片固化 shared 可读证据、context snapshot、MCP descriptor/有界 schema validator/raw codec、Remote Channel wire/canonical bytes 和完整 Tool result v1 私有帧；第六片已提供 iOS 本地 workspace 平台实现与共享前台只读 Executor。shared contract v5；原生文件/scripted loop 联合已验证，真实 UIKit/模型/产品入口仍待推进，下一片 HTTP client。Android 保留历史持久格式、Room、session/transport、验签及许可，iOS 不能宣称与 Android 对等。
 
 ### 后续执行顺序
 
@@ -135,6 +135,7 @@
 - 第三片：MCP descriptor 与原有界参数 validator 下沉，新增严格 raw schema/arguments codec；Android tools/list 原文、coercion、复合 enum 与注册表/transport 权限保留。不是完整 JSON Schema 或 MCP client，parser 差异见[MCP schema 契约](kmp-mcp-schema.md)。下一片为 Remote Channel wire，再补完整 Tool result codec 与 iOS actual。
 - 第四片：Remote message/batch/ACK/receiver request/proof/公开 manifest DTO、严格 raw wire 与五类 canonical 格式下沉；Android 验签、Keystore、入箱/outbox 和前台许可保持。独立 Python 字节、原 JVM oracle 与 Redmi 跨进程互通见[Remote wire 契约](kmp-remote-channel-wire.md)和报告。下一片完整 Tool result codec，随后 iOS actual。
 - 第五片：完整结果九字段、知识版本/offset、恢复失败及私有 receipt 幂等键闭包下沉；新增绑定调用的 v1 帧、严格 UTF-8/1 MiB/各类 256 条门禁和 Android 双向入口，原模型投影脱敏、RunEvent/VerifiedContext/Room 历史格式与恢复权限保持。shared contract v5，详见[结果契约](kmp-tool-result.md)和报告；下一片进入 iOS actual，第 7 点尚未整体收口。
+- 第六片：iOS 原生 workspace 文件平台实现与共享前台只读 Executor 已提供；固定根 fd、逐段 NOFOLLOW、有界 UTF-8/目录、宿主新建不覆盖及取消/撤销拒绝迟到正文。真实隔离文件与 scripted shared loop/结果codec 联合见[文件契约](ios-workspace.md)及报告；没有 iOS App 或真实 UIKit/模型，下一片 HTTP client，随后只读浏览器与真实前台 loop。
 - 先把 shared contract、context snapshot、MCP schema、Remote Channel wire 和 Tool result codec 固化为跨平台模块；Android 保留 Provider/Room/Accessibility 实现。
 - iOS 先实现本地 workspace、HTTP client、只读浏览器和前台 Agent loop；不承诺 Android Phone Use、后台虚拟屏、Root/Shizuku 或持续后台一致性。
 - 退出标准：Android 既有测试不回归，iOS simulator 完成 contract/codec/runtime smoke；平台能力矩阵写入发布文档。

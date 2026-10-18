@@ -1,5 +1,11 @@
 # 当前实现说明
 
+## 2026-10-18 第 291 阶段第六片：iOS 文件平台实现
+
+- commonMain 新增 SharedWorkspaceFiles/有界文件策略与 SharedReadOnlyWorkspaceExecutor；文件端口独立于 SharedWorkspaceRuntime，模型仅 list/read_file，前台 owner 及取消前后复核，成功仅 content，不补验证/提交回执。
+- iosMain 的 IosLocalWorkspace 通过固定 root fd、逐段 openat/NOFOLLOW、独立目录描述和 NSLock 提供 list/read/close；fstat 限制单链接普通文件与512 KiB，严格 UTF-8、长度/mtime 复核与增长探测。宿主 createText 以独占暂存/fsync/linkat 新建且不覆盖，发布后清理失败可能已有目标；不保证一致快照或断电持久性。
+- 普通平台实现类经接口注入，没有 expect/actual factory、framework 或 Swift App。common 10 条新增与 native 11 条真实文件专项通过，scripted shared loop/结果codec 联合不代表真实模型/UI。shared contract v5、Room v44、版本保持，下一片 HTTP client；边界见[文件契约](ios-workspace.md)和[报告](verification-report.md)。
+
 ## 2026-10-18 第 291 阶段第五片：共享完整结果帧
 
 - shared `SharedToolExecutionResult` 增加引用/恢复失败，receipt 增加可空私有幂等键；Android KnowledgeReference/ToolRecoveryFailure 共用原校验。`SharedToolResultFrame / SharedToolExecutionResultCodec` 固化 v1 九字段、调用身份、严格 UTF-8 1 MiB、各类 256 项及损坏拒绝。

@@ -1,6 +1,6 @@
 # KMP 完整 Tool result 协议与 codec
 
-第 291 阶段第五片，继续第 7 点协议固化。`AgentRuntimeContract.VERSION=5` 补齐结果引用、恢复失败和私有回执幂等键；新增完整结果 schema v1。Room v44、发布版本 `0.1.22 (23)` 保持。本片没有 iOS actual 或 iOS App；下一片进入 iOS 本地 workspace、HTTP、只读浏览器和前台 loop。
+第 291 阶段第五片，继续第 7 点协议固化。`AgentRuntimeContract.VERSION=5` 补齐结果引用、恢复失败和私有回执幂等键；新增完整结果 schema v1。Room v44、发布版本 `0.1.22 (23)` 保持。本片没有 iOS actual 或 iOS App；第六片已继续提供[iOS 本地 workspace](ios-workspace.md)平台实现，下一片 HTTP client，随后只读浏览器和真实前台 loop。
 
 ## 模型与交换边界
 
@@ -50,8 +50,9 @@ codec 只保存事实，`success / verified / typed status / receipt status` 独
 | --- | --- | --- |
 | 完整结果 DTO、v1 私有帧、严格解码 | shared 实现，Android 双向入口及脱敏投影 | common 编译及 Simulator codec 测试 |
 | 可读/context/MCP/Remote 协议与 codec | 前四片 shared，平台入口及历史格式保持 | common 编译及 Simulator 测试 |
-| 来源/审批/恢复权限、Room/Provider、实际执行 | 原 Android 实现 | 尚无 actual |
-| workspace/HTTP/只读浏览器/前台 Agent 产品链 | 原 Android 实现 | 下一片推进，不承诺 Phone Use/Root/Shizuku/后台对齐 |
+| 产品来源/审批/恢复权限、Room/Provider | 原 Android 实现 | 尚无平台实现 |
+| workspace 文件与 shared loop | 原 Android 实现 | 第六片原生文件/宿主新建/前台只读 Executor；scripted loop 联合，无真实 UIKit owner |
+| HTTP/只读浏览器/前台 Agent 产品链 | 原 Android 实现 | 后续推进，不承诺 Phone Use/Root/Shizuku/后台对齐 |
 
 common suite 覆盖独立 literal、全部字段/状态组合、旧 typed 无身份、浏览器动作、调用错配、损坏/类型/整数/Unicode、每类 256 条及 ASCII/中文精确 1 MiB。JVM/Redmi 共用 Android 契约比较独立 JSONObject oracle，复核私有帧与各入口脱敏、历史 RunEvent/可信上下文与容量隔离。Runtime/恢复和 Redmi Room 专项复验原安全边界；实际计数和构建/语料/保护结果见[验证报告](verification-report.md)，证据目录 `outputs/verification/stage291-kmp-tool-result/`。
 
