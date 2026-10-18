@@ -1,5 +1,11 @@
 # 产品需求
 
+## 2026-10-18 第 291 阶段第九片：真实 iOS 前台 loop
+
+- 新增静态 framework 和单窗口 UIKit Simulator 验收宿主，普通非流式 Chat Completions/严格 JSON 规划，仅四个只读 workspace/browser 工具；每 Run 独立真实结果历史和调用身份，8 步/90 秒及输入/响应容量门禁。认证仅宿主内存/请求头，两层 JSON 解码反射拒绝与事件字段脱敏，不保存配置。
+- UIApplication active/Main 检查、NSLock owner、真实 resign/background/用户取消/close 撤销及资源关闭；终态冻结，lazy job 首回调取消/异常释放槽位。重新激活不自动续跑，下一次显式新 Run 空历史起步。
+- 指定可见 Simulator 与真实 gpt-6-luna/公网 HTTPS 的四轮联合为完成、用户取消、后台撤销、显式新 Run 完成；实际标记/页面正文、调用绑定/hash、迟到拒绝和生命周期回读通过。第 7 点按原退出标准收口实现基线；完整 iOS 产品、持久恢复、流式 Provider/MCP/Remote、多窗口、自然系统与正式 Release 独立后置，详见[前台契约](ios-foreground-agent.md)、[矩阵](kmp-readable-evidence.md)及[报告](verification-report.md)。
+
 ## 2026-10-18 第 291 阶段第八片：iOS 固定页面只读浏览器
 
 - 宿主登记 1–8 个固定完整 HTTPS/443 页面，模型仅 browser.list_pages/read_page 的 page_id；不接受 URL/headers/body、链接或网页动作。名称筛选不是公网 DNS/实际连接 IP 门禁，登记表须来自可信宿主。

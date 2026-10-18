@@ -4,16 +4,17 @@
 
 - [GenUI v2 与显式 action](genui-actions.md)：版本化组件、仅内存草稿、短期单次引用、单工具前台审批及旧引用恢复拒绝。Workspace/Browser/GenUI 实现基线收口；完整产品真实模型联合、自然系统、真实渲染 DOM/网页输入与正式 Release 单列，下一主线为第 7 点 KMP 协议/codec。
 
-## 当前主线：第 291 阶段 KMP 协议/codec 与 iOS 平台实现（第 7 点）
+## 第 291 阶段 KMP 协议/codec 与 iOS 平台实现（第 7 点原定基线收口）
 
 - [共享可读证据 codec](kmp-readable-evidence.md)：第一片固化 commonMain 模型、动作 receipt、严格 JSON、旧 wire 兼容及 Android adapter；当时 shared contract v4，第五片升为 v5。
 - [context snapshot codec](kmp-context-snapshot.md)：第二片固化 DTO、严格 UTF-8、十字段 wire、1 MiB 边界和原文摘要规范字节；Android 保留旧 JSONObject encoder/原文幂等。平台能力矩阵与验证边界见契约及报告。
 - [MCP schema codec](kmp-mcp-schema.md)：第三片共享 descriptor、原有界 validator 和严格 raw JSON；Android 保留 JSONObject coercion/enum/目录原文，session/transport/权限保持。
 - [Remote Channel wire codec](kmp-remote-channel-wire.md)：第四片固化 message/batch/ACK/request/proof 与公开 manifest；Android 验签、密文入箱与前台许可保留。
 - [完整 Tool result codec](kmp-tool-result.md)：第五片补齐结果引用/恢复失败/私有幂等键，新增完整 v1 帧和 Android 双向入口；shared contract v5，模型投影脱敏及历史持久格式保持。
-- [iOS 本地 workspace](ios-workspace.md)：第六片提供原生文件平台实现、宿主新建与模型前台只读 Executor；真实隔离文件及 scripted shared loop/codec 联合通过。没有 iOS App 或真实 UIKit owner，下一片 HTTP client。
-- [iOS HTTP client](ios-http-client.md)：第七片提供宿主HTTPS origin、普通有界GET/POST、总时限/取消/关闭、redirect与Cookie/cache/credential边界。真实原生loopback socket验收；没有流式SSE/Provider或公网TLS活体验收，下一片只读浏览器。
-- [iOS 固定页面只读浏览器](ios-read-only-browser.md)：第八片提供宿主固定 HTTPS 页面 ID、静态文本解析、前台门禁与调用绑定页面证据；真实 socket/解析及 scripted loop 联合通过。没有任意 URL/DNS pinning 或网页动作，下一片真实前台 loop。
+- [iOS 本地 workspace](ios-workspace.md)：第六片提供原生文件平台实现、宿主新建与模型前台只读 Executor；真实隔离文件及 scripted shared loop/codec 联合通过。第九片真实 UIKit/模型联合见前台契约。
+- [iOS HTTP client](ios-http-client.md)：第七片提供宿主HTTPS origin、普通有界GET/POST、总时限/取消/关闭、redirect与Cookie/cache/credential边界。真实原生loopback socket验收；第九片补普通 Provider/公网 HTTPS，流式 SSE 后置。
+- [iOS 固定页面只读浏览器](ios-read-only-browser.md)：第八片提供宿主固定 HTTPS 页面 ID、静态文本解析、前台门禁与调用绑定页面证据；真实 socket/解析及 scripted loop 联合通过。没有任意 URL/DNS pinning 或网页动作；第九片补真实前台 loop。
+- [iOS 前台 Agent](ios-foreground-agent.md)：第九片静态 framework/可见单窗口 UIKit 宿主、真实模型只读 loop、用户取消/后台撤销及显式新 Run 联合通过。第 7 点原定基线收口；完整 iOS 产品、持久恢复、自然系统、多窗口与正式 Release 独立追踪。
 - Workspace 第一片已落地独立原子会话账本、有界 transcript 与中断收敛，见[Workspace 契约](workspace-session-transcript.md)。Browser 第二片补服务端语义 DOM、逐次审批 click/本机草稿 type、引用消费与类型化动作证据，见[Browser 契约](browser-dom-actions.md)和[验证报告](verification-report.md)。GenUI 第三片也已完成，三片实现基线收口；Room v44/发布版本不变。
 
 ## 第 289 阶段多 Agent（两片只读实现基线收口）
@@ -22,11 +23,11 @@
 
 ## 第 288 阶段 Skill/插件（两片实现基线完成）
 
-- 签名 manifest、公钥/内容确认、身份绑定、最高版本与 3 项历史回滚，以及 SAFE 前台显式执行已实现。声明映射宿主固定只读能力，交集与目录冻结、停用/前台撤销、初始化结算和旧 Run 恢复拒绝沿真实 Runtime/Room 验证。无签名仍仅预览。详见[签名与回滚](agent-plugin-signing.md)、[执行契约](agent-plugin-execution.md)及[验证报告](verification-report.md)。当前主线为第 7 点 KMP 协议/codec，长期系统、完整界面联合和正式 Release 独立追踪。
+- 签名 manifest、公钥/内容确认、身份绑定、最高版本与 3 项历史回滚，以及 SAFE 前台显式执行已实现。声明映射宿主固定只读能力，交集与目录冻结、停用/前台撤销、初始化结算和旧 Run 恢复拒绝沿真实 Runtime/Room 验证。无签名仍仅预览。详见[签名与回滚](agent-plugin-signing.md)、[执行契约](agent-plugin-execution.md)及[验证报告](verification-report.md)。第 7 点原定实现基线亦已收口，长期系统、完整界面联合和正式 Release 独立追踪。
 
 ## 第 287 阶段 Context/Memory（实现基线已收口）
 
-- 第 3 点 Context/Memory 五片实现基线已具备：Memory CAS、有界输入快照、确定性提取压缩、上下文恢复校验，以及显式一次性有界后台整理建议。开发 Room v44；整理不自动写正式记忆。详见[Memory CAS](memory-cas.md)、[输入快照](agent-context-snapshot.md)、[压缩契约](agent-context-compression.md)、[恢复契约](agent-context-recovery.md)、[整理契约](memory-maintenance.md)与[验证报告](verification-report.md)。第 4 点两片也已完成，当前主线为第 7 点 KMP 协议/codec，长期系统/质量验收独立追踪。
+- 第 3 点 Context/Memory 五片实现基线已具备：Memory CAS、有界输入快照、确定性提取压缩、上下文恢复校验，以及显式一次性有界后台整理建议。开发 Room v44；整理不自动写正式记忆。详见[Memory CAS](memory-cas.md)、[输入快照](agent-context-snapshot.md)、[压缩契约](agent-context-compression.md)、[恢复契约](agent-context-recovery.md)、[整理契约](memory-maintenance.md)与[验证报告](verification-report.md)。第 4 点两片也已完成，第 7 点原定实现基线亦已收口，长期系统/质量验收独立追踪。
 
 ## 第 286 阶段 MCP（已收口）
 

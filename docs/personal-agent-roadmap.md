@@ -25,7 +25,7 @@
 4. 第 288 阶段 Skill/插件两片原定实现基线已完成：签名 manifest、有界版本回滚、SAFE 前台显式宿主扩展；无签名仅预览、旧 Run 不能继承前台许可。长期系统、完整界面联合和正式 Release 验收独立追踪。
 5. 第 289 阶段多 Agent 两片只读实现基线已收口：持久 child 槽位、来源/预算、原子派生/领取、父取消/恢复收敛，以及任务中心显式入口、父结果单次消费/完成策略和真实提供方联合已完成。仍限前台 Direct、最多两个只读 child；精确共享扣账/费用、完整产品点击联合、自然系统与 Release 独立追踪。
 6. 第 290 阶段 Workspace/Browser/GenUI：三片实现基线收口，包含持久会话 transcript、SERVER_HTML DOM/action、本机草稿及 GenUI v2 单工具显式审批。静态 HTML 不代表真实渲染 DOM/网页输入；完整产品真实模型联合、自然系统与正式 Release 单列，验收分级见报告。下一主线为第 7 点 KMP 协议/codec 固化。
-7. 第 291 阶段前五片固化共享协议与完整结果 v1；第六片提供 iOS workspace，第七片提供有界 HTTP，第八片提供宿主固定页面的只读浏览器与前台 Executor。shared Agent v5/HTTP v1/Browser v1；真实原生文件、loopback socket/解析与 scripted loop 已验证。固定页面不是任意 URL 或实际连接 IP 门禁，iOS 不宣称与 Android 对等。下一片真实前台 loop，真实 UIKit/模型/产品入口及公网 TLS 尚待推进。
+7. 第 291 阶段九片原定实现基线已收口：前五片共享协议/codec，后续 iOS workspace、有界 HTTP、固定页面只读浏览器和真实前台 loop。可见 UIKit Simulator 宿主与真实 gpt-6-luna/公网 HTTPS 联合、取消/后台撤销/显式新 Run 已验证；Android 定向回归、三端 contract/codec/runtime smoke 与能力矩阵完成。完整 iOS 产品、持久恢复、后台系统、多窗口与正式 Release 独立待办，不追求能力强行对齐。
 
 ### 后续执行顺序
 
@@ -128,7 +128,7 @@
 - 完整真实模型→产品 ViewModel→审批点击联合验收、自然 LMK/Doze/系统重启、正式 Release。
 - Workspace 历史显式回收、长期容量/性能；可写或远端 GenUI action 需另行评审。
 
-#### 第 291 阶段：KMP 协议/codec 与平台 actual（第 7 点进行中）
+#### 第 291 阶段：KMP 协议/codec 与平台 actual（第 7 点原定基线收口）
 
 - 第一片：可读 Tool result 子协议、浏览器动作 receipt、严格 JSON 与 Android 兼容入口下沉 commonMain；shared contract v4 保留可空页面证据及调用绑定。旧无动作 wire 兼容、损坏拒绝，详见[共享证据 codec](kmp-readable-evidence.md)。此处没有 iOS actual 或完整 Tool result codec，第 7 点尚未收口。
 - 第二片：context snapshot DTO、十字段 JSON、严格 UTF-8 与原文摘要规范字节下沉；Android 保留 JSONObject 编码、原文幂等与 SHA-256。Room/schema/压缩/恢复权限不变，精确容量、旧帧与 INVALID 门禁见[context codec](kmp-context-snapshot.md)和报告。下一片继续 MCP schema，随后 Remote Channel wire、完整 Tool result codec 和 iOS actual。
@@ -138,6 +138,8 @@
 - 第六片：iOS 原生 workspace 文件平台实现与共享前台只读 Executor 已提供；固定根 fd、逐段 NOFOLLOW、有界 UTF-8/目录、宿主新建不覆盖及取消/撤销拒绝迟到正文。真实隔离文件与 scripted shared loop/结果codec 联合见[文件契约](ios-workspace.md)及报告；没有 iOS App 或真实 UIKit/模型，下一片 HTTP client，随后只读浏览器与真实前台 loop。
 - 第七片：宿主有界GET/POST端口与iOS独立ephemeral NSURLSession平台实现已提供；HTTPS origin、容量/并发/总时限、取消/close及redirect/Cookie/cache/credential边界见[HTTP契约](ios-http-client.md)和报告。真实原生loopback socket不代表公网TLS或Provider/SSE/真实模型联合；下一片只读浏览器，随后真实前台loop，第7点仍进行中。
 - 第八片：iOS 固定完整 HTTPS 页面与模型 page_id 只读目录、系统 libxml2 STATIC_TEXT、512 KiB/UTF-8/MIME/解析预算、前台撤销/取消/关闭及当前调用页面证据已提供。真实原生 socket/解析、外部实体拒绝与 scripted shared loop 联合见[浏览器契约](ios-read-only-browser.md)和报告；没有任意 URL/DNS pinning、网页动作、真实 UIKit 或模型，下一片真实前台 loop，第 7 点仍进行中。
+- 第九片：静态 framework 与单窗口 UIKit 验收宿主、普通非流式 Chat Completions/严格 JSON、独立真实结果历史及四个只读工具。指定 Simulator 可见点击与真实 gpt-6-luna/公网 HTTPS 联合完成，用户取消/后台撤销、终态迟到拒绝和显式空历史新 Run 验收通过，见[前台契约](ios-foreground-agent.md)及报告。
+- 收口：九片满足原退出标准，Android 定向回归、iOS contract/codec/runtime smoke 与能力矩阵完成。iOS 正式产品、持久 Run/恢复、多窗口、流式 Provider/MCP/Remote、任意 URL 实际连接 IP、自然 LMK/后台系统、正式 Release 独立后置；前六点长期待办不扩入本阶段。
 - 先把 shared contract、context snapshot、MCP schema、Remote Channel wire 和 Tool result codec 固化为跨平台模块；Android 保留 Provider/Room/Accessibility 实现。
 - iOS 先实现本地 workspace、HTTP client、只读浏览器和前台 Agent loop；不承诺 Android Phone Use、后台虚拟屏、Root/Shizuku 或持续后台一致性。
 - 退出标准：Android 既有测试不回归，iOS simulator 完成 contract/codec/runtime smoke；平台能力矩阵写入发布文档。

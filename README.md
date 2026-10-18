@@ -13,7 +13,7 @@
 
 小灵不是一个只会生成文字的聊天客户端，也不是默认拥有全部权限的自动化脚本。它把自然语言目标转换成受控工具调用，在 Android 本地保存计划、审批、执行与验证证据，并让用户始终掌握最终控制权。
 
-开发主线已完成第 6 点 Workspace/Browser/GenUI 三片实现基线。当前第 7 点前五片已固化[共享可读证据](docs/kmp-readable-evidence.md)、[context snapshot](docs/kmp-context-snapshot.md)、[MCP schema](docs/kmp-mcp-schema.md)、[Remote Channel wire](docs/kmp-remote-channel-wire.md)和[完整结果 codec](docs/kmp-tool-result.md)；第六片提供[iOS workspace](docs/ios-workspace.md)，第七片提供[iOS HTTP](docs/ios-http-client.md)，第八片提供[iOS 固定页面只读浏览器](docs/ios-read-only-browser.md)。shared contract v5，原生文件/网络/静态解析及 scripted shared loop 已验证；浏览器模型仅选择宿主登记的 page_id，没有任意 URL、网页动作或实际连接 IP 门禁。下一片真实前台 loop；真实 UIKit/模型/产品入口、公网 TLS、自然系统与正式 Release 仍未验收，详见[路线图](docs/personal-agent-roadmap.md)和[验证报告](docs/verification-report.md)。
+七点路线的原定实现基线已完成。第 7 点九片固化[共享可读证据](docs/kmp-readable-evidence.md)、[context snapshot](docs/kmp-context-snapshot.md)、[MCP schema](docs/kmp-mcp-schema.md)、[Remote Channel wire](docs/kmp-remote-channel-wire.md)、[完整结果 codec](docs/kmp-tool-result.md)，并提供 iOS workspace/HTTP/固定页面只读浏览器及[真实前台 Agent loop](docs/ios-foreground-agent.md)。可见 UIKit 宿主与真实模型/公网 HTTPS、取消/后台撤销/显式新 Run 联合已验证；完整 iOS 产品、持久恢复、自然系统和正式 Release 独立追踪，详见[路线图](docs/personal-agent-roadmap.md)和[验证报告](docs/verification-report.md)。
 
 ## 下载
 
@@ -106,13 +106,13 @@ Release 签名从未跟踪文件 `local-signing/xiaoling-release.env` 读取。�
 
 ## 当前状态
 
-当前主线为第 7 点 KMP 协议/codec 与 iOS 平台实现：前五片协议已固化，后续三片提供原生 workspace、有界 HTTP 与固定页面只读浏览器。浏览器从系统 libxml2 提取 STATIC_TEXT，前台撤销/取消/close 拒绝迟到正文；页面证据只绑定当前调用，不生成业务验证或提交许可。shared contract v5、Room v44/发布版本保持。下一片真实前台 loop，iOS App/真实 UIKit 与模型联合仍待推进，能力矩阵和边界见[浏览器契约](docs/ios-read-only-browser.md)与[验证报告](docs/verification-report.md)。
+第 7 点 KMP 协议/codec 与 iOS 平台实现的原定基线已收口：前五片共享协议、后续原生 workspace/HTTP/固定页面浏览器和第九片真实前台 loop 已完成。静态 framework 与可见 UIKit 验收宿主通过真实 gpt-6-luna 联合文件/页面读取、用户取消、后台撤销和显式新 Run；shared contract v5、Room v44/发布版本保持。iOS 正式产品、持久恢复、后台系统、多窗口与正式 Release 独立追踪，能力矩阵和证据见[前台契约](docs/ios-foreground-agent.md)、[路线图](docs/personal-agent-roadmap.md)及[验证报告](docs/verification-report.md)。
 
 第 5 点多 Agent 两片只读实现基线已收口：child checkpoint/唯一领取/父取消、任务中心显式 1–2 目标、独立会话与父结构化单次消费，真实 gpt-6-luna 联合已通过。精确共享扣账/费用、完整产品点击联合、自然系统和 Release 独立跟踪。详见[child 生命周期](docs/agent-child-lifecycle.md)。
 
-第 4 点 Skill/插件（第 288 阶段）原定实现基线已完成：签名 manifest、公钥/内容确认、有界版本回滚和 SAFE 前台执行网关。签名插件须启用、填写目标并显式点击；目录受 manifest/ACI/Profile/动态 SAFE 交集约束，停用或离开前台撤销，旧 Run 须重新选择。每轮最多 3 调用/60 秒，工具 10 秒，插件标记与 Run 同事务。当前主线为第 7 点 KMP 协议/codec；长期系统、完整产品界面联合与正式 Release 验收独立追踪。详见[签名与回滚](docs/agent-plugin-signing.md)、[前台执行契约](docs/agent-plugin-execution.md)和[验证报告](docs/verification-report.md)。
+第 4 点 Skill/插件（第 288 阶段）原定实现基线已完成：签名 manifest、公钥/内容确认、有界版本回滚和 SAFE 前台执行网关。签名插件须启用、填写目标并显式点击；目录受 manifest/ACI/Profile/动态 SAFE 交集约束，停用或离开前台撤销，旧 Run 须重新选择。每轮最多 3 调用/60 秒，工具 10 秒，插件标记与 Run 同事务。第 7 点原定实现基线亦已收口；长期系统、完整产品界面联合与正式 Release 验收独立追踪。详见[签名与回滚](docs/agent-plugin-signing.md)、[前台执行契约](docs/agent-plugin-execution.md)和[验证报告](docs/verification-report.md)。
 
-第 3 点 Context/Memory（第 287 阶段）的五片实现基线已完成：Memory CAS、有界输入/context snapshot、确定性提取压缩、上下文恢复校验与显式一次性有界后台整理建议，开发 Room v44。整理仅处理近 7 天最多 20 个已完成任务的原始用户陈述，以持久 outbox 送到候选列表，正式记忆由用户确认；受控独立进程证据与长期验证边界见报告。第 4 点两片亦已完成，当前主线为第 7 点 KMP 协议/codec。详见[Memory CAS](docs/memory-cas.md)、[输入快照](docs/agent-context-snapshot.md)、[压缩契约](docs/agent-context-compression.md)、[恢复契约](docs/agent-context-recovery.md)、[整理契约](docs/memory-maintenance.md)、[路线图](docs/personal-agent-roadmap.md)和[验证报告](docs/verification-report.md)。
+第 3 点 Context/Memory（第 287 阶段）的五片实现基线已完成：Memory CAS、有界输入/context snapshot、确定性提取压缩、上下文恢复校验与显式一次性有界后台整理建议，开发 Room v44。整理仅处理近 7 天最多 20 个已完成任务的原始用户陈述，以持久 outbox 送到候选列表，正式记忆由用户确认；受控独立进程证据与长期验证边界见报告。第 4 点两片亦已完成，第 7 点原定实现基线亦已收口。详见[Memory CAS](docs/memory-cas.md)、[输入快照](docs/agent-context-snapshot.md)、[压缩契约](docs/agent-context-compression.md)、[恢复契约](docs/agent-context-recovery.md)、[整理契约](docs/memory-maintenance.md)、[路线图](docs/personal-agent-roadmap.md)和[验证报告](docs/verification-report.md)。
 
 第 2 点 MCP 已收口：应用级 `McpSessionRegistry` 统一设置/Run 会话，支持 Streamable HTTP 与 legacy SSE；配置变更撤销旧连接，取消/断流清目录，后续显式操作重新发现且不重放工具调用。Redmi 已通过真实 `gpt-6-luna` 的 SSE 成功/取消/停用，以及 Context7 认证 HTTPS 的发现和只读解析。Context7 为真实外部 Streamable HTTP，SSE 服务端仍为隔离 loopback；`query-docs`、OAuth、stdio、Tasks、后台 MCP 和正式 Release 独立后置，详见[MCP 会话契约](docs/mcp-session-registry.md)。
 

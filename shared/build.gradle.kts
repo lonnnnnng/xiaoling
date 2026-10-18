@@ -15,6 +15,11 @@ kotlin {
     iosSimulatorArm64()
 
     targets.withType<org.jetbrains.kotlin.gradle.plugin.mpp.KotlinNativeTarget>().configureEach {
+        // long: 将共享协议和原生只读端口导出给UIKit宿主，静态链接使验收App无需另行装载动态framework。
+        binaries.framework {
+            baseName = "XiaoLingShared"
+            isStatic = true
+        }
         val sdk = if (name == "iosArm64") "iphoneos" else "iphonesimulator"
         compilations.getByName("main").cinterops.create("browserHtml") {
             definitionFile.set(project.file("src/nativeInterop/cinterop/browserHtml.def"))

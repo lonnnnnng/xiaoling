@@ -2,6 +2,30 @@
 
 验证日期：2026-10-18（北京时间）
 
+# 2026-10-18 第 291 阶段第九片：真实 UIKit/模型前台 loop
+
+- 第 7 点原定实现基线收口：九片满足 Android 定向回归、iOS contract/codec/runtime smoke 和平台能力矩阵的原退出标准。本片新增静态 XiaoLingShared.framework、单窗口 UIKit 验收 App 和普通非流式 Chat Completions/严格 JSON adapter；只读 workspace/list/read 与宿主固定 example 页面，不扩到任意 URL、网页 action 或后台。shared Agent v5、HTTP/Browser v1、Room v44、Android 发布 `0.1.22 (23)` 保持；iOS 验收宿主内部 `0.0.1 (1)`。
+
+| 验证层 | 本轮结果 | 证据范围 |
+| --- | --- | --- |
+| shared Android Debug / Release | **各 118/118** | 原 103 加本片 15 项规划/实际历史/容量/取消/严格 JSON/认证反射门禁 |
+| shared iOS Simulator arm64 | **156/156** | common 118、workspace 11、HTTP 14、browser 13，无失败/错误/跳过 |
+| iOS arm64 / Simulator framework | **通过** | 两平台静态 framework 编译/链接，未验证真实 iOS 设备 |
+| Swift UIKit App | **构建/安装/可见运行通过** | 指定 iPhone 16 Pro / iOS18.3，Xcode16.2 (16C5032a)，SDK iPhoneSimulator18.2，本地 ad-hoc 签名核验 |
+| 真实模型/文件/固定页面 | **两轮完成** | gpt-6-luna 经生产 NSURLSession 公网 HTTPS；随机文件 marker 和 Example Domain 正文实际读取/总结 |
+| 真实取消/失前台 | **两轮取消** | 模型请求等待期间 UI 取消、Home 后真实 RESIGN_ACTIVE/BACKGROUND；回前台不自动续跑，下一轮显式完成 |
+| App 聚焦 JVM | **35/35** | OpenAiCancellation/CompatibleClient、MCP transport、Browser DOM/action |
+| Debug / AndroidTest / Debug Lint | **通过** | Debug 内部制品，未构建或发布正式 Release |
+| 指定 Redmi 网络回归 | **5/5** | 隔离 MCP socket 3、Browser owner/stale/敏感目标和 Runtime 取消 2 |
+
+- UIKit 宿主四个 Run 的终态依次为 COMPLETED、USER_CANCELLED、FOREGROUND_REVOKED、COMPLETED；两个成功 Run 各实际读取四个工具。首次完成 Run `51ea0ee0-07a8-40c0-94d9-b130bd8472de`，撤销后显式完成 Run `f7b06902-eb9b-4ef6-9a80-3b7548b567a3`。公开 marker `ios-foreground-2729d34ddb0f4f45a57c1946ec708990` 只存在临时验收文件；没有注入到用户目标，两个总结均准确引用。Browser STATIC_TEXT 正文 hash `8c47db7a83d2c5cad5a94f5aab422c236eee17f8a75d3e4ad50e519185022e6d` 由独立 Python 回读复算一致，并与当前 toolCallId/sourceRef 绑定。
+- 用户取消与前台撤销均在第 2 个模型请求等待期间（已执行 workspace.list），没有迟到 tool/summary 或终态改写。真实 AppDelegate RESIGN_ACTIVE/BACKGROUND/ACTIVE 与 native host 撤销事件均保存；ACTIVE 后至下一次 TAP_RUN 间没有 Run 事件，新 Run STARTED 的历史/请求计数为零，调用 ID 不复用。四轮公开原始事件、四张可见 UI 截图和 `ui-acceptance.json` 保留，由 `tools/verify_ios_foreground_host.py` 独立核对。
+- iOS 宿主只创建 UUID 私有临时工作区和公开文件，模型 key 进程内读取 ignored AGENTS，以 SIMCTL_CHILD 环境注入，不进 argv、App 包、prompt 或日志。字段值在 JSON 序列化前脱敏，输入/两层响应拒绝 Unicode、引号/反斜杠凭据反射。注入传输的 15 项 common 测试与真实 UIKit/模型证据分别记载。
+- 首轮新增 credential 测试误用非 data class 的 copy 导致编译失败，改成显式响应构造；Swift 首轮链接误选 sysroot/保留未用平台缓存符号，改为显式 Simulator SDK/dead_strip，未伪造系统符号。失败日志与最终成功构建保留；原始 initial-framework-build 的 UIKit 枚举定位失败亦保留。最终 corpus 首次误写 knowledge 包名导致 ClassNotFoundException，按实际 storage 包名复验；失败日志独立保留。
+- Redmi 本轮重新核对 `wsvwypiz7xwslvl7 / begonia / SDK36`，只更新同签名 Debug/test 包，不卸载或清正式数据。提交门禁包含最终文档 assets 字节比对/corpus、前后 7 项偏好/Memory undo 摘要、实际两项凭据与两 APK/native/framework/iOS App 审计，结果保存在 `verification-summary.json`。
+- 边界：普通成功公网 TLS 不等于坏证书/mTLS 或任意 URL 实际连接 IP 安全验收；取消不证明 Provider 远端计算已停止/未计费或 POST 未提交。没有 iOS Room/持久 Run/进程恢复、正式产品、多窗口、流式/SSE/MCP/Remote 平台能力、自然 LMK/后台系统或正式 Release。上述事项独立后置，前六点长期待办保持独立；本轮中文本地提交，不 push/tag/Release，保留 refs。
+- 契约/能力矩阵：[iOS 前台 Agent](ios-foreground-agent.md)、[共享协议矩阵](kmp-readable-evidence.md)、[固定页面浏览器](ios-read-only-browser.md)、[路线图](personal-agent-roadmap.md)。证据目录 `outputs/verification/stage291-ios-foreground/`。
+
 # 2026-10-18 第 291 阶段第八片：iOS 固定页面只读浏览器
 
 - 第 7 点继续推进；本片新增固定完整 URL 的宿主登记表、common 只读浏览器端口/前台 Executor 和 iOS 系统 libxml2 平台实现。模型目录只有 browser.list_pages/read_page，参数仅 page_id/max_chars；1–8 个宿主可信 HTTPS/443 页面，没有任意 URL、网页动作、query/认证头或实际连接 IP 门禁。shared Agent v5、Browser v1、Room v44、发布版本 `0.1.22 (23)` 保持。

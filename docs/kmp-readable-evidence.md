@@ -40,15 +40,17 @@ shared encoder 要求输出能由同一 codec 完整回读，直接模型的超�
 | MCP descriptor/有界 validator/raw codec | 第三片 shared 算法，Android 原 JSON 兼容端口 | common 编译与 Simulator 测试；parser 边界见[MCP 契约](kmp-mcp-schema.md) |
 | Remote Channel DTO/wire/canonical bytes | 第四片 shared codec，平台验签/入箱/许可保留 | common 编译与 Simulator；无 crypto/storage actual |
 | 完整 Tool result DTO/v1 codec | 第五片 shared 私有帧及 Android 双向入口；模型投影去除幂等键 | common/Simulator codec；第六片原生文件/scripted loop 联合 |
-| HTTP宿主端口 | 原Android网络实现保持 | 第七片[iOS有界HTTP](ios-http-client.md)，普通GET/POST；loopback socket验收，无公网TLS/流式SSE证据 |
-| Provider、MCP session/transport、Remote Channel 验签与入箱 | 现有 Android 实现 | 尚无平台adapter |
-| Workspace 文件 | 现有 Android 实现与相应门禁 | 第六片[iOS 文件平台实现](ios-workspace.md)、模型前台只读 Executor；无 shell 或真实 UIKit owner |
-| Browser 静态读取 | 现有任意公开 URL/DNS 与 DOM/action门禁 | 第八片[固定页面只读](ios-read-only-browser.md)，宿主登记 ID/STATIC_TEXT/scripted loop；无实际连接 IP 门禁或动作 |
-| Room、前台 Agent 产品入口 | 现有 Android 实现与相应门禁 | 尚无 iOS App 或真实 UIKit owner |
+| HTTP宿主端口 | 原Android网络实现保持 | 第七片[iOS有界HTTP](ios-http-client.md)，普通GET/POST；loopback socket与第九片公网HTTPS联合，流式SSE后置 |
+| Provider | 现有 Android 实现 | 第九片普通非流式 Chat Completions/严格JSON；真实模型公网HTTPS联合 |
+| MCP session/transport、Remote Channel 验签与入箱 | 现有 Android 实现 | 尚无平台adapter |
+| Workspace 文件 | 现有 Android 实现与相应门禁 | 第六片[iOS 文件平台实现](ios-workspace.md)、模型前台只读 Executor；第九片真实 UIKit owner，无 shell |
+| Browser 静态读取 | 现有任意公开 URL/DNS 与 DOM/action门禁 | 第八片[固定页面只读](ios-read-only-browser.md)，宿主登记 ID/STATIC_TEXT；第九片真实前台/模型联合，无实际连接 IP 门禁或动作 |
+| 前台 Agent loop/入口 | 现有 Android 实现与相应门禁 | 第九片[UIKit验收宿主](ios-foreground-agent.md)/静态 framework；可见点击、真实模型、取消/后台撤销/显式新Run |
+| Room、持久 Run/恢复/完整产品 | 现有 Android 实现与相应门禁 | 未实现；验收宿主公开事件不是持久 Run |
 | Phone Use、Root/Shizuku、后台虚拟屏 | 按既有 Android 权限边界 | 不承诺能力对齐 |
 
 同一 common suite 在 shared Android Debug/Release 与 iOS Simulator 执行固定旧 wire、动作 golden、Unicode/转义/顺序兼容、错误类型/版本/绑定、损坏拒绝和容量向量。App JVM 与 Redmi 共用 adapter 契约，浏览器专项复核 Runtime/审批/Room reopen/取消。构建和设备实际结果以[验证报告](verification-report.md)为准，证据目录 `outputs/verification/stage291-kmp-codec/`。
 
-第二/三片已继续固化[context snapshot codec](kmp-context-snapshot.md)和[MCP schema codec](kmp-mcp-schema.md)；第四片已固化[Remote Channel wire](kmp-remote-channel-wire.md)，第五片已补齐[完整 Tool result codec](kmp-tool-result.md)；第六片已提供[iOS 本地 workspace](ios-workspace.md)，第七片提供[HTTP宿主端口](ios-http-client.md)，第八片提供[固定页面只读浏览器](ios-read-only-browser.md)，下一片真实前台loop。第7点或iOS产品能力尚未整体收口。
+第二/三片已继续固化[context snapshot codec](kmp-context-snapshot.md)和[MCP schema codec](kmp-mcp-schema.md)；第四片已固化[Remote Channel wire](kmp-remote-channel-wire.md)，第五片已补齐[完整 Tool result codec](kmp-tool-result.md)；第六片已提供[iOS 本地 workspace](ios-workspace.md)，第七片提供[HTTP宿主端口](ios-http-client.md)，第八片提供[固定页面只读浏览器](ios-read-only-browser.md)，第九片提供[真实前台loop](ios-foreground-agent.md)。第7点原定实现基线已收口；完整iOS产品、持久恢复、多窗口、自然系统和正式Release独立追踪。
 
 官方正文：[JSON tree 解析 API](https://kotlinlang.org/api/kotlinx.serialization/kotlinx-serialization-json/kotlinx.serialization.json/-json/parse-to-json-element.html)、[serialization 1.9.0](https://github.com/Kotlin/kotlinx.serialization/releases/tag/v1.9.0)。版本固定 1.9.0，上游要求 Kotlin 2.2，本项目 Kotlin 2.3.20 的实际兼容以本轮编译与测试为证据。
