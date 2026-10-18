@@ -1,5 +1,11 @@
 # 当前实现说明
 
+## 2026-10-18 第 291 阶段第二片：共享 context codec 与原文摘要
+
+- SharedAgentLlmPhase/ContextInput/Message/Projection 由 commonMain 持有，Android 原类型通过 typealias 引用。SharedAgentContextSnapshotCodec 固化字段、整数词法、严格 Unicode/JSON 和规范字节；扫描预算显式使用 1,048,576，避免误拒绝合法 ASCII 大帧。
+- Android 原 JSONObject encoder 和 MessageDigest 保留；decoder 使用 shared 后沿原 encoder 检查容量。同 Step 幂等与普通/压缩摘要绑定原 payload，空白帧不重写。统一脱敏 IllegalArgumentException 使 Room 确定格式损坏进入 INVALID；存储/压缩/恢复授权没有迁移。
+- 下一片继续 MCP schema，随后 Remote Channel wire、完整结果 codec，再补 iOS actual。Room v44、shared contract v4、schema v1 与发布版本保持，兼容向量、能力矩阵和实际验证见[context codec](kmp-context-snapshot.md)与[验证报告](verification-report.md)。
+
 ## 2026-10-18 第 291 阶段第一片：shared codec 与 Android adapter
 
 - commonMain 新增 SharedToolReadableEvidence/SharedBrowserActionReceipt 与树式 JSON codec，原 Android 类型通过 typealias 共用模型；JSONObject 兼容入口保留。StrictJsonObjectSyntax 从 Android 下沉并新增 Unicode surrogate 校验；shared contract v4 增加可空 readableEvidence，adapter 核对当前调用 ID。

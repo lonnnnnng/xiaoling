@@ -1,5 +1,10 @@
 # 产品需求
 
+## 2026-10-18 第 291 阶段第二片：KMP context snapshot 协议
+
+- commonMain 固化原 context DTO、十字段 JSON、严格 UTF-8、1 MiB 字节边界和原文摘要规范字节。Android 保留原 JSONObject encoder、同 Step 原文幂等及 SHA-256；正常旧 wire 可读取，重复键/JSON 方言/整数强转不属于兼容格式。
+- 损坏输入必须分类为 INVALID 并阻止恢复执行，不重写历史、不放宽容量或权限。Room v44、context schema v1、shared contract v4 与发布版本保持；MCP schema、Remote Channel wire、完整结果 codec 和 iOS actual 后续推进。详见[context codec](kmp-context-snapshot.md)和[验证报告](verification-report.md)。
+
 ## 2026-10-18 第 291 阶段第一片：KMP 可读工具证据协议
 
 - commonMain 与 Android 使用同一页面/动作证据校验，旧无动作 wire 兼容；损坏、未知版本和调用错配拒绝整份证据，严格原文 JSON 有界且拒绝重复键。共享结果保存可读证据，不产生审批或持久提交资格。

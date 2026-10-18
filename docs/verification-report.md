@@ -2,6 +2,26 @@
 
 验证日期：2026-10-18（北京时间）
 
+# 2026-10-18 第 291 阶段第二片：shared context snapshot 协议与 codec
+
+- 当前继续第 7 点 KMP 协议/codec。commonMain 固化 context 输入 DTO、十字段 wire、严格 UTF-8、容量常量与摘要规范字节，Android 原类型经 typealias 接入。shared contract v4、context schema v1、Room v44 与发布版本 `0.1.22 (23)` 保持。
+- Android 保留原 JSONObject encoder、同 Step 原 payload 字符串幂等和 MessageDigest SHA-256；普通/压缩 domain 与四字节大端长度前缀绑定原文，不 trim、不重编码历史、不改摘要。decoder 使用 shared 后沿旧 encoder 检查容量；shared 紧凑帧在 1 MiB 内不保证旧 Android 转义后也合限额。原压缩算法、来源摘要、恢复 marker/资格和权限不变。
+- strict JSON 拒绝重复解码键、方言、未知字段/版本/枚举、错误类型与非整数词法；输入单帧是 1,048,576 UTF-8 bytes，扫描字符预算显式传同值。非法 Unicode 不替换；格式错误统一为无正文/cause 的 IllegalArgumentException，让 Room 确定损坏进入 INVALID。正常旧 encoder 输出兼容，不承诺兼容所有旧宽松解析文本。
+
+| 已执行门禁 | 结果 | 证据边界 |
+| --- | --- | --- |
+| shared Android Debug / Release / iOS Simulator | **各33/33**，0 failure/error/skip | 同一既有 contract 11、可读证据 codec 11、context codec 11；不等于 iOS 产品或 actual |
+| iOS arm64 / Simulator arm64 common 编译 | 通过 | 没有 iOS 存储、SHA、HTTP/Workspace actual 或 iOS App |
+| App JVM 聚焦回归 | **103/103**、9 suites，0 failure/error/skip | 新 adapter 6、旧快照/压缩11，以及 phase/事件/预算/重试/UI相关86；不含全量 JVM |
+| Debug / AndroidTest APK、Debug Lint | 最终构建与 Lint 通过；Redmi 覆盖安装通过 | 内部 Debug 证书，没有正式 Release 构建或发版 |
+| 指定 Redmi `wsvwypiz7xwslvl7 / begonia / SDK 36` | **32/32**，`462.475s` | 新 adapter 6、新旧帧 Room 3、旧 snapshot 9/compression 7/recovery 5、两迁移各1；仅 UUID Room 与 loopback，未调用真实模型或公网 MCP |
+
+- 旧 JSONObject 字面量夹具和独立 Java DataOutputStream 摘要不调用新 codec；普通/压缩摘要同时匹配独立 Python golden。夹具覆盖当前运行平台 JSONObject 输出，没有归档某一历史 Android 版本的全部字节。新 Room 直接植入普通无 marker 旧帧，证实读取、同 Step 幂等、带空白原文不重写，以及重复 model 键即便拥有有效原文 hash 仍为 INVALID、恢复 action 为零、旧帧不被修复。旧压缩完整来源链没有由新的归档夹具植入，既有压缩/恢复专项复验当前生产链。
+- 初轮 shared 各33/33 与 App102/102通过，但 AndroidTest 编译因异构 arrayOf 的 reified intersection type 推断失败；已明确为 arrayOf<Any?>，保留原失败日志。随后新增 Android 转义膨胀容量断言与 Room 恢复 action 零次断言，最终 App103/103、三端33/33、APK/Lint与Redmi32/32通过，计数不重复累加初轮。
+- 两份只读独立核验未发现确定缺陷，核对文档能力边界和新兼容测试；它们是源码核验，不能替代上述执行结果。闭库重开、迁移与 loopback 不代表自然 LMK、系统重启或真实模型恢复质量。最终文档语料、已报告偏好/Memory undo 摘要、链接与两份本机实际凭据/两APK审计另存本轮证据目录。
+- 第 7 点下一片为 MCP schema 的跨平台 codec，随后 Remote Channel wire、完整 Tool result codec，再补 iOS actual。没有扩张恢复/执行许可，也未将第 7 点整体收口。契约与矩阵见[context codec](kmp-context-snapshot.md)、[共享可读证据](kmp-readable-evidence.md)与[路线图](personal-agent-roadmap.md)。本轮仅本地提交，没有 push/tag/Release。
+- 证据：`outputs/verification/stage291-kmp-context/` 的 `artifact-build.log`（初次失败）、`final-build-jvm-native.log`、`final-test-results.json`、`record-hash-goldens.json`、`strict-utf8-api.md`、`redmi.log`、`redmi-results.json`、`install-app.log`、`install-tests.log`；最终语料/保护/链接/凭据与产物审计见同目录的 final 文件及 `verification-summary.json`。
+
 # 2026-10-18 第 291 阶段第一片：shared 可读证据与 JSON codec
 
 - 当前主线为第 7 点 KMP 协议/codec，第一片固化可读 Tool result 子协议。commonMain 保存页面证据、浏览器动作 receipt、严格 JSON 与 codec；Android 原类型经 typealias 共用校验，JSONObject/RunEvent/VerifiedContext/Room 字段与旧无动作 wire 保持兼容。shared contract 升为 v4，Room v44/发布版本 0.1.22 (23) 不变。

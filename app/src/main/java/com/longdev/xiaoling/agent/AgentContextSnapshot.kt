@@ -2,25 +2,13 @@ package com.longdev.xiaoling.agent
 
 import org.json.JSONArray
 import org.json.JSONObject
-import java.nio.charset.CodingErrorAction
+import com.longdev.xiaoling.shared.agent.SharedAgentContextSnapshotCodec
 import java.security.MessageDigest
 
-enum class AgentContextProjection { EXACT_TEXT, DEVICE_INPUT_REDACTED }
-
-data class AgentContextMessage(val role: String, val content: String)
-
-/** long: 保存发送给模型 adapter 的文本输入；附件原文与鉴权配置不进入上下文副本。 */
-data class AgentContextInput(
-    val phase: AgentLlmPhase,
-    val model: String,
-    val providerId: String?,
-    val apiMode: String,
-    val messages: List<AgentContextMessage>,
-    val verifiedToolCallIds: List<String>,
-    val projection: AgentContextProjection = AgentContextProjection.EXACT_TEXT,
-    val imageCount: Int = 0,
-    val documentCount: Int = 0,
-)
+// long: Android 保留原调用类型名，输入校验在 shared 只维护一份；Room 记录、异常和授权仍属于平台。
+typealias AgentContextProjection = com.longdev.xiaoling.shared.agent.SharedAgentContextProjection
+typealias AgentContextMessage = com.longdev.xiaoling.shared.agent.SharedAgentContextMessage
+typealias AgentContextInput = com.longdev.xiaoling.shared.agent.SharedAgentContextInput
 
 data class AgentContextSnapshotRecord(
     val runId: String,
@@ -37,24 +25,15 @@ class AgentContextSnapshotException(cause: Throwable? = null) :
     IllegalStateException("上下文快照未能完整保存，本次模型请求已停止；请检查上下文大小或存储状态", cause)
 
 internal object AgentContextSnapshotCodec {
-    const val SCHEMA_VERSION = 1
-    const val MAX_REQUEST_BYTES = 1_048_576
-    const val MAX_RUN_BYTES = 16_777_216L
-    const val MAX_FRAMES = 64
-    const val MAX_TOOL_CALLS = 32
+    const val SCHEMA_VERSION = SharedAgentContextSnapshotCodec.SCHEMA_VERSION
+    const val MAX_REQUEST_BYTES = SharedAgentContextSnapshotCodec.MAX_REQUEST_BYTES
+    const val MAX_RUN_BYTES = SharedAgentContextSnapshotCodec.MAX_RUN_BYTES
+    const val MAX_FRAMES = SharedAgentContextSnapshotCodec.MAX_FRAMES
+    const val MAX_TOOL_CALLS = SharedAgentContextSnapshotCodec.MAX_TOOL_CALLS
 
     fun encode(input: AgentContextInput): String {
-        require(input.model.isNotBlank() && input.model.length <= 200)
-        require(input.providerId == null || input.providerId.isNotBlank())
-        require(input.apiMode in setOf("CHAT_COMPLETIONS", "RESPONSES"))
-        require(input.messages.map { it.role } == listOf("system", "user"))
-        require(input.verifiedToolCallIds.size <= MAX_TOOL_CALLS)
-        require(input.verifiedToolCallIds.all { it.isNotBlank() && it.length <= 200 })
-        require(input.verifiedToolCallIds.distinct().size == input.verifiedToolCallIds.size)
-        require(input.imageCount in 0..1 && input.documentCount in 0..1 && input.imageCount + input.documentCount <= 1)
-        require(input.imageCount + input.documentCount == 0 || input.apiMode == "RESPONSES")
-        // long: UTF-8 不能静默替换非法代理字符，否则数据库快照与实际输入会出现不可解释的差异。
-        input.messages.forEach { utf8Size(it.content) }
+        SharedAgentContextSnapshotCodec.validateInput(input)
+        // long: 同 Step 幂等及历史摘要绑定原 JSONObject 正文，Android 写入不能改用 shared 的新字段顺序或转义样式。
         val json = JSONObject()
             .put("schemaVersion", SCHEMA_VERSION)
             .put("phase", input.phase.name)
@@ -73,54 +52,16 @@ internal object AgentContextSnapshotCodec {
     }
 
     fun decode(json: String): AgentContextInput {
-        require(utf8Size(json) <= MAX_REQUEST_BYTES)
-        val value = JSONObject(json)
-        require(value.keys().asSequence().toSet() == KEYS)
-        require(value.get("schemaVersion") == SCHEMA_VERSION)
-        val messages = value.getJSONArray("messages")
-        require(messages.length() == 2)
-        val ids = value.getJSONArray("verifiedToolCallIds")
-        require(ids.length() <= MAX_TOOL_CALLS)
-        val input = AgentContextInput(
-            phase = AgentLlmPhase.valueOf(value.strictString("phase")),
-            model = value.strictString("model"),
-            providerId = if (value.isNull("providerId")) null else value.strictString("providerId"),
-            apiMode = value.strictString("apiMode"),
-            projection = AgentContextProjection.valueOf(value.strictString("projection")),
-            imageCount = value.get("imageCount") as Int,
-            documentCount = value.get("documentCount") as Int,
-            verifiedToolCallIds = List(ids.length()) { ids.get(it) as String },
-            messages = List(messages.length()) { index ->
-                val message = messages.getJSONObject(index)
-                require(message.keys().asSequence().toSet() == setOf("role", "content"))
-                AgentContextMessage(message.strictString("role"), message.strictString("content"))
-            },
-        )
+        val input = SharedAgentContextSnapshotCodec.decode(json)
+        // long: 保留原 Android 重编码容量检查；只用于校验，不替换存储原文或据此重算旧摘要。
         encode(input)
         return input
     }
 
-    fun utf8Size(text: String): Int = Charsets.UTF_8.newEncoder()
-        .onMalformedInput(CodingErrorAction.REPORT).onUnmappableCharacter(CodingErrorAction.REPORT)
-        .encode(java.nio.CharBuffer.wrap(text)).remaining()
+    fun utf8Size(text: String): Int = SharedAgentContextSnapshotCodec.utf8Size(text)
 
-    fun recordHash(runId: String, stepId: String, sequence: Int, payload: String, compressionVersion: Int? = null): String {
-        require(runId.isNotBlank() && stepId.isNotBlank() && sequence > 0)
-        require(compressionVersion == null || compressionVersion > 0)
-        val digest = MessageDigest.getInstance("SHA-256")
-        // long: 长度前缀把身份、顺序与输入绑定在同一摘要里，避免正文相同但归属字段损坏时仍被读作有效记录。
-        val fields = if (compressionVersion == null) listOf("xiaoling-agent-context-v1", runId, stepId, sequence.toString(), payload)
-            else listOf("xiaoling-agent-context-compressed-v1", runId, stepId, sequence.toString(), compressionVersion.toString(), payload)
-        fields.forEach { field ->
-            utf8Size(field)
-            val bytes = field.toByteArray(Charsets.UTF_8)
-            digest.update(java.nio.ByteBuffer.allocate(4).putInt(bytes.size).array())
-            digest.update(bytes)
-        }
-        return digest.digest().joinToString("") { "%02x".format(it.toInt() and 0xff) }
-    }
-
-    private fun JSONObject.strictString(key: String): String = get(key) as String
-    private val KEYS = setOf("schemaVersion", "phase", "model", "providerId", "apiMode", "projection",
-        "imageCount", "documentCount", "verifiedToolCallIds", "messages")
+    fun recordHash(runId: String, stepId: String, sequence: Int, payload: String, compressionVersion: Int? = null): String =
+        MessageDigest.getInstance("SHA-256")
+            .digest(SharedAgentContextSnapshotCodec.recordHashBytes(runId, stepId, sequence, payload, compressionVersion))
+            .joinToString("") { "%02x".format(it.toInt() and 0xff) }
 }

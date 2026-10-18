@@ -2,6 +2,8 @@
 
 第 287 阶段第二片，属于第 3 点 Context/Memory。第一片 [Memory CAS](memory-cas.md) 已完成，本片提供压缩的持久输入基线；第三片的来源/派生版本扩展见[提取压缩](agent-context-compression.md)，第四片的[上下文恢复](agent-context-recovery.md)沿用原资格并增加新帧身份锚点，后台整理继续独立推进。[验证报告](verification-report.md)记录实际门禁与失败。
 
+第 291 阶段第二片已将 DTO、严格解码与摘要规范字节固化为[共享 context codec](kmp-context-snapshot.md)。Android 保留原 encoder、原文幂等和历史摘要，正常旧 wire 可读取；重复键、JSON 方言、整数强转以及跨 encoder 转义容量的边界见新契约。存储、压缩与恢复权限仍沿本文及后续契约。
+
 ## 输入契约
 
 当前生产 `OpenAiAgentLlm` 每轮构造 system/user 两条消息，规划 user 内含目标、动态工具目录、Skill 和已验证工具历史；总结 user 只有工具名、结果长度及样式提示。本片保存各次实际 adapter 文本输入，没有完整聊天往返 transcript，也不保存模型原始响应。

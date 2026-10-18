@@ -76,10 +76,8 @@ object AgentEventTypes {
     const val MULTI_AGENT_CHILDREN_EXPECTED = "multi_agent.children.expected"
 }
 
-enum class AgentLlmPhase {
-    PLAN,
-    SUMMARIZE,
-}
+// long: 遥测和持久输入沿用 PLAN/SUMMARIZE 名称，phase 类型与 shared 协议统一，避免平台映射漂移。
+typealias AgentLlmPhase = com.longdev.xiaoling.shared.agent.SharedAgentLlmPhase
 
 enum class AgentLlmFailureKind {
     AUTHENTICATION,
