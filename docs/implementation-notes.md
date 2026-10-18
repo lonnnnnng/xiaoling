@@ -1,5 +1,13 @@
 # 当前实现说明
 
+## 2026-10-18 第 290 阶段第一片：Workspace 持久会话与取消收敛
+
+- Workspace 根目录外的 schema v1 原子 JSON 账本，16 会话/每会话 8 命令/4 OPEN/24 MiB；记录 owner 四字段、物理进程 token、session/execution/toolCallId、argv、cwd、输出与终态。Room v44 不变，不自动清历史。
+- 每次在共享 gate/文件锁内重读；同步临时文件后 ATOMIC_MOVE，先 RUNNING 后启动。容量拒绝保留旧证据，损坏与 I/O 失败冻结并撤销进程。新 PID 只收敛旧 OPEN/RUNNING 为 INTERRUPTED，不重放、不伪造未知退出码。
+- short polling 与并行有界读流；close/TTL/Run hook 撤销实际 Process，CANCELLED 优先于迟到成功。Android 终止管道的 InterruptedIOException 仅在已请求停止时收敛。有会话 Run 的撤销持久化，无会话撤销共享在同进程，原 Room Run 门禁仍负责跨进程授权。
+- Registry 传递真实 owner/工具调用 ID，terminal.write 的非零/超时不再成功；终端与文件入口传播取消。execute/write 外层 32 秒、内层最多 30 秒，修改类终端定义强制 EXECUTOR_VERIFIED；AgentRunUseCase 可注入隔离 Workspace。
+- [Workspace 契约](workspace-session-transcript.md)明确与 Room Ledger 关联但不跨存储原子，历史查看/显式回收与自然系统验收后置。Browser/GenUI 为第 6 点的后续切片。
+
 ## 2026-10-18 第 289 阶段第二片：一次性父批次与事务消费
 
 - `AgentChildBatchSelection` 绑定前台状态实例/代次并单次 claim，整轮观察实际 resumed 撤销；`runReadOnlyChildBatch` 创建独立父任务，立即不可取消通知父 ID，再执行现有 child Runtime。父单调等待上限 60 秒及等待预算不冒充并发 child 精确共享扣账。

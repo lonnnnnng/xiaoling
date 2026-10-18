@@ -2,6 +2,18 @@
 
 验证日期：2026-10-18（北京时间）
 
+# 2026-10-18 第 290 阶段第一片：Workspace 持久会话与命令记录
+
+- 主线为第 6 点，Workspace 第一片实现基线完成；Browser DOM/action 与 GenUI 版本化组件/显式 action 后续推进。本阶段整体尚未收口，不进入第 7 点。Room v44/发布版本 `0.1.22 (23)` 保持，详见[Workspace 契约](workspace-session-transcript.md)和[路线图](personal-agent-roadmap.md)。
+- 实现：工作区外 schema v1 原子账本、owner 四字段/物理进程 token、session/execution/toolCallId、原始 argv/cwd/时间/输出/终态；4 OPEN/16 历史会话/每会话 8 命令/24 MiB。先持久 RUNNING 再启动，不自动淘汰；磁盘故障或损坏冻结，close/TTL/Run hook 撤销真实 Process，旧进程只记 INTERRUPTED，不重放。Workspace 与 Room Ledger 通过 ID 关联，不宣称跨存储原子。
+- Registry 接真实 owner/Tool Ledger ID，terminal.write 非零/超时不再误报成功；终端与 Workspace 文件入口传播取消。修改类终端强制 EXECUTOR_VERIFIED，命令最多 30 秒、execute/write 工具最多 32 秒。无会话 Run 撤销共享在同进程，有会话撤销持久化，跨进程授权仍经原 Room Run 门禁。
+- JVM 定向 **35/35**：WorkspaceSessionTest 10、ExtendedAgentCapabilitiesTest 23、真实 Registry/Runtime 联合 2。覆盖失败不启动、持久重开/容量/损坏/TTL/输出上限、跨 owner/调用去重、并发写/关闭、超时/取消/实际进程终止、原审批/结果/Run finally。Debug 与 AndroidTest 构建通过。命令与日志：`outputs/verification/stage290-workspace/acceptance-build.log`、`jvm-summary.json`。
+- Redmi `wsvwypiz7xwslvl7 / begonia / SDK 36` 受影响单项 **4/4**：真实 argv 超时/取消/进程终止、原审批/Room typed Tool Ledger（成功 PASSED、非零不记 PASSED）、owner/目录/损坏与既有工作区单项。日志 `redmi-workspace-corrected.log`。未使用其它设备或正式 Release 包。
+- 独立 PID 重开 **2/2**：`5874 → 5922`，原已完成输出保留，注入 RUNNING 转 INTERRUPTED，未知退出码为空，旧续写拒绝。UUID 隔离账本清理已确认；`tools/verify_workspace_session_process.py` 与 `process-reopen/result.json` 可复用。边界为受控 force-stop 和持久状态夹具，不声称自然 LMK、系统重启、断电或真实遗留 OS 进程验收。
+- 保留失败证据：初次联合夹具在 Run 结束后读取被隐藏的 definition 导致 NPE，随后未把原 Runtime 的预期失败异常纳入断言；两次修正只涉及测试。初次 Redmi 4 项中 1 项因 `InterruptedIOException: read interrupted by close()` 失败，生产读流现只在已请求停止时收敛该异常，正常 I/O 故障仍抛出；修正后的完整受影响 4 项通过，旧日志没有覆盖。
+- 最终文档语料/正式偏好与 Memory undo 摘要复核、相对链接及实际凭据/APK 审计结果见同目录 `final-corpus-protection.log`、`protected-comparison.json`、`artifact-audit.json`；交付范围为 17 个任务文件，实际模型/Context7 两个凭据仅内存字节匹配，不输出原文。
+- 独立待办：历史显式回收/导出、自然系统/断电/大规模耗时、完整产品界面到真实模型的 Workspace 联合、正式 Release；此片未调用真实模型、未开放 shell/stdio/后台终端。仅本地中文提交，不 push/tag/发版，测试后回到正常 MainActivity。
+
 # 2026-10-18 第 289 阶段第二片：显式父任务、结果消费与真实模型
 
 - 主线：第 5 点两片前台只读多 Agent 实现基线收口。任务中心显式目标、独立会话/父 ID、真实 resumed 一次性选择与结构化父结果消费已完成；下一主线为第 6 点 Workspace/Browser/GenUI。Room v44/发布版本 `0.1.22 (23)` 不变，详见[child 契约](agent-child-lifecycle.md)和[路线图](personal-agent-roadmap.md)。

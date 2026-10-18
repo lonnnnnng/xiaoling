@@ -104,11 +104,13 @@ Release 签名从未跟踪文件 `local-signing/xiaoling-release.env` 读取。�
 
 ## 当前状态
 
-第 5 点多 Agent 已进入第 289 阶段，第一片完成 child 持久 checkpoint、原子槽位登记/领取、有界预算、父取消、失败部分完成与旧批次重启收敛。每批最多两个只读 child，Room v44 不变；当前还没有产品显式派生入口，下一片接父结果消费与前台界面，再验真实提供方。详见[child 生命周期](docs/agent-child-lifecycle.md)和[验证报告](docs/verification-report.md)。
+当前主线为第 6 点 Workspace/Browser/GenUI（第 290 阶段）。第一片 Workspace 已实现独立原子会话账本、Run/命令身份、有界 transcript、真实退出码/超时/取消与旧进程中断收敛；固定 argv、逐次审批和禁止重放保持。Browser DOM/action 与 GenUI 版本化组件/显式 action 继续下一片，Room v44/发布版本不变。详见[Workspace 契约](docs/workspace-session-transcript.md)和[验证报告](docs/verification-report.md)。
 
-第 4 点 Skill/插件（第 288 阶段）原定实现基线已完成：签名 manifest、公钥/内容确认、有界版本回滚和 SAFE 前台执行网关。签名插件须启用、填写目标并显式点击；目录受 manifest/ACI/Profile/动态 SAFE 交集约束，停用或离开前台撤销，旧 Run 须重新选择。每轮最多 3 调用/60 秒，工具 10 秒，插件标记与 Run 同事务。当前主线为第 5 点多 Agent；长期系统、完整产品界面联合与正式 Release 验收独立追踪。详见[签名与回滚](docs/agent-plugin-signing.md)、[前台执行契约](docs/agent-plugin-execution.md)和[验证报告](docs/verification-report.md)。
+第 5 点多 Agent 两片只读实现基线已收口：child checkpoint/唯一领取/父取消、任务中心显式 1–2 目标、独立会话与父结构化单次消费，真实 gpt-6-luna 联合已通过。精确共享扣账/费用、完整产品点击联合、自然系统和 Release 独立跟踪。详见[child 生命周期](docs/agent-child-lifecycle.md)。
 
-第 3 点 Context/Memory（第 287 阶段）的五片实现基线已完成：Memory CAS、有界输入/context snapshot、确定性提取压缩、上下文恢复校验与显式一次性有界后台整理建议，开发 Room v44。整理仅处理近 7 天最多 20 个已完成任务的原始用户陈述，以持久 outbox 送到候选列表，正式记忆由用户确认；受控独立进程证据与长期验证边界见报告。第 4 点两片亦已完成，当前主线为第 5 点多 Agent。详见[Memory CAS](docs/memory-cas.md)、[输入快照](docs/agent-context-snapshot.md)、[压缩契约](docs/agent-context-compression.md)、[恢复契约](docs/agent-context-recovery.md)、[整理契约](docs/memory-maintenance.md)、[路线图](docs/personal-agent-roadmap.md)和[验证报告](docs/verification-report.md)。
+第 4 点 Skill/插件（第 288 阶段）原定实现基线已完成：签名 manifest、公钥/内容确认、有界版本回滚和 SAFE 前台执行网关。签名插件须启用、填写目标并显式点击；目录受 manifest/ACI/Profile/动态 SAFE 交集约束，停用或离开前台撤销，旧 Run 须重新选择。每轮最多 3 调用/60 秒，工具 10 秒，插件标记与 Run 同事务。当前主线为第 6 点 Workspace/Browser/GenUI；长期系统、完整产品界面联合与正式 Release 验收独立追踪。详见[签名与回滚](docs/agent-plugin-signing.md)、[前台执行契约](docs/agent-plugin-execution.md)和[验证报告](docs/verification-report.md)。
+
+第 3 点 Context/Memory（第 287 阶段）的五片实现基线已完成：Memory CAS、有界输入/context snapshot、确定性提取压缩、上下文恢复校验与显式一次性有界后台整理建议，开发 Room v44。整理仅处理近 7 天最多 20 个已完成任务的原始用户陈述，以持久 outbox 送到候选列表，正式记忆由用户确认；受控独立进程证据与长期验证边界见报告。第 4 点两片亦已完成，当前主线为第 6 点 Workspace/Browser/GenUI。详见[Memory CAS](docs/memory-cas.md)、[输入快照](docs/agent-context-snapshot.md)、[压缩契约](docs/agent-context-compression.md)、[恢复契约](docs/agent-context-recovery.md)、[整理契约](docs/memory-maintenance.md)、[路线图](docs/personal-agent-roadmap.md)和[验证报告](docs/verification-report.md)。
 
 第 2 点 MCP 已收口：应用级 `McpSessionRegistry` 统一设置/Run 会话，支持 Streamable HTTP 与 legacy SSE；配置变更撤销旧连接，取消/断流清目录，后续显式操作重新发现且不重放工具调用。Redmi 已通过真实 `gpt-6-luna` 的 SSE 成功/取消/停用，以及 Context7 认证 HTTPS 的发现和只读解析。Context7 为真实外部 Streamable HTTP，SSE 服务端仍为隔离 loopback；`query-docs`、OAuth、stdio、Tasks、后台 MCP 和正式 Release 独立后置，详见[MCP 会话契约](docs/mcp-session-registry.md)。
 

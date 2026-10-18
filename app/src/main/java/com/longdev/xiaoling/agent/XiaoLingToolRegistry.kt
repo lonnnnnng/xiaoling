@@ -1255,15 +1255,17 @@ class XiaoLingToolRegistry(
             ),
             permissionPolicy = ToolPermissionPolicy(supportsBackground = false),
             validateBeforeAudit = true,
-            timeoutMs = WorkspacePolicy.MAX_COMMAND_TIMEOUT_MS,
+            verificationPolicy = ToolVerificationPolicy.EXECUTOR_VERIFIED,
+            timeoutMs = WorkspacePolicy.MAX_COMMAND_TIMEOUT_MS + 2_000,
         ),
         ToolDefinition(
             name = TERMINAL_OPEN_TOOL_NAME,
-            description = "打开一个绑定到应用私有工作区的结构化终端会话；会话只保存最近一次命令结果，需要逐次用户确认，最多同时保留 4 个会话。",
+            description = "打开一个绑定到应用私有工作区的结构化终端会话；会话保存有界命令记录且绑定当前 Run，需要逐次用户确认，最多同时保留 4 个会话。",
             risk = ToolRisk.REQUIRES_APPROVAL,
             inputSchema = listOf(ToolInputField("cwd", "工作区相对目录，省略表示根目录。", required = false, maxLength = 512)),
             permissionPolicy = ToolPermissionPolicy(supportsBackground = false),
             validateBeforeAudit = true,
+            verificationPolicy = ToolVerificationPolicy.EXECUTOR_VERIFIED,
             timeoutMs = 10_000,
         ),
         ToolDefinition(
@@ -1278,11 +1280,12 @@ class XiaoLingToolRegistry(
             ),
             permissionPolicy = ToolPermissionPolicy(supportsBackground = false),
             validateBeforeAudit = true,
-            timeoutMs = 10_000,
+            verificationPolicy = ToolVerificationPolicy.EXECUTOR_VERIFIED,
+            timeoutMs = WorkspacePolicy.MAX_COMMAND_TIMEOUT_MS + 2_000,
         ),
         ToolDefinition(
             name = TERMINAL_READ_TOOL_NAME,
-            description = "读取工作区终端会话最近一次固定命令的有限 stdout/stderr。",
+            description = "读取当前 Run 的终端会话有界命令记录，包括退出码、超时与中断状态。",
             risk = ToolRisk.SAFE,
             inputSchema = listOf(ToolInputField("session_id", "terminal.open 返回的会话 ID。", required = true, maxLength = 32)),
             permissionPolicy = ToolPermissionPolicy(supportsBackground = false),
@@ -1290,11 +1293,12 @@ class XiaoLingToolRegistry(
         ),
         ToolDefinition(
             name = TERMINAL_CLOSE_TOOL_NAME,
-            description = "关闭工作区终端会话并清除最近命令结果；需要逐次用户确认。",
+            description = "关闭工作区终端会话并撤销活动命令，保留历史记录；需要逐次用户确认。",
             risk = ToolRisk.REQUIRES_APPROVAL,
             inputSchema = listOf(ToolInputField("session_id", "terminal.open 返回的会话 ID。", required = true, maxLength = 32)),
             permissionPolicy = ToolPermissionPolicy(supportsBackground = false),
             validateBeforeAudit = true,
+            verificationPolicy = ToolVerificationPolicy.EXECUTOR_VERIFIED,
             timeoutMs = 10_000,
         ),
         ToolDefinition(
@@ -1446,6 +1450,7 @@ class XiaoLingToolRegistry(
 
     override fun bindRunContext(context: AgentToolExecutionContext) {
         if (runContext?.runId != context.runId) {
+            runContext?.let { workspaceSandbox.finishRun(it.runId) }
             // long: Workflow 的短期 snapshot、逐动作审批和执行结果只属于当前 Agent Run；切换 Run 时必须全部作废，关联重试不能继承旧 ref。
             clearWorkflowDeviceActionState()
             pendingDirectTypeTextPrivacy = null
@@ -1479,6 +1484,7 @@ class XiaoLingToolRegistry(
 
     override fun onRunFinished(runId: String) {
         if (runContext?.runId != runId) return
+        workspaceSandbox.finishRun(runId)
         // long: Run 结束后立即撤销所有只存在当前进程的引用；MCP session/目录与 BrowserSession 都不能
         // 因为下一次恢复或新 Run 复用，Room 中已经落库的 readable evidence 不受影响。
         clearWorkflowDeviceActionState()
@@ -2082,7 +2088,9 @@ class XiaoLingToolRegistry(
                         }.ifBlank { "工作区目录为空：${path.ifBlank { "." }}" },
                     )
                 },
-                onFailure = { error -> ToolExecutionResult(success = false, content = error.message ?: "工作区目录读取失败") },
+                onFailure = { error ->
+                    if (error is CancellationException) throw error
+                    ToolExecutionResult(success = false, content = error.message ?: "工作区目录读取失败") },
             )
     }
 
@@ -2095,7 +2103,9 @@ class XiaoLingToolRegistry(
         return runCatching { workspaceSandbox.read(path, maxChars) }
             .fold(
                 onSuccess = { content -> ToolExecutionResult(success = true, content = "路径：$path\n$content") },
-                onFailure = { error -> ToolExecutionResult(success = false, content = error.message ?: "工作区文件读取失败") },
+                onFailure = { error ->
+                    if (error is CancellationException) throw error
+                    ToolExecutionResult(success = false, content = error.message ?: "工作区文件读取失败") },
             )
     }
 
@@ -2108,7 +2118,9 @@ class XiaoLingToolRegistry(
         return runCatching { workspaceSandbox.write(path, content) }
             .fold(
                 onSuccess = { entry -> ToolExecutionResult(success = true, verified = true, content = "已写入工作区文件：${entry.path} · ${entry.sizeBytes}B") },
-                onFailure = { error -> ToolExecutionResult(success = false, content = error.message ?: "工作区文件写入失败") },
+                onFailure = { error ->
+                    if (error is CancellationException) throw error
+                    ToolExecutionResult(success = false, content = error.message ?: "工作区文件写入失败") },
             )
     }
 
@@ -2116,12 +2128,13 @@ class XiaoLingToolRegistry(
         if (!extendedCapabilityAllowed(runContext)) {
             return ToolExecutionResult(success = false, content = "终端只允许在前台直接 Agent 中执行")
         }
+        val owner = WorkspaceSessionOwner.from(requireNotNull(runContext))
         val commandId = call.arguments["command_id"].orEmpty()
         val cwd = call.arguments["cwd"].orEmpty()
         val timeoutMs = call.arguments["timeout_ms"]?.toLongOrNull() ?: WorkspacePolicy.MAX_COMMAND_TIMEOUT_MS
         return runCatching {
             val args = parseTerminalArgs(call.arguments["args"])
-            workspaceSandbox.execute(commandId, args, cwd, timeoutMs)
+            workspaceSandbox.execute(commandId, args, cwd, timeoutMs, owner, call.id)
         }
             .fold(
                 onSuccess = { result ->
@@ -2129,13 +2142,15 @@ class XiaoLingToolRegistry(
                         success = !result.timedOut && result.exitCode == 0,
                         verified = !result.timedOut && result.exitCode == 0,
                         content = buildString {
-                            append("退出码：${result.exitCode}${if (result.timedOut) "（超时）" else ""}\n")
+                            append("会话：${result.sessionId} · 执行：${result.executionId}\n退出码：${result.exitCode}${if (result.timedOut) "（超时）" else ""}\n")
                             if (result.stdout.isNotBlank()) append("stdout${if (result.stdoutTruncated) "（已截断）" else ""}:\n${result.stdout}\n")
                             if (result.stderr.isNotBlank()) append("stderr${if (result.stderrTruncated) "（已截断）" else ""}:\n${result.stderr}")
                         }.trim(),
                     )
                 },
-                onFailure = { error -> ToolExecutionResult(success = false, content = error.message ?: "终端执行失败") },
+                onFailure = { error ->
+                    if (error is CancellationException) throw error
+                    ToolExecutionResult(success = false, content = error.message ?: "终端执行失败") },
             )
     }
 
@@ -2154,13 +2169,16 @@ class XiaoLingToolRegistry(
         if (!extendedCapabilityAllowed(runContext)) {
             return ToolExecutionResult(success = false, content = "终端只允许在前台直接 Agent 中执行")
         }
+        val owner = WorkspaceSessionOwner.from(requireNotNull(runContext))
         val cwd = call.arguments["cwd"].orEmpty()
-        return runCatching { workspaceSandbox.openTerminal(cwd) }
+        return runCatching { workspaceSandbox.openTerminal(cwd, owner) }
             .fold(
                 onSuccess = { session ->
                     ToolExecutionResult(success = true, verified = true, content = "终端会话已打开：${session.id}\n工作目录：${session.cwd}")
                 },
-                onFailure = { error -> ToolExecutionResult(success = false, content = error.message ?: "终端会话打开失败") },
+                onFailure = { error ->
+                    if (error is CancellationException) throw error
+                    ToolExecutionResult(success = false, content = error.message ?: "终端会话打开失败") },
             )
     }
 
@@ -2168,6 +2186,7 @@ class XiaoLingToolRegistry(
         if (!extendedCapabilityAllowed(runContext)) {
             return ToolExecutionResult(success = false, content = "终端只允许在前台直接 Agent 中执行")
         }
+        val owner = WorkspaceSessionOwner.from(requireNotNull(runContext))
         val sessionId = call.arguments["session_id"].orEmpty()
         val commandId = call.arguments["command_id"].orEmpty()
         val timeoutMs = call.arguments["timeout_ms"]?.toLongOrNull() ?: WorkspacePolicy.MAX_COMMAND_TIMEOUT_MS
@@ -2177,11 +2196,18 @@ class XiaoLingToolRegistry(
                 commandId = commandId,
                 args = parseTerminalArgs(call.arguments["args"]),
                 timeoutMs = timeoutMs,
+                owner = owner,
+                toolCallId = call.id,
             )
         }
             .fold(
-                onSuccess = { output -> ToolExecutionResult(success = true, content = formatTerminalOutput(output)) },
-                onFailure = { error -> ToolExecutionResult(success = false, content = error.message ?: "终端写入失败") },
+                onSuccess = { output -> ToolExecutionResult(
+                    success = output.state == WorkspaceExecutionState.COMPLETED && output.exitCode == 0,
+                    verified = output.state == WorkspaceExecutionState.COMPLETED && output.exitCode == 0,
+                    content = formatTerminalOutput(output)) },
+                onFailure = { error ->
+                    if (error is CancellationException) throw error
+                    ToolExecutionResult(success = false, content = error.message ?: "终端写入失败") },
             )
     }
 
@@ -2189,11 +2215,14 @@ class XiaoLingToolRegistry(
         if (!extendedCapabilityAllowed(runContext)) {
             return ToolExecutionResult(success = false, content = "终端只允许在前台直接 Agent 中执行")
         }
+        val owner = WorkspaceSessionOwner.from(requireNotNull(runContext))
         val sessionId = call.arguments["session_id"].orEmpty()
-        return runCatching { workspaceSandbox.readTerminal(sessionId) }
+        return runCatching { workspaceSandbox.readTerminal(sessionId, owner) }
             .fold(
                 onSuccess = { output -> ToolExecutionResult(success = true, content = formatTerminalOutput(output)) },
-                onFailure = { error -> ToolExecutionResult(success = false, content = error.message ?: "终端读取失败") },
+                onFailure = { error ->
+                    if (error is CancellationException) throw error
+                    ToolExecutionResult(success = false, content = error.message ?: "终端读取失败") },
             )
     }
 
@@ -2201,24 +2230,36 @@ class XiaoLingToolRegistry(
         if (!extendedCapabilityAllowed(runContext)) {
             return ToolExecutionResult(success = false, content = "终端只允许在前台直接 Agent 中执行")
         }
+        val owner = WorkspaceSessionOwner.from(requireNotNull(runContext))
         val sessionId = call.arguments["session_id"].orEmpty()
-        return runCatching { workspaceSandbox.closeTerminal(sessionId) }
+        return runCatching { workspaceSandbox.closeTerminal(sessionId, owner) }
             .fold(
                 onSuccess = { closed ->
                     ToolExecutionResult(success = closed, verified = closed, content = if (closed) "终端会话已关闭：$sessionId" else "终端会话不存在：$sessionId")
                 },
-                onFailure = { error -> ToolExecutionResult(success = false, content = error.message ?: "终端关闭失败") },
+                onFailure = { error ->
+                    if (error is CancellationException) throw error
+                    ToolExecutionResult(success = false, content = error.message ?: "终端关闭失败") },
             )
     }
 
-    private fun formatTerminalOutput(output: WorkspaceTerminalOutput): String {
-        val text = buildString {
-            if (output.exitCode != null) append("退出码：${output.exitCode}${if (output.timedOut) "（超时）" else ""}\n")
-            if (output.stdout.isNotBlank()) append("stdout${if (output.stdoutTruncated) "（已截断）" else ""}：\n${output.stdout}\n")
-            if (output.stderr.isNotBlank()) append("stderr${if (output.stderrTruncated) "（已截断）" else ""}：\n${output.stderr}")
+    private fun formatTerminalOutput(output: WorkspaceTerminalOutput): String = buildString {
+        append("会话：${output.sessionId}${if (output.cwd.isNotEmpty()) " · 目录：${output.cwd}" else ""}\n")
+        val records = output.transcript
+        if (records.isNotEmpty()) {
+            records.forEach { record ->
+                append("执行：${record.executionId} · ${record.commandId} · ${record.state}\n")
+                if (record.exitCode != null) append("退出码：${record.exitCode}\n")
+                if (record.stdout.isNotEmpty()) append("stdout${if (record.stdoutTruncated) "（已截断）" else ""}：\n${record.stdout}\n")
+                if (record.stderr.isNotEmpty()) append("stderr${if (record.stderrTruncated) "（已截断）" else ""}：\n${record.stderr}\n")
+            }
+        } else {
+            append("执行：${output.executionId} · ${output.state ?: "尚未执行"}\n")
+            if (output.exitCode != null) append("退出码：${output.exitCode}\n")
+            if (output.stdout.isNotEmpty()) append("stdout${if (output.stdoutTruncated) "（已截断）" else ""}：\n${output.stdout}\n")
+            if (output.stderr.isNotEmpty()) append("stderr${if (output.stderrTruncated) "（已截断）" else ""}：\n${output.stderr}")
         }
-        return text.trim().ifBlank { "终端当前没有新的输出" }
-    }
+    }.trim()
 
     private suspend fun listMcpTools(call: ToolCall): ToolExecutionResult {
         if (!extendedCapabilityAllowed(runContext)) {

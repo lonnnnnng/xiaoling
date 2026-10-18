@@ -34,6 +34,7 @@ class AgentRunUseCase(
     pluginRegistry: AgentPluginRegistry? = null,
     pluginForeground: AgentPluginForegroundState? = null,
     skillStore: AgentSkillStore? = null,
+    workspaceSandbox: WorkspaceSandbox? = null,
 ) {
     private val appContext = context.applicationContext
     private val plugins = pluginRegistry ?: (appContext as? XiaoLingApplication)?.agentPluginRegistry ?: AgentPluginRegistry()
@@ -70,7 +71,7 @@ class AgentRunUseCase(
         notificationReader = AndroidNotificationReader(context.applicationContext),
         deviceController = DeviceObservationComponents.controller(context.applicationContext),
         browserPageReader = OkHttpBrowserPageReader(),
-        workspaceSandbox = AndroidWorkspaceSandbox(
+        workspaceSandbox = workspaceSandbox ?: AndroidWorkspaceSandbox(
             context.applicationContext.filesDir.resolve("agent-workspace"),
         ),
         mcpServerStore = mcpServerStore,

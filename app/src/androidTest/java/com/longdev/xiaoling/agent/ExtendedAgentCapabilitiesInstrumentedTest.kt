@@ -120,7 +120,8 @@ class ExtendedAgentCapabilitiesInstrumentedTest {
 
     @Test
     fun workspaceExecutesAndMaintainsSessionInsidePrivateRoot() = runBlocking {
-        val sandbox = AndroidWorkspaceSandbox(workspaceRoot)
+        val sandbox = AndroidWorkspaceSandbox(File(workspaceRoot, "workspace"),
+            journalFile = File(workspaceRoot, "control/transcript.json"))
         val entry = sandbox.write("device/hello.txt", "hello-device")
         assertEquals("device/hello.txt", entry.path)
         assertEquals("hello-device", sandbox.read("device/hello.txt"))

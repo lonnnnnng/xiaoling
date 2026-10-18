@@ -1,5 +1,11 @@
 # 产品需求
 
+## 2026-10-18 第 290 阶段第一片：Workspace 会话与命令事实
+
+- 终端会话绑定当前 Run/conversation/userMessage/runtime process 身份，命令有唯一 execution/toolCallId、原始 argv、cwd、时间、输出截断与真实终态。先落盘后启动，跨 Run/重复调用/已有活动命令拒绝，关闭保留审计记录。
+- 容量固定且不自动淘汰，损坏和磁盘故障冻结执行。取消、Run 结束、TTL 与旧进程恢复不能变成成功，重启只记录中断，不继承授权或重放命令。保持白名单、逐次审批与前台 DIRECT 边界。
+- 第 6 点本片仅 Workspace，Browser DOM/action 和 GenUI 版本化组件/显式 action 后续推进；自然系统、历史显式回收、完整产品真实模型联合和 Release 单列。Room v44/发布版本不变，见[Workspace 契约](workspace-session-transcript.md)。
+
 ## 2026-10-18 第 289 阶段第二片：显式前台父批次与结果消费
 
 - 任务中心接受 1–2 个本机文本目标，拒绝活动操作、附件及共享/远端草稿；确认时使用当前 Agent Profile，独立会话保存目标与结果，聊天草稿和当前会话身份保持。一次性许可绑定真实 MainActivity resumed 代次，暂停停止整批，回到前台须重新选择。

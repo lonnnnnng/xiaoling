@@ -5091,6 +5091,90 @@ class XiaoLingToolRegistryTest {
         }
     }
 
+    @Test
+    fun workspaceRuntimeKeepsApprovalsResultsAndOwnerThroughLifecycle() = kotlinx.coroutines.runBlocking {
+        for (command in listOf("true", "false")) {
+            val dir = java.nio.file.Files.createTempDirectory("workspace-runtime-").toFile()
+            val file = java.io.File(dir, "control/transcript.json")
+            val sandbox = AndroidWorkspaceSandbox(java.io.File(dir, "workspace"), journalFile = file)
+            val registry = testRegistry(workspaceSandbox = sandbox)
+            val ledger = InMemoryAgentRunLedger()
+            var approvals = 0
+            var actualRunId = ""
+            val model = object : AgentLlm {
+                override suspend fun proposeToolCall(goal: String, tools: List<ToolDefinition>): ToolCall = error("使用结构化步骤")
+                override suspend fun proposeNextAction(goal: String, tools: List<ToolDefinition>, completedTools: List<AgentToolExecution>): AgentPlanDecision {
+                    val call = when (completedTools.size) {
+                        0 -> ToolCall(name = "terminal.open", arguments = mapOf("cwd" to "nested"), risk = ToolRisk.REQUIRES_APPROVAL)
+                        1 -> ToolCall(name = "terminal.write", arguments = mapOf("session_id" to
+                            Regex("终端会话已打开：([a-f0-9]{16})").find(completedTools.first().toolResult.content)!!.groupValues[1],
+                            "command_id" to command), risk = ToolRisk.REQUIRES_APPROVAL)
+                        2 -> ToolCall(name = "terminal.read", arguments = mapOf("session_id" to
+                            Regex("终端会话已打开：([a-f0-9]{16})").find(completedTools.first().toolResult.content)!!.groupValues[1]), risk = ToolRisk.SAFE)
+                        else -> return AgentPlanDecision.Complete
+                    }
+                    return AgentPlanDecision.CallTool(call)
+                }
+                override suspend fun summarize(goal: String, toolCall: ToolCall, toolResult: ToolExecutionResult) =
+                    """{"style":"compact","tone":"neutral"}"""
+            }
+            val gate = object : ApprovalGate {
+                override suspend fun requestApproval(runId: String, toolCall: ToolCall, definition: ToolDefinition): ApprovalDecision {
+                    approvals++; actualRunId = runId; return ApprovalDecision(true, "夹具逐次批准")
+                }
+            }
+            val outcome = runCatching { MinimalAgentRuntime(ledger, registry, model, gate, processSessionId = "workspace-runtime")
+                .run("workspace-chat", "workspace-message", "验收结构化终端", memoryRecallEnabled = false) }
+            assertEquals(command == "true", outcome.isSuccess)
+            assertEquals(if (command == "true") AgentRunStatus.COMPLETED else AgentRunStatus.FAILED, ledger.snapshot(actualRunId).run.status)
+            assertEquals(2, approvals)
+            val row = WorkspaceSessionJournal.forFile(file).read { it.single() }
+            assertEquals(WorkspaceSessionOwner(actualRunId, "workspace-chat", "workspace-message", "workspace-runtime"), row.owner)
+            assertTrue(row.runRevoked)
+            assertEquals(WorkspaceSessionState.CLOSED, row.state)
+            val metadata = ledger.snapshot(actualRunId).events.filter { it.type == "tool.result" }
+                .map { it.metadata as RunEventMetadata.ToolResult }
+            val write = metadata.single { it.toolName == "terminal.write" }
+            assertEquals(command == "true", write.success)
+            assertEquals(command == "true", write.verified)
+            assertEquals(row.executions.single().toolCallId, write.toolCallId)
+            assertEquals(ToolVerificationPolicy.EXECUTOR_VERIFIED, registry.registeredTools().single { it.name == "terminal.write" }.verificationPolicy)
+            assertTrue(registry.registeredTools().single { it.name == "terminal.write" }.timeoutMs!! > WorkspacePolicy.MAX_COMMAND_TIMEOUT_MS)
+            assertFalse(registry.registeredTools().single { it.name == "terminal.write" }.permissionPolicy.supportsBackground)
+        }
+    }
+
+    @Test
+    fun workspaceRuntimeCancellationRemainsCancelled() = kotlinx.coroutines.runBlocking {
+        val dir = java.nio.file.Files.createTempDirectory("workspace-cancel-runtime-").toFile()
+        val commands = java.io.File(dir, "commands").apply { mkdirs() }
+        // long: 夹具制造长 argv 执行，验证原 Runtime 的取消结算；生产不注册 sleep 或 shell。
+        java.io.File(commands, "printf").apply { writeText("#!/bin/sh\nexec /bin/sleep 20\n"); setExecutable(true) }
+        val file = java.io.File(dir, "control/transcript.json")
+        val sandbox = AndroidWorkspaceSandbox(java.io.File(dir, "workspace"), commands, file)
+        val ledger = InMemoryAgentRunLedger()
+        val model = object : AgentLlm {
+            override suspend fun proposeToolCall(goal: String, tools: List<ToolDefinition>) = ToolCall(name = "terminal.execute",
+                arguments = mapOf("command_id" to "printf", "args" to "[\"ignored\"]"), risk = ToolRisk.REQUIRES_APPROVAL)
+            override suspend fun summarize(goal: String, toolCall: ToolCall, toolResult: ToolExecutionResult): String = error("取消后不总结")
+        }
+        val job = launch { MinimalAgentRuntime(ledger, testRegistry(workspaceSandbox = sandbox), model)
+            .run("cancel-chat", "cancel-message", "取消终端", memoryRecallEnabled = false) }
+        val journal = WorkspaceSessionJournal.forFile(file)
+        val process = kotlinx.coroutines.withTimeout(5_000) {
+            var actual: Process? = null
+            while (actual == null) { actual = journal.active.values.firstOrNull()?.process; if (actual == null) kotlinx.coroutines.delay(10) }
+            actual
+        }
+        kotlinx.coroutines.withTimeout(3_000) { job.cancel(); job.join() }
+        assertFalse(process.isAlive)
+        assertEquals(AgentRunStatus.CANCELLED, ledger.snapshot(requireNotNull(ledger.lastRunId)).run.status)
+        val row = journal.read { it.single() }
+        assertTrue(row.runRevoked)
+        assertEquals(WorkspaceExecutionState.CANCELLED, row.executions.single().state)
+        assertFalse(ledger.snapshot(requireNotNull(ledger.lastRunId)).events.any { it.type == "tool.verified" })
+    }
+
     private fun testRegistry(
         conversationStore: AgentConversationStore = InMemoryAgentConversationStore(),
         taskStore: AgentTaskStore = EmptyTestAgentTaskStore,
@@ -5109,6 +5193,7 @@ class XiaoLingToolRegistryTest {
         notificationReader: NotificationReader = UnavailableNotificationReader,
         deviceController: DeviceController = FakeDeviceController(enabled = false),
         browserPageReader: BrowserPageReader = DisabledBrowserPageReader,
+        workspaceSandbox: WorkspaceSandbox = DisabledWorkspaceSandbox,
         mcpServerStore: McpServerStore = DisabledMcpServerStore,
         mcpClient: McpClient = StreamableHttpMcpClient(),
         workflowDeviceActionToolNames: Set<String> = setOf("device.tap_ref"),
@@ -5133,6 +5218,7 @@ class XiaoLingToolRegistryTest {
             notificationReader = notificationReader,
             deviceController = deviceController,
             browserPageReader = browserPageReader,
+            workspaceSandbox = workspaceSandbox,
             mcpServerStore = mcpServerStore,
             mcpClient = mcpClient,
             workflowDeviceActionToolNames = workflowDeviceActionToolNames,

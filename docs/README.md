@@ -1,16 +1,20 @@
 # 文档索引
 
-## 当前交付：第 289 阶段多 Agent（两片只读实现基线收口）
+## 当前主线：第 290 阶段 Workspace/Browser/GenUI（第 6 点）
+
+- 第一片落地 Workspace 独立原子会话账本、Run/命令身份、有界 transcript、退出/超时/取消、关闭与重启收敛；不重放旧命令。JVM/Redmi/独立 PID 结果见[验证报告](verification-report.md)，行为和容量见[Workspace 契约](workspace-session-transcript.md)。Browser DOM/action、GenUI 版本化组件与显式 action 继续后续切片，Room v44/发布版本不变。
+
+## 第 289 阶段多 Agent（两片只读实现基线收口）
 
 - child 持久槽位/唯一领取、父取消/旧批次恢复，任务中心显式 1–2 目标、实际前台代次许可、独立会话与父结构化单次结果消费已完成。JVM 43、Redmi 定向 34、真实 gpt-6-luna 两 child/PASSED/父消费 1 项通过；完整产品点击联合、精确共享扣账/费用、自然系统及 Release 单列。下一主线为第 6 点 Workspace/Browser/GenUI，Room v44/发布版本不变，详见[child 生命周期](agent-child-lifecycle.md)和[验证报告](verification-report.md)。
 
 ## 第 288 阶段 Skill/插件（两片实现基线完成）
 
-- 签名 manifest、公钥/内容确认、身份绑定、最高版本与 3 项历史回滚，以及 SAFE 前台显式执行已实现。声明映射宿主固定只读能力，交集与目录冻结、停用/前台撤销、初始化结算和旧 Run 恢复拒绝沿真实 Runtime/Room 验证。无签名仍仅预览。详见[签名与回滚](agent-plugin-signing.md)、[执行契约](agent-plugin-execution.md)及[验证报告](verification-report.md)。当前主线为第 5 点多 Agent，长期系统、完整界面联合和正式 Release 独立追踪。
+- 签名 manifest、公钥/内容确认、身份绑定、最高版本与 3 项历史回滚，以及 SAFE 前台显式执行已实现。声明映射宿主固定只读能力，交集与目录冻结、停用/前台撤销、初始化结算和旧 Run 恢复拒绝沿真实 Runtime/Room 验证。无签名仍仅预览。详见[签名与回滚](agent-plugin-signing.md)、[执行契约](agent-plugin-execution.md)及[验证报告](verification-report.md)。当前主线为第 6 点 Workspace/Browser/GenUI，长期系统、完整界面联合和正式 Release 独立追踪。
 
 ## 第 287 阶段 Context/Memory（实现基线已收口）
 
-- 第 3 点 Context/Memory 五片实现基线已具备：Memory CAS、有界输入快照、确定性提取压缩、上下文恢复校验，以及显式一次性有界后台整理建议。开发 Room v44；整理不自动写正式记忆。详见[Memory CAS](memory-cas.md)、[输入快照](agent-context-snapshot.md)、[压缩契约](agent-context-compression.md)、[恢复契约](agent-context-recovery.md)、[整理契约](memory-maintenance.md)与[验证报告](verification-report.md)。第 4 点两片也已完成，当前主线为第 5 点多 Agent，长期系统/质量验收独立追踪。
+- 第 3 点 Context/Memory 五片实现基线已具备：Memory CAS、有界输入快照、确定性提取压缩、上下文恢复校验，以及显式一次性有界后台整理建议。开发 Room v44；整理不自动写正式记忆。详见[Memory CAS](memory-cas.md)、[输入快照](agent-context-snapshot.md)、[压缩契约](agent-context-compression.md)、[恢复契约](agent-context-recovery.md)、[整理契约](memory-maintenance.md)与[验证报告](verification-report.md)。第 4 点两片也已完成，当前主线为第 6 点 Workspace/Browser/GenUI，长期系统/质量验收独立追踪。
 
 ## 第 286 阶段 MCP（已收口）
 

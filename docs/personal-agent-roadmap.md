@@ -112,6 +112,8 @@
 
 #### 第 290 阶段：Workspace、Browser 与 GenUI 统一受控面
 
+- 第一片 Workspace 已实现独立原子会话账本、Run/命令身份、有界 transcript、真实退出码/超时/取消、关闭与 Run 结束撤销及旧进程中断收敛；固定 argv/逐次审批保持。验收结果见[Workspace 契约](workspace-session-transcript.md)和报告。本阶段尚未整体收口，下一片为 Browser DOM/action，随后 GenUI 版本化组件与显式 action；历史回收、自然系统与正式 Release 单列。
+
 - Workspace 引入 `WorkspaceSession(sessionId, executionId)`，保存有界命令 transcript、cwd、退出码和中断状态；终端仍从固定 argv 白名单开始，shell/管道/重定向后置。
 - 浏览器增加 DOM/accessibility snapshot、link/action 引用和显式 click/type；Cookie、登录态、下载、上传、脚本和后台执行继续独立开关，不因 WebView 存在而默认开放。
 - GenUI 从 text/button 扩展为版本化只读组件、表单草稿和显式 action；每个 action 必须映射到现有审批、Tool Ledger 和结果证据，未知组件安全降级。
