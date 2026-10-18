@@ -56,6 +56,6 @@ portable required 项必须是 string；Android getString/coercion 沿本机 org
 
 common 测试覆盖固定 wire、未知类型、重复键、Unicode、schema 512 KiB 精确 ASCII 边界、arguments 32 KiB 精确 ASCII/多字节/转义边界、有限整数、组合、递归/属性/数组限额和 wire enum。JVM/Redmi 共用兼容夹具，以原 JSONObject/JSONArray 序列化作独立参考，并复验 coercion、组合历史行为、原 schema 文本/说明/hints 漂移，以及非法参数远端调用零次、合法参数仅一次。
 
-既有 Session/SSE/HTTP/Resources/Prompts 与 Run Registry 过滤回归使用内存配置和 loopback socket；没有读取正式配置或调用真实 Provider/公网 MCP。实际计数、构建、Redmi、语料与保护审计见[验证报告](verification-report.md)。本片不交付 iOS actual，下一片为 Remote Channel wire，再继续完整 Tool result codec 与平台 actual。
+既有 Session/SSE/HTTP/Resources/Prompts 与 Run Registry 过滤回归使用内存配置和 loopback socket；没有读取正式配置或调用真实 Provider/公网 MCP。实际计数、构建、Redmi、语料与保护审计见[验证报告](verification-report.md)。本片不交付 iOS actual，第四片已补[Remote Channel wire](kmp-remote-channel-wire.md)，下一片为完整 Tool result codec 与平台 actual。
 
 官方正文：[MCP Tools 2025-03-26](https://modelcontextprotocol.io/specification/2025-03-26/server/tools) 将 inputSchema 定义为工具参数 JSON Schema，并明确 annotations 不可信；[Kotlin JsonPrimitive](https://kotlinlang.org/api/kotlinx.serialization/kotlinx-serialization-json/kotlinx.serialization.json/-json-primitive/) 定义 string/number/boolean/null 与内容访问。抓取页的部分代码样例存在排版重复，本片只引用字段与安全说明正文，不采用损坏样例作为 JSON golden。

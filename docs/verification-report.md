@@ -2,6 +2,30 @@
 
 验证日期：2026-10-18（北京时间）
 
+# 2026-10-18 第 291 阶段第四片：shared Remote Channel wire/canonical bytes
+
+- 当前推进第 7 点 KMP 协议/codec。commonMain 固化 message、signed batch、ACK binding/request/reply、receiver pull/ACK request、proof、signed request 与公开 manifest 的 DTO/严格 raw codec；Android 三个原 DTO 为 typealias，生产 raw 回复及 canonical 方法委托 shared。shared Agent contract v4、Room v44、发布版本 `0.1.22 (23)` 保持。
+- 合法 v1 canonical 字节保持：message 原 trim/换行归一化和十进制时间，batch/ACK/request/proof 原 domain、big-endian、UTF-8 长度前缀、null=-1、消息签名/顺序与 ACK messageIds 的独立绑定。六组独立 Python 固定向量覆盖五类格式，其中 receiver request 有 pull/ACK 两分支；全部 wire/hex 与生成器复验一致。
+- raw 门禁统一为 64 KiB、先字符上限再严格 UTF-8、exact 字段/类型及严格 JSON；新增拒绝重复解码键、方言/尾随正文/孤立 surrogate/非整数时间，不把原 JSONObject 的畸形输入兼容作为 wire 规范。裸 ACK codec 保留批次 padded cursor，认证 request 保留更严格的游标规则。
+- 平台仍负责 SHA-256、ECDSA/HMAC/DER/SPKI、公钥指纹、Keystore、时效/配对/撤销、逐消息验签、加密原子入箱/outbox、后台许可和前台确认。manifest 的结构往返不代表公钥有效，signed request 的身份匹配不代行 digest/签名验证。Android 原 JSONObject manifest/signedRequest 输出及持久 encoder 保留，没有迁移数据/私钥或扩大执行权限。
+
+| 本轮实际门禁 | 结果 | 范围 |
+| --- | --- | --- |
+| shared Android Debug / Release / iOS Simulator | **各62/62**，0 failure/error/skip | 既有47项与 Remote codec15项；独立 golden、类型/Unicode、64 KiB ASCII/多字节/转义、批次/request/proof/裸 ACK 限额 |
+| iOS arm64 common 编译 | **通过** | 仅 common klib，不是 iOS actual、App 或设备运行 |
+| App Debug JVM 聚焦 | **112/112**，0 failure/error/skip | Remote 既有105项及共享 adapter7项；包含独立 Python/OpenSSL 生产签名互通、收件/退避/后台/撤销和 outbox 回归 |
+| Python Remote 回归 | **48/48** | sender/auth/http 三套现有回归 |
+| Debug / AndroidTest APK 与 Debug Lint | **通过** | 最终源码构建；正式 Release 未构建/安装/发布 |
+| Redmi 最终 adapter / 三进程离线互通 | **7/7 + 3/3** | 原 DataOutputStream/JCA oracle；真实 Keystore 与加密 outbox；无 DNS/HTTP/TLS |
+
+- Redmi `wsvwypiz7xwslvl7 / begonia / SDK 36`：三个真实进程 PID `11516 → 11556 → 11592`。独立主机接收生产 pull/proof、返回两条合成签名消息，再接收生产 ACK/proof；手机重建读回同一公钥/outbox、验签/清 ACK，保留两条待确认正文。主机验证重复 pull/ACK、重签恢复、吊销拒绝及同绑定重新授权；最终 queuedMessages=0、acknowledgedMessages=2、pendingDeliveries=0。
+- 手机夹具仅用 UUID preferences/AES/P-256 alias，恢复成功后删除本轮夹具并断言缺钥 sign/export 拒绝且无重建。发送私钥/SQLite 保留于仓库外临时目录，没有复制私钥进仓库。功能门禁后原七项偏好/Memory undo 摘要一致；最终文档语料/保护、APK assets、链接和凭据审计另记录于同目录 final 文件。
+- 最终文档语料与保护门禁 **2/2**，原七项摘要全部一致；AndroidTest APK 的 **35 个文档文件逐字节一致**，**309 个本地链接有效**，源码/证据/两 APK 的两项实际凭据审计零命中。最终产物摘要保存在 `artifact-audit.json`，未把凭据写入报告。
+- 最后补齐 JSONObject 重序列化前的版本/时间 Int/Long 类型检查，防止 `1.0` 被规范化为 `1` 后放宽原结构化兼容 API；JVM/Redmi 新回归均通过。signedRequest 保留原先冻结后校验顺序。
+- 独立核验发现 shared 裸 ACK 公共 encoder 缺少本协议字段/容量校验，以及 raw 字节门禁应在分配前先拒绝巨大字符串，均已修正并加入负向门禁。另一次 golden 原文审计为 `AssertionError: ('ack', 'wire')`，原因是 Python set 字段顺序随进程变化；已固定合成 JSON 排序并重新生成向量，canonical bytes 未改变。失败与修正均保留证据。
+- 下一片为完整 Tool result codec，随后 iOS actual。本片不提供 iOS crypto/storage/network、真实产品 UI、自然 Doze/LMK/系统重启、公网或 Release 证据；Remote 稳定部署和长期验收仍是独立待办，第 7 点尚未整体收口。本轮仅中文本地提交，没有 push/tag/Release，原 `refs/` 保留。
+- 契约及矩阵：[Remote wire codec](kmp-remote-channel-wire.md)、[共享可读证据](kmp-readable-evidence.md)和[路线图](personal-agent-roadmap.md)。证据目录 `outputs/verification/stage291-kmp-remote-wire/` 包含 `final-guard-build.log`、`final-test-results.json`、`python-tests.log`、`wire-goldens.json`、`golden-audit.json`、`redmi-adapter-final.log`、`offline-interop-summary.json`、三进程原日志、最终语料/保护/链接/凭据/产物审计及 `verification-summary.json`。
+
 # 2026-10-18 第 291 阶段第三片：shared MCP inputSchema 与参数校验
 
 - 当前继续第 7 点 KMP 协议/codec。SharedMcpToolDescriptor 保留原五字段、hints 默认值与完整 equality；原有界 validator 下沉 commonMain，经 JSON 读取端口复用。Android JSONObject/JSONArray adapter 保留原 parser/coercion/getString、Number/NULL、键与对象/数组 enum 序列化，不把迁移改成完整 JSON Schema。shared Agent contract v4、Room v44、发布版本 `0.1.22 (23)` 保持。

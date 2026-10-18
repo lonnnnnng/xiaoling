@@ -1,6 +1,5 @@
 package com.longdev.xiaoling.agent
 
-import org.json.JSONObject
 import java.util.UUID
 import kotlinx.coroutines.CancellationException
 
@@ -139,31 +138,6 @@ class RemoteChannelInboxGateway(
 
 /** long: 手动导入只接受固定九字段的签名 envelope；拒绝附件、隐式默认值和扩展字段。 */
 object RemoteChannelSignedEnvelopeCodec {
-    const val MAX_JSON_BYTES = 64 * 1024
-    private val FIELDS = setOf(
-        "channelId", "messageId", "senderId", "conversationKey", "text",
-        "receivedAtMillis", "nonce", "keyId", "signature",
-    )
-
-    fun decode(raw: String): RemoteChannelEnvelope {
-        require(raw.toByteArray(Charsets.UTF_8).size <= MAX_JSON_BYTES) { "签名消息过大" }
-        val json = JSONObject(raw)
-        val keys = json.keys().asSequence().toSet()
-        require(keys == FIELDS) { "签名消息字段不完整或含有额外字段" }
-        fun string(name: String): String = (json.opt(name) as? String)
-            ?: throw IllegalArgumentException("$name 必须是字符串")
-        val timestamp = json.opt("receivedAtMillis")
-        require(timestamp is Int || timestamp is Long) { "receivedAtMillis 必须是整数" }
-        return RemoteChannelEnvelope(
-            channelId = string("channelId"),
-            messageId = string("messageId"),
-            senderId = string("senderId"),
-            conversationKey = string("conversationKey"),
-            text = string("text"),
-            receivedAtMillis = (timestamp as Number).toLong(),
-            nonce = string("nonce"),
-            keyId = string("keyId"),
-            signature = string("signature"),
-        )
-    }
+    const val MAX_JSON_BYTES = com.longdev.xiaoling.shared.remote.SharedRemoteChannelWireCodec.MAX_JSON_BYTES
+    fun decode(raw: String): RemoteChannelEnvelope = com.longdev.xiaoling.shared.remote.SharedRemoteChannelWireCodec.decodeEnvelope(raw)
 }

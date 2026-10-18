@@ -1,5 +1,11 @@
 # 产品需求
 
+## 2026-10-18 第 291 阶段第四片：KMP Remote Channel wire
+
+- 固化 message/batch/ACK/receiver request/proof/公开 manifest DTO、严格 raw JSON 和原五类 canonical 格式（request 含 pull/ACK 两分支），合法 v1 wire 保持兼容。身份顺序、UTF-8 长度前缀、null 哨兵、正文归一化和历史游标差异不得漂移。
+- Android 原公钥/指纹、ECDSA/HMAC、时效、逐消息认证、加密入箱/outbox、撤销复核、后台许可及前台确认继续独立执行。shared 解析不代表已认证或已执行。
+- common 三端、独立 Python、JVM 原字节 oracle 和 Redmi 隔离跨进程门禁验证；不把离线互通当公网或 iOS 产品验收。版本/schema 保持，下一片完整 Tool result codec，随后 iOS actual，详见[Remote wire 契约](kmp-remote-channel-wire.md)。
+
 ## 2026-10-18 第 291 阶段第三片：KMP MCP schema
 
 - commonMain 固化 descriptor、原有界参数 validator 与严格 raw JSON codec；Android 保留 JSONObject 解析/coercion、复合 enum 原序列化比较、tools/list schema 原文和完整 descriptor 漂移门禁。算法通过不产生审批、白名单或本地执行权。

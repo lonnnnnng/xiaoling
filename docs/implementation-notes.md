@@ -1,5 +1,11 @@
 # 当前实现说明
 
+## 2026-10-18 第 291 阶段第四片：共享 Remote wire
+
+- `shared/remote/SharedRemoteChannelWire.kt` 与 `SharedRemoteChannelWireCodec` 固化 DTO、exact raw JSON、64 KiB UTF-8 与 common 大端签名字节；Android 三个原 DTO 为 typealias，message/batch/ACK decoder 和 canonical 方法委托 shared。
+- 平台仍负责 SHA-256、DER/Base64、P-256/SPKI、Keystore、manifest 指纹、时效、配对与密文事务。原 JSONObject manifest/signedRequest 输出和持久状态 encoder 保留，合法 v1 canonical 不重写。
+- `tools/remote_channel_wire_goldens.py` 从独立 sender/auth 生成六个固定向量；common suites 与 JVM/Redmi 共用 adapter 门禁覆盖容量、畸形原文、原游标差异和真实验签。第 7 点下一片为完整 Tool result codec，详见[契约](kmp-remote-channel-wire.md)及[报告](verification-report.md)。
+
 ## 2026-10-18 第 291 阶段第三片：共享 MCP validator 与 JSON 端口
 
 - SharedMcpToolDescriptor 保留原五字段/default/equality，Android 原名通过 typealias 接入。SharedMcpJsonSchemaValidator 经两个 JSON 读取端口复用原算法；Android adapter 委托 JSONObject/JSONArray，保留 NULL、Number、coercion、getString、复合 enum wire 与异常分支。

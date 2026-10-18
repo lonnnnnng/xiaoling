@@ -25,7 +25,7 @@
 4. 第 288 阶段 Skill/插件两片原定实现基线已完成：签名 manifest、有界版本回滚、SAFE 前台显式宿主扩展；无签名仅预览、旧 Run 不能继承前台许可。长期系统、完整界面联合和正式 Release 验收独立追踪。
 5. 第 289 阶段多 Agent 两片只读实现基线已收口：持久 child 槽位、来源/预算、原子派生/领取、父取消/恢复收敛，以及任务中心显式入口、父结果单次消费/完成策略和真实提供方联合已完成。仍限前台 Direct、最多两个只读 child；精确共享扣账/费用、完整产品点击联合、自然系统与 Release 独立追踪。
 6. 第 290 阶段 Workspace/Browser/GenUI：三片实现基线收口，包含持久会话 transcript、SERVER_HTML DOM/action、本机草稿及 GenUI v2 单工具显式审批。静态 HTML 不代表真实渲染 DOM/网页输入；完整产品真实模型联合、自然系统与正式 Release 单列，验收分级见报告。下一主线为第 7 点 KMP 协议/codec 固化。
-7. 第 291 阶段前三片固化 shared 可读证据、context snapshot 与 MCP descriptor/有界 schema validator/raw codec；Android 保留 context 原文、MCP JSONObject 兼容端口及 session/transport。Remote Channel/完整结果协议与 iOS actual 后续推进。实际产品 runtime、Memory、MCP、设备和 UI 仍在 Android，iOS 不能宣称与 Android 对等。
+7. 第 291 阶段前四片固化 shared 可读证据、context snapshot、MCP descriptor/有界 schema validator/raw codec，以及 Remote Channel wire/canonical bytes；Android 保留 context 原文、MCP JSONObject 兼容端口及 session/transport、Remote 验签/密文入箱/许可。完整结果协议与 iOS actual 后续推进。实际产品 runtime、Memory、MCP、设备和 UI 仍在 Android，iOS 不能宣称与 Android 对等。
 
 ### 后续执行顺序
 
@@ -133,6 +133,7 @@
 - 第一片：可读 Tool result 子协议、浏览器动作 receipt、严格 JSON 与 Android 兼容入口下沉 commonMain；shared contract v4 保留可空页面证据及调用绑定。旧无动作 wire 兼容、损坏拒绝，详见[共享证据 codec](kmp-readable-evidence.md)。此处没有 iOS actual 或完整 Tool result codec，第 7 点尚未收口。
 - 第二片：context snapshot DTO、十字段 JSON、严格 UTF-8 与原文摘要规范字节下沉；Android 保留 JSONObject 编码、原文幂等与 SHA-256。Room/schema/压缩/恢复权限不变，精确容量、旧帧与 INVALID 门禁见[context codec](kmp-context-snapshot.md)和报告。下一片继续 MCP schema，随后 Remote Channel wire、完整 Tool result codec 和 iOS actual。
 - 第三片：MCP descriptor 与原有界参数 validator 下沉，新增严格 raw schema/arguments codec；Android tools/list 原文、coercion、复合 enum 与注册表/transport 权限保留。不是完整 JSON Schema 或 MCP client，parser 差异见[MCP schema 契约](kmp-mcp-schema.md)。下一片为 Remote Channel wire，再补完整 Tool result codec 与 iOS actual。
+- 第四片：Remote message/batch/ACK/receiver request/proof/公开 manifest DTO、严格 raw wire 与五类 canonical 格式下沉；Android 验签、Keystore、入箱/outbox 和前台许可保持。独立 Python 字节、原 JVM oracle 与 Redmi 跨进程互通见[Remote wire 契约](kmp-remote-channel-wire.md)和报告。下一片完整 Tool result codec，随后 iOS actual。
 - 先把 shared contract、context snapshot、MCP schema、Remote Channel wire 和 Tool result codec 固化为跨平台模块；Android 保留 Provider/Room/Accessibility 实现。
 - iOS 先实现本地 workspace、HTTP client、只读浏览器和前台 Agent loop；不承诺 Android Phone Use、后台虚拟屏、Root/Shizuku 或持续后台一致性。
 - 退出标准：Android 既有测试不回归，iOS simulator 完成 contract/codec/runtime smoke；平台能力矩阵写入发布文档。

@@ -1,8 +1,7 @@
 package com.longdev.xiaoling.agent
 
 import com.longdev.xiaoling.share.SharedDraftPayload
-import java.io.ByteArrayOutputStream
-import java.io.DataOutputStream
+import com.longdev.xiaoling.shared.remote.SharedRemoteChannelWireCodec
 import java.security.MessageDigest
 import java.util.Base64
 import javax.crypto.Mac
@@ -14,17 +13,7 @@ import javax.crypto.spec.SecretKeySpec
  *
  * long: 外部消息先变成前台可审阅草稿，避免网络入口绕过会话选择、用户确认和现有工具权限。
  */
-data class RemoteChannelEnvelope(
-    val channelId: String,
-    val messageId: String,
-    val senderId: String,
-    val conversationKey: String,
-    val text: String,
-    val receivedAtMillis: Long,
-    val nonce: String? = null,
-    val keyId: String? = null,
-    val signature: String? = null,
-)
+typealias RemoteChannelEnvelope = com.longdev.xiaoling.shared.remote.SharedRemoteChannelEnvelope
 
 data class RemoteChannelDraft(
     val channelId: String,
@@ -81,13 +70,10 @@ object RemoteChannelPolicy {
     const val MIN_HMAC_KEY_BYTES = 32
     const val MIN_NONCE_CHARS = 16
     const val MAX_NONCE_CHARS = 256
-    const val DEFAULT_MAX_AGE_MILLIS = 5 * 60 * 1000L
+    const val DEFAULT_MAX_AGE_MILLIS = SharedRemoteChannelWireCodec.MAX_BATCH_AGE_MILLIS
     const val DEFAULT_MAX_FUTURE_SKEW_MILLIS = 30 * 1000L
 
-    fun normalizeText(text: String): String = text
-        .replace("\r\n", "\n")
-        .replace('\r', '\n')
-        .trim()
+    fun normalizeText(text: String): String = SharedRemoteChannelWireCodec.normalizeText(text)
 
     fun dedupeKey(envelope: RemoteChannelEnvelope): String =
         "${envelope.channelId.trim()}\u0000${envelope.senderId.trim()}\u0000${envelope.messageId.trim()}"
@@ -101,29 +87,7 @@ object RemoteChannelPolicy {
         ?.let { nonce -> "nonce\u0000${envelope.channelId.trim()}\u0000${envelope.senderId.trim()}\u0000$nonce" }
 
     /** long: 对称签名与公钥签名共用同一份有长度前缀的业务载荷，防止算法迁移时字段顺序漂移。 */
-    fun canonicalBytes(envelope: RemoteChannelEnvelope): ByteArray {
-        val fields = listOf(
-            envelope.channelId.trim(),
-            envelope.messageId.trim(),
-            envelope.senderId.trim(),
-            envelope.conversationKey.trim(),
-            normalizeText(envelope.text),
-            envelope.receivedAtMillis.toString(),
-            envelope.nonce?.trim().orEmpty(),
-            envelope.keyId?.trim().orEmpty(),
-        )
-        return ByteArrayOutputStream().use { buffer ->
-            DataOutputStream(buffer).use { output ->
-                output.writeInt(fields.size)
-                fields.forEach { field ->
-                    val bytes = field.toByteArray(Charsets.UTF_8)
-                    output.writeInt(bytes.size)
-                    output.write(bytes)
-                }
-            }
-            buffer.toByteArray()
-        }
-    }
+    fun canonicalBytes(envelope: RemoteChannelEnvelope): ByteArray = SharedRemoteChannelWireCodec.canonicalEnvelopeBytes(envelope)
 
     fun validate(envelope: RemoteChannelEnvelope): RemoteChannelRejectionReason? {
         val channelId = envelope.channelId.trim()

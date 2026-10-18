@@ -1,23 +1,13 @@
 package com.longdev.xiaoling.agent
 
-import java.io.ByteArrayOutputStream
-import java.io.DataOutputStream
+import com.longdev.xiaoling.shared.remote.*
 import java.security.MessageDigest
 import java.util.Base64
 import java.util.UUID
 import org.json.JSONObject
 
 /** long: 接收公钥绑定发送方、地址与队列路由；只允许读取/ACK 该队列，不继承 Agent 执行或后台访问许可。 */
-data class RemoteChannelReceiverAuthorization(
-    val channelId: String,
-    val senderId: String,
-    val keyId: String,
-    val senderFingerprintSha256: String,
-    val endpointSha256: String,
-    val receiverId: String,
-    val publicKeySpkiBase64: String,
-    val receiverFingerprintSha256: String,
-)
+typealias RemoteChannelReceiverAuthorization = com.longdev.xiaoling.shared.remote.SharedRemoteChannelReceiverAuthorization
 
 fun interface RemoteChannelReceiverSigner {
     fun sign(content: ByteArray): ByteArray
@@ -32,15 +22,10 @@ interface RemoteChannelReceiverIdentity {
 
 /** long: 每次网络请求重签完整逻辑请求；证明持有接收私钥，不表示用户批准执行正文。 */
 object RemoteChannelReceiverAuthProtocol {
-    const val VERSION = 1
-    const val TTL_MILLIS = 60_000L
+    const val VERSION = SharedRemoteChannelWireCodec.VERSION
+    const val TTL_MILLIS = SharedRemoteChannelWireCodec.PROOF_TTL_MILLIS
     private val HASH = Regex("[0-9a-f]{64}")
     private val NONCE = Regex("[0-9a-f]{32}")
-    private val PEER_FIELDS = setOf("channelId", "senderId", "keyId")
-    private val PULL_FIELDS = PEER_FIELDS + setOf("protocolVersion", "operation", "receiverId", "requestCursor")
-    private val ACK_FIELDS = PEER_FIELDS + setOf("protocolVersion", "operation", "receiverId", "batchId", "batchDigestSha256", "nextCursor", "messageIds")
-    private val PROOF_FIELDS = PEER_FIELDS + setOf("authVersion", "operation", "senderFingerprintSha256", "endpointSha256", "receiverId",
-        "receiverFingerprintSha256", "issuedAtMillis", "expiresAtMillis", "nonce", "requestDigestSha256", "signature")
 
     fun authorization(peer: RemoteChannelPeerCandidate, source: RemoteChannelPullSource, state: RemoteChannelBatchState,
                       publicKeySpkiBase64: String): RemoteChannelReceiverAuthorization {
@@ -74,20 +59,15 @@ object RemoteChannelReceiverAuthProtocol {
     }
 
     fun decodeManifest(json: JSONObject): RemoteChannelReceiverAuthorization {
-        RemoteChannelBatchProtocol.keys(json, PEER_FIELDS + setOf("authVersion", "senderFingerprintSha256", "endpointSha256",
-            "receiverId", "publicKeySpkiBase64", "receiverFingerprintSha256"))
-        require(integer(json, "authVersion") == VERSION.toLong()) { "接收登记版本无效" }
-        return RemoteChannelReceiverAuthorization(string(json, "channelId"), string(json, "senderId"), string(json, "keyId"),
-            string(json, "senderFingerprintSha256"), string(json, "endpointSha256"), string(json, "receiverId"),
-            string(json, "publicKeySpkiBase64"), string(json, "receiverFingerprintSha256")).also(::validate)
+        require(RemoteChannelBatchProtocol.integer(json, "authVersion") == VERSION.toLong()) { "接收登记版本无效" }
+        return SharedRemoteChannelWireCodec.decodeManifest(json.toString()).also(::validate)
     }
 
     fun pullRequest(peer: RemoteChannelPeerCandidate, state: RemoteChannelBatchState): JSONObject {
         RemoteChannelBatchProtocol.validateState(state)
         require(state.pendingAck == null) { "已有 outbox 时必须先确认原 ACK" }
-        return JSONObject().put("protocolVersion", RemoteChannelBatchProtocol.VERSION).put("operation", "pull")
-            .put("channelId", peer.channelId).put("senderId", peer.senderId).put("keyId", peer.keyId)
-            .put("receiverId", state.receiverId).put("requestCursor", state.cursor ?: JSONObject.NULL)
+        return JSONObject(SharedRemoteChannelWireCodec.encodeRequest(SharedRemoteChannelRequest.Pull(
+            peer.channelId, peer.senderId, peer.keyId, state.receiverId, state.cursor)))
     }
 
     fun ackRequest(peer: RemoteChannelPeerCandidate, state: RemoteChannelBatchState): JSONObject =
@@ -116,61 +96,21 @@ object RemoteChannelReceiverAuthProtocol {
         return JSONObject().put("request", frozen).put("proof", proof).toString()
     }
 
+    // long: 已解析 JSONObject 只能校验当前对象；网络原文回复直接走 shared raw 门禁，不能追溯对象解析前的重复键。
     fun canonicalRequestBytes(request: JSONObject): ByteArray {
-        require(integer(request, "protocolVersion") == RemoteChannelBatchProtocol.VERSION.toLong()) { "接收请求版本无效" }
-        val operation = string(request, "operation")
-        require(operation == "pull" || operation == "ack") { "接收请求操作无效" }
-        RemoteChannelBatchProtocol.keys(request, if (operation == "pull") PULL_FIELDS else ACK_FIELDS)
-        PEER_FIELDS.forEach { identity(string(request, it), if (it == "keyId") 64 else 200) }
-        require(Regex("[A-Za-z0-9][A-Za-z0-9._-]{0,63}").matches(string(request, "keyId")) && NONCE.matches(string(request, "receiverId"))) {
-            "接收请求身份无效"
-        }
-        return bytes("xiaoling-receiver-request-v1") {
-            listOf("channelId", "senderId", "keyId", "operation", "receiverId").forEach { field(string(request, it)) }
-            if (operation == "pull") nullableField(cursor(request, "requestCursor")) else {
-                require(Regex("[A-Za-z0-9][A-Za-z0-9._-]{0,199}").matches(string(request, "batchId")) &&
-                    HASH.matches(string(request, "batchDigestSha256"))) { "接收 ACK 批次身份无效" }
-                field(string(request, "batchId")); field(string(request, "batchDigestSha256")); nullableField(cursor(request, "nextCursor"))
-                val ids = request.getJSONArray("messageIds")
-                require(ids.length() <= RemoteChannelBatchProtocol.MAX_MESSAGES) { "接收 ACK 消息过多" }
-                val values = (0 until ids.length()).map { ids.opt(it) as? String ?: error("接收 ACK 身份必须是字符串") }
-                values.forEach { identity(it, 200) }
-                require(values.distinct().size == values.size) { "接收 ACK 消息身份重复" }
-                writeInt(values.size); values.forEach { field(it) }
-            }
-        }
+        require(RemoteChannelBatchProtocol.integer(request, "protocolVersion") == VERSION.toLong()) { "接收请求版本无效" }
+        return SharedRemoteChannelWireCodec.canonicalRequestBytes(SharedRemoteChannelWireCodec.decodeRequest(request.toString()))
     }
 
     fun canonicalProofBytes(proof: JSONObject): ByteArray {
-        RemoteChannelBatchProtocol.keys(proof, PROOF_FIELDS)
-        require(integer(proof, "authVersion") == VERSION.toLong() && string(proof, "operation") in setOf("pull", "ack")) {
-            "接收认证版本或操作无效"
-        }
-        PEER_FIELDS.forEach { identity(string(proof, it), 200) }
-        listOf("senderFingerprintSha256", "endpointSha256", "receiverFingerprintSha256", "requestDigestSha256").forEach {
-            require(HASH.matches(string(proof, it))) { "接收认证摘要无效" }
-        }
-        require(NONCE.matches(string(proof, "receiverId")) && NONCE.matches(string(proof, "nonce"))) { "接收认证路由或 nonce 无效" }
-        val issued = integer(proof, "issuedAtMillis"); val expires = integer(proof, "expiresAtMillis")
-        require(issued > 0 && expires > issued && expires - issued <= TTL_MILLIS) { "接收认证有效期无效" }
-        return bytes("xiaoling-receiver-auth-v1") {
-            listOf("channelId", "senderId", "keyId", "operation", "senderFingerprintSha256", "endpointSha256", "receiverId",
-                "receiverFingerprintSha256", "nonce", "requestDigestSha256").forEach { field(string(proof, it)) }
-            writeLong(issued); writeLong(expires)
-        }
+        // long: JSONObject 会把 1.0 序列化为 1，必须在转成 raw wire 前保留原类型门禁，避免浮点版本/时间被静默接受。
+        require(RemoteChannelBatchProtocol.integer(proof, "authVersion") == VERSION.toLong()) { "接收认证版本无效" }
+        RemoteChannelBatchProtocol.integer(proof, "issuedAtMillis")
+        RemoteChannelBatchProtocol.integer(proof, "expiresAtMillis")
+        return SharedRemoteChannelWireCodec.canonicalProofBytes(SharedRemoteChannelWireCodec.decodeProof(proof.toString()))
     }
 
     internal fun sha256(content: ByteArray): String = MessageDigest.getInstance("SHA-256").digest(content)
         .joinToString("") { "%02x".format(it.toInt() and 0xff) }
-    private fun identity(value: String, max: Int) { require(value.isNotEmpty() && value == value.trim() && value.length <= max && '\u0000' !in value) { "接收请求标识无效" } }
     private fun string(value: JSONObject, name: String) = RemoteChannelBatchProtocol.string(value, name)
-    private fun integer(value: JSONObject, name: String) = RemoteChannelBatchProtocol.integer(value, name)
-    private fun cursor(value: JSONObject, name: String) = RemoteChannelBatchProtocol.nullableString(value, name).also {
-        if (it != null) identity(it, RemoteChannelPullReliabilityPolicy.MAX_CURSOR_CHARS)
-    }
-    private fun bytes(domain: String, body: DataOutputStream.() -> Unit): ByteArray = ByteArrayOutputStream().apply {
-        DataOutputStream(this).use { it.field(domain); it.writeInt(VERSION); body.invoke(it) }
-    }.toByteArray()
-    private fun DataOutputStream.field(value: String) { val raw = value.toByteArray(Charsets.UTF_8); writeInt(raw.size); write(raw) }
-    private fun DataOutputStream.nullableField(value: String?) { if (value == null) writeInt(-1) else field(value) }
 }

@@ -1,7 +1,6 @@
 package com.longdev.xiaoling.agent
 
-import java.io.ByteArrayOutputStream
-import java.io.DataOutputStream
+import com.longdev.xiaoling.shared.remote.*
 import java.security.KeyFactory
 import java.security.MessageDigest
 import java.security.Signature
@@ -10,19 +9,7 @@ import java.util.Base64
 import org.json.JSONArray
 import org.json.JSONObject
 
-data class RemoteChannelSignedBatch(
-    val channelId: String,
-    val senderId: String,
-    val keyId: String,
-    val receiverId: String,
-    val batchId: String,
-    val requestCursor: String?,
-    val nextCursor: String?,
-    val issuedAtMillis: Long,
-    val expiresAtMillis: Long,
-    val messages: List<RemoteChannelEnvelope>,
-    val signature: String,
-)
+typealias RemoteChannelSignedBatch = com.longdev.xiaoling.shared.remote.SharedRemoteChannelSignedBatch
 
 data class RemoteChannelBatchReceipt(
     val batchId: String,
@@ -54,14 +41,12 @@ sealed interface RemoteChannelPullResponse {
 
 /** long: 外层签名也覆盖游标和消息签名，发送方不能用已验签正文搭配未授权的游标跳过后续消息。 */
 object RemoteChannelBatchProtocol {
-    const val VERSION = 1
-    const val MAX_MESSAGES = 8
+    const val VERSION = SharedRemoteChannelWireCodec.VERSION
+    const val MAX_MESSAGES = SharedRemoteChannelWireCodec.MAX_MESSAGES
     const val MAX_STATES = 32
     private val ID = Regex("[A-Za-z0-9][A-Za-z0-9._-]{0,199}")
     private val RECEIVER_ID = Regex("[0-9a-f]{32}")
     private val HASH = Regex("[0-9a-f]{64}")
-    private val BATCH_FIELDS = setOf("protocolVersion", "channelId", "senderId", "keyId", "receiverId",
-        "batchId", "requestCursor", "nextCursor", "issuedAtMillis", "expiresAtMillis", "messages", "signature")
 
     fun endpointHash(source: RemoteChannelPullSource): String = sha256(source.url.toByteArray(Charsets.UTF_8))
 
@@ -79,40 +64,12 @@ object RemoteChannelBatchProtocol {
         }
     }
 
-    fun decodeResponse(raw: String): RemoteChannelPullResponse {
-        require(raw.toByteArray(Charsets.UTF_8).size <= RemoteChannelSignedEnvelopeCodec.MAX_JSON_BYTES) { "批次响应过大" }
-        val json = JSONObject(raw)
-        if (!json.has("protocolVersion")) return RemoteChannelPullResponse.Single(RemoteChannelSignedEnvelopeCodec.decode(raw))
-        keys(json, BATCH_FIELDS)
-        require(json.opt("protocolVersion") == VERSION) { "批次协议版本无效" }
-        val messages = json.getJSONArray("messages")
-        require(messages.length() <= MAX_MESSAGES) { "批次消息过多" }
-        val batch = RemoteChannelSignedBatch(
-            string(json, "channelId"), string(json, "senderId"), string(json, "keyId"),
-            string(json, "receiverId"), string(json, "batchId"), nullableString(json, "requestCursor"),
-            nullableString(json, "nextCursor"), integer(json, "issuedAtMillis"), integer(json, "expiresAtMillis"),
-            (0 until messages.length()).map { RemoteChannelSignedEnvelopeCodec.decode(messages.getJSONObject(it).toString()) },
-            string(json, "signature"),
-        )
-        validateBatch(batch)
-        return RemoteChannelPullResponse.Batch(batch)
+    fun decodeResponse(raw: String): RemoteChannelPullResponse = when (val value = SharedRemoteChannelWireCodec.decodeResponse(raw)) {
+        is SharedRemoteChannelPullResponse.Single -> RemoteChannelPullResponse.Single(value.envelope)
+        is SharedRemoteChannelPullResponse.Batch -> RemoteChannelPullResponse.Batch(value.batch)
     }
 
-    fun validateBatch(batch: RemoteChannelSignedBatch) {
-        require(batch.channelId.length in 1..200 && batch.channelId == batch.channelId.trim() && '\u0000' !in batch.channelId &&
-            batch.senderId.length in 1..200 && batch.senderId == batch.senderId.trim() && '\u0000' !in batch.senderId &&
-            batch.keyId.matches(Regex("[A-Za-z0-9][A-Za-z0-9._-]{0,63}")) &&
-            RECEIVER_ID.matches(batch.receiverId) && ID.matches(batch.batchId)) { "批次身份无效" }
-        cursor(batch.requestCursor)
-        cursor(batch.nextCursor)
-        require(batch.nextCursor != null) { "批次下一游标不能为空" }
-        require(batch.issuedAtMillis > 0 && batch.expiresAtMillis > batch.issuedAtMillis &&
-            batch.expiresAtMillis - batch.issuedAtMillis <= RemoteChannelPolicy.DEFAULT_MAX_AGE_MILLIS) { "批次有效期无效" }
-        require(batch.messages.size <= MAX_MESSAGES && batch.messages.map { it.messageId.trim() }.distinct().size == batch.messages.size &&
-            batch.messages.map { it.nonce?.trim() }.distinct().size == batch.messages.size) { "批次消息身份重复或超限" }
-        require(batch.messages.isEmpty() || batch.nextCursor != batch.requestCursor) { "非空批次必须推进游标" }
-        require(batch.signature.length in 1..128) { "批次签名无效" }
-    }
+    fun validateBatch(batch: RemoteChannelSignedBatch) = SharedRemoteChannelWireCodec.validateBatch(batch)
 
     fun verifyBatch(batch: RemoteChannelSignedBatch, peer: RemoteChannelPeerCandidate, state: RemoteChannelBatchState, now: Long) {
         validateBatch(batch)
@@ -125,15 +82,7 @@ object RemoteChannelBatchProtocol {
         verifySignature(peer, canonicalBatchBytes(batch), batch.signature)
     }
 
-    fun canonicalBatchBytes(batch: RemoteChannelSignedBatch): ByteArray = bytes("xiaoling-batch-v1") {
-        field(batch.channelId); field(batch.senderId); field(batch.keyId); field(batch.receiverId); field(batch.batchId)
-        nullableField(batch.requestCursor); nullableField(batch.nextCursor)
-        writeLong(batch.issuedAtMillis); writeLong(batch.expiresAtMillis); writeInt(batch.messages.size)
-        batch.messages.forEach { envelope ->
-            val content = RemoteChannelPolicy.canonicalBytes(envelope)
-            writeInt(content.size); write(content); field(envelope.signature.orEmpty())
-        }
-    }
+    fun canonicalBatchBytes(batch: RemoteChannelSignedBatch): ByteArray = SharedRemoteChannelWireCodec.canonicalBatchBytes(batch)
 
     fun receipt(batch: RemoteChannelSignedBatch) = RemoteChannelBatchReceipt(
         batch.batchId, sha256(canonicalBatchBytes(batch)), batch.nextCursor, batch.messages.map { it.messageId.trim() },
@@ -142,21 +91,22 @@ object RemoteChannelBatchProtocol {
     fun ackRequest(peer: RemoteChannelPeerCandidate, state: RemoteChannelBatchState): String {
         validateState(state)
         val receipt = state.pendingAck ?: error("没有待 ACK 批次")
-        return ackFields(peer, state, "ack").put("messageIds", JSONArray(receipt.messageIds)).toString()
+        return SharedRemoteChannelWireCodec.encodeAckRequest(ackBinding(peer, state), receipt.messageIds)
     }
 
     fun verifyAck(raw: String, peer: RemoteChannelPeerCandidate, state: RemoteChannelBatchState) {
-        val response = JSONObject(raw)
-        val expected = ackFields(peer, state, "acknowledged")
-        keys(response, expected.keys().asSequence().toSet() + "signature")
-        expected.keys().forEach { key -> require(response.opt(key) == expected.opt(key)) { "ACK 回执绑定不匹配" } }
-        verifySignature(peer, canonicalAckBytes(peer, state), string(response, "signature"))
+        val response = SharedRemoteChannelWireCodec.decodeAcknowledgement(raw)
+        require(response.binding == ackBinding(peer, state)) { "ACK 回执绑定不匹配" }
+        verifySignature(peer, canonicalAckBytes(peer, state), response.signature)
     }
 
-    fun canonicalAckBytes(peer: RemoteChannelPeerCandidate, state: RemoteChannelBatchState): ByteArray = bytes("xiaoling-ack-v1") {
+    fun canonicalAckBytes(peer: RemoteChannelPeerCandidate, state: RemoteChannelBatchState): ByteArray =
+        SharedRemoteChannelWireCodec.canonicalAckBytes(ackBinding(peer, state))
+
+    private fun ackBinding(peer: RemoteChannelPeerCandidate, state: RemoteChannelBatchState): SharedRemoteChannelAckBinding {
         val receipt = state.pendingAck ?: error("没有待 ACK 批次")
-        field(peer.channelId); field(peer.senderId); field(peer.keyId); field(state.receiverId)
-        field(receipt.batchId); field(receipt.digestSha256); nullableField(receipt.nextCursor)
+        return SharedRemoteChannelAckBinding(peer.channelId, peer.senderId, peer.keyId, state.receiverId,
+            receipt.batchId, receipt.digestSha256, receipt.nextCursor)
     }
 
     fun ackFields(peer: RemoteChannelPeerCandidate, state: RemoteChannelBatchState, operation: String): JSONObject {
@@ -184,11 +134,6 @@ object RemoteChannelBatchProtocol {
             "批次游标无效"
         }
     }
-    private fun bytes(domain: String, write: DataOutputStream.() -> Unit): ByteArray = ByteArrayOutputStream().apply {
-        DataOutputStream(this).use { it.field(domain); it.writeInt(VERSION); write.invoke(it) }
-    }.toByteArray()
-    private fun DataOutputStream.field(value: String) { val b = value.toByteArray(Charsets.UTF_8); writeInt(b.size); write(b) }
-    private fun DataOutputStream.nullableField(value: String?) { if (value == null) writeInt(-1) else field(value) }
     private fun sha256(value: ByteArray) = MessageDigest.getInstance("SHA-256").digest(value).joinToString("") { "%02x".format(it.toInt() and 0xff) }
     internal fun keys(json: JSONObject, expected: Set<String>) { require(json.keys().asSequence().toSet() == expected) { "批次字段无效" } }
     internal fun string(json: JSONObject, key: String): String = json.opt(key) as? String ?: throw IllegalArgumentException("批次 $key 必须是字符串")
