@@ -55,7 +55,7 @@ UUID Room 保留本轮公开 Run/Approval/Tool Ledger 供审计；正式 Provide
 
 入口为 `tools/verify_android_live_acceptance.py` 的四项 `overlay-*`，设备夹具为 `AndroidDeviceApprovalLiveInstrumentedTest`。证据根 `outputs/verification/stage293-device-approval/` 被忽略，包含各轮原报告、诊断栈、构建/Lint、主机 7 项门禁、文档语料与系统状态。`verification-summary.json` 重新核对保留日志并保存原报告摘要，`artifact-audit-closeout.json` 核对两项实际凭据零匹配、APK 文档资产字节和本地链接。
 
-- 正式 Workflow 页面发起到 ViewModel/UseCase、实际生产目标应用动作及自然 Accessibility 服务恢复仍需单独验收。
+- 第 294 阶段已补正式 Workflow 页面新建两步只读、预置限定定义的手动运行/打开设置批准与拒绝，见[Workflow 专项](android-workflow-acceptance.md)；编辑器限定应用确认、其他实际目标应用动作及自然 Accessibility 恢复仍需独立验收。
 - Remote Channel 稳定部署、真实通知/导航、长期 Doze/LMK/系统重启保持独立待办。
 - 联系人、日历、通知、语音/TTS、全部分享格式与各模块全部正式入口未因本专项自动通过。
 - 正式签名 Release、推送、标签与发布不在本轮范围；iOS 产品继续暂停。

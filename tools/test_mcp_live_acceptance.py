@@ -66,6 +66,20 @@ class McpLiveAcceptanceAuditTest(unittest.TestCase):
                     self.assertFalse(result["passed"])
                     self.assertTrue(result["missingEvidence"])
 
+    def test_workflow_requires_matching_case_scope_restore_and_ack(self):
+        for name in ("workflow-create-readonly", "workflow-device-approve", "workflow-device-deny"):
+            spec = PHASES[name]
+            records = [marker + "verified=true\n" for marker in spec["requiredEvidence"]] + ["OK (1 test)\n"]
+            with self.subTest(phase=name):
+                self.assertTrue(live.instrumentation_verdict(0, True, records, spec)["passed"])
+                # long: 预置设备定义、编辑器创建、错误决定和恢复缺失不能互相替代；缺 USB ACK 时也不能采用旧日志成功。
+                wrong = records.copy()
+                other = "device-deny" if name != "workflow-device-deny" else "device-approve"
+                wrong[1] = f"STAGE294_EVIDENCE WORKFLOW case={other} verified=true\n"
+                for incomplete in (wrong, records[1:], records[:2] + records[3:]):
+                    self.assertFalse(live.instrumentation_verdict(0, True, incomplete, spec)["passed"])
+                self.assertFalse(live.instrumentation_verdict(0, False, records, spec)["passed"])
+
     def test_startup_and_cleanup_failures_keep_both_causes(self):
         with tempfile.TemporaryDirectory() as folder, \
                 patch.object(live, "adb", side_effect=["34567", RuntimeError("device offline")]), \

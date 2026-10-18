@@ -17,7 +17,7 @@
 
 ## 下载
 
-短期暂停 iOS 产品工作，当前优先[Android 真实模型与产品验收](docs/android-live-acceptance.md)。第 293 阶段已补[生产设备审批浮层专项](docs/android-device-approval-acceptance.md)四项同轮通过；正式 Workflow 页面完整入口仍单列。已有实现基线与完整产品、自然系统恢复和正式 Release 验收分别记录。
+短期暂停 iOS 产品工作，当前优先[Android 真实模型与产品验收](docs/android-live-acceptance.md)。第 293 阶段已补[生产设备审批浮层专项](docs/android-device-approval-acceptance.md)四项同轮通过；第 294 阶段补[正式 Workflow 入口专项](docs/android-workflow-acceptance.md)的新建只读与限定定义手动运行/批准/拒绝。编辑器限定应用确认、其他设备动作、自然系统恢复和正式 Release 继续单列。
 
 - [GitHub Release v0.1.22](https://github.com/lonnnnnng/xiaoling/releases/tag/v0.1.22)
 - 安装包：`xiaoling-v0.1.22.apk`

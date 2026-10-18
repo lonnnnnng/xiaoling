@@ -2,6 +2,24 @@
 
 验证日期：2026-10-18（北京时间）
 
+# 2026-10-18 第 294 阶段：正式 Workflow 入口专项
+
+指定 Redmi、真实 `gpt-6-luna`、同签名 Debug `0.1.22 (23)`；三项各有通过记录，**选自三轮，不是同轮 3/3**。最终只读来自清理归属及异常链修复后的 `live-editor-final`，批准来自 `live-formal`（该轮拒绝失败、整轮仍为 false），拒绝来自 `live-denial-persistence`。生产 main、Room schema 与发布版本未变，iOS 产品暂停。
+
+| 项目 | 结果 | 验证边界 |
+| --- | --- | --- |
+| 正式编辑器新建两步只读 | 通过 | 实际名称/目标/保存/手动运行；VM/UseCase；时间、应用版本各一真实工具/PASSED，前序输出冻结和正式 Run 结果展示 |
+| 手动运行、批准打开设置 | 通过 | 限定应用定义由夹具预置；新 Run 由正式按钮创建，生产浮层批准、实际 Settings 前台、Executor/PASSED 与持久 VERIFIED 动作展示 |
+| 手动运行、拒绝打开设置 | 通过 | 生产浮层拒绝，Room DENIED，Workflow/步骤/Agent FAILED，无 open_app 结果，持久拒绝原因和正式历史失败文本 |
+| Debug / AndroidTest / Lint | 通过 | 内部制品，未做正式 Release |
+| 主机 runner | 8/8 | case/scope/restore/ACK 不可互相替代，原失败保留 |
+
+- 正式路径为页面按钮 → `XiaoLingViewModel.runWorkflow` → 每步 `AgentRunUseCase` → 生产 Runtime/Gate/Service → 正式 Room；每个 Agent 检查 Profile 与非空 LLM 请求模型事件。**设备定义是预置，普通编辑器当前不保存 targetAppPackage**，不能称为编辑器确认限定应用的完整链。完整七项 device-control Profile 是生产约束，测试只批准精确 open_app 请求；SAFE 工具以最终账本排除，不冒称两工具执行沙箱。
+- 首次夹具 profile/model 字段编译错误、结果 tag 语义树查询、临时 workflowError 刷新清空、内联集合查询异常均保留失败。后者没有检查点，不能确定旧失败的具体集合位置；源码已确认 WAITING_APPROVAL 先于审批入 Room，现等待当前 Workflow 关联的真实 PENDING 和唯一应用窗口匹配，不代表持续稳定观察。最后拒绝记录实际审批/窗口检查点并通过。清理复核后改为稳定定义 ID/完整步骤快照、Workflow 停止状态确认和原始异常保留，最终只读复验通过；最新清理保护仅复验只读项，没有修改生产权限、拒绝或窗口守护。
+- 正式业务/周期表空、无旧未结束执行/PENDING、无任何 Memory undo/AtomicFile 旁文件、已有 Keystore alias 门禁；临时 UUID Provider 密文/Profile/会话/精确定义移除，Run 与步骤审计保留。十表原行内容摘要、原 Provider/Profile 集合、归属偏好键、Memory undo 和原授权选择均通过；所选三项分别守护 1,054/687/891 条旧审计行。偏好值相同不冒充 XML 字节相同。
+- 证据根 `outputs/verification/stage294-workflow-ui/`，机器汇总/原报告摘要/最终文档与凭据/系统保护审计分别记录。instrumentation 后原组件仍出现 enabled-but-crashed；文档门禁后只重绑原授权并核实最终状态，不称自然恢复。详细 Run ID、失败与范围见[正式 Workflow 专项](android-workflow-acceptance.md)。
+- 普通编辑器限定应用确认、正式节点点击/输入/滚动与复杂任务、自然 LMK/Doze/重启/无障碍、Remote 稳定服务/真实通知、其他模块全入口及签名 Release 继续独立；本轮中文本地提交，不推送/打标签/发布，保留 refs。
+
 # 2026-10-18 第 293 阶段：生产设备审批浮层专项
 
 指定 Redmi `wsvwypiz7xwslvl7 / begonia / SDK 36`、真实 `gpt-6-luna`、同签名 Debug `0.1.22 (23)`。用户停止操作手机后，`live-unattended` **同一轮 4/4 通过**，另有拒绝点击诊断单项 **1/1**；主机 runner **7/7**，Debug/AndroidTest 构建和 Debug Lint 通过。未修改生产 main 逻辑、Room schema 或发布版本。

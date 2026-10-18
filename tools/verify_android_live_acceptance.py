@@ -58,6 +58,13 @@ for action, decision in (("tap", "approve"), ("type", "approve"), ("tap", "deny"
         required_evidence=(f"EVIDENCE OVERLAY action={action} decision={decision} ", "EVIDENCE OVERLAY_RESTORE "),
         arguments={"stage293Action": action, "stage293Decision": decision})
 
+# long: 页面新建的只读工作流与预置限定应用定义分开记录，不能把定义预置计入编辑器目标应用确认链。
+for case in ("create-readonly", "device-approve", "device-deny"):
+    PHASES[f"workflow-{case}"] = descriptor("agent.AndroidWorkflowLiveInstrumentedTest",
+        "actualWorkflowPageUsesRealModelAndPersistsResult", stage=294, evidence="EVIDENCE WORKFLOW",
+        required_evidence=("EVIDENCE WORKFLOW_SCOPE ", f"EVIDENCE WORKFLOW case={case} ", "EVIDENCE WORKFLOW_RESTORE "),
+        arguments={"stage294Case": case})
+
 
 def main():
     parser = argparse.ArgumentParser(description="真实 Android 功能验收；APK 需先覆盖安装，不修改正式 Provider")

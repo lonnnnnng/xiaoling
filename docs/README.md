@@ -1,5 +1,9 @@
 # 文档索引
 
+## 第 294 阶段正式 Workflow 入口专项
+
+- [正式 Workflow 验收](android-workflow-acceptance.md)：页面新建两步只读、正式手动运行及生产浮层批准/拒绝打开设置，三项跨三轮通过；设备定义为夹具预置，普通编辑器限定应用字段仍缺失。旧 Run/步骤审计、原配置/偏好与失败报告保留。
+
 ## 第 293 阶段 Android 设备审批浮层专项
 
 - [设备审批浮层验收](android-device-approval-acceptance.md)：指定 Redmi、真实 `gpt-6-luna` 与生产 Gate/Service/隔离 Room，同一轮批准点击、批准输入、拒绝、窗口撤销四项通过；保留前三轮失败和用户操作手机的干扰事实。正式 Workflow 页面完整入口与自然服务恢复单列。
