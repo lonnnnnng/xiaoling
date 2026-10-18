@@ -298,6 +298,7 @@ internal fun List<ChatMessage>.withRecoveredAgentUserMessage(run: AgentRunRecord
 }
 
 data class XiaoLingUiState(
+    val genUiActionLeases: Map<String, com.longdev.xiaoling.genui.GenUiActionLease> = emptyMap(),
     val themeMode: AppThemeMode = AppThemeMode.SYSTEM,
     val promptSettings: PromptSettings = PromptSettings(),
     val profiles: List<ProviderProfile> = emptyList(),
@@ -735,6 +736,8 @@ class XiaoLingViewModel @JvmOverloads constructor(
         },
     )
     private val agentRunUseCase by lazy { AgentRunUseCase(application, client) }
+    private val genUiLeases = com.longdev.xiaoling.genui.GenUiActionLeases()
+    private val ordinarySendScope = ConversationSendScope()
     private val installedAppDirectoryReader by lazy { AndroidInstalledAppDirectoryReader(application) }
     private val agentProfileStore by lazy { RoomAgentProfileStore(application) }
     private val agentRunRepository by lazy { RoomAgentRunRepository(application) }
@@ -4343,6 +4346,15 @@ class XiaoLingViewModel @JvmOverloads constructor(
     }
 
     private fun handleConversationSelectionEvent(event: ConversationSelectionEvent) {
+        // long: 仅处理协调器接受的会话事件；离开、删除或重载会话均撤销卡片，不在恢复消息时重新签发。
+        genUiLeases.revokeAll()
+        uiState = uiState.copy(genUiActionLeases = emptyMap())
+        if (ordinarySendScope.invalidate()) {
+            sendMessageJob?.cancel(); sendMessageJob = null
+            streamingThrottleJob?.cancel(); streamingThrottleJob = null
+            pendingStreamingUpdate = null
+            uiState = uiState.copy(sendingMessage = false)
+        }
         if (notificationTaskDraftRequestId != null || notificationTaskVerificationRequestId != null) {
             // long: 通知来源只属于发起转换时的会话；会话切换必须让进行中的回读失效，回调不得把旧通知草稿或确认结果投影到新会话。
             notificationTaskDraftRequestId = null
@@ -4619,6 +4631,23 @@ class XiaoLingViewModel @JvmOverloads constructor(
         saveProfilesSnapshot(profiles, nextId)
     }
 
+    fun requestGenUiAction(messageId: String, actionId: String, drafts: Map<String, String>) {
+        if (uiState.sendingMessage || uiState.loadingConversationMessages || uiState.pendingPersonalTaskPlan != null ||
+            uiState.attachingImage || uiState.attachingDocument || uiState.pendingImage != null || uiState.pendingDocument != null || uiState.sharedDraftImported) {
+            showValidation("请先结束当前操作并移除共享草稿或附件"); return
+        }
+        val runtime = selectedAgentLaunchPreflight()?.runtimeSelection ?: return
+        val app = getApplication<XiaoLingApplication>()
+        val message = uiState.chatMessages.singleOrNull { it.id == messageId && it.role == "assistant" } ?: return
+        val lease = uiState.genUiActionLeases[messageId] ?: run { showValidation("卡片已失效，请生成新卡片"); return }
+        val revision = runCatching { app.agentPluginForeground.capture() }.getOrElse { showValidation("卡片操作只允许在前台发起"); return }
+        val selection = runCatching { genUiLeases.select(lease, uiState.selectedConversationId, messageId, message.text, actionId, drafts) }
+            .getOrElse { showValidation(it.message ?: "卡片引用无效"); return }
+        uiState = uiState.copy(genUiActionLeases = uiState.genUiActionLeases - messageId)
+        sendAgentRun("/agent 读取卡片 ${selection.tool}", runtime, memoryRecallEnabled = false,
+            genUiSelection = selection, genUiForegroundRevision = revision)
+    }
+
     fun runSignedPlugin(pluginId: String, goal: String, expectedManifestSha256: String): Boolean {
         if (uiState.sendingMessage || uiState.loadingConversationMessages || uiState.pendingPersonalTaskPlan != null ||
             uiState.attachingImage || uiState.attachingDocument || uiState.pendingImage != null ||
@@ -4797,6 +4826,7 @@ class XiaoLingViewModel @JvmOverloads constructor(
         )
         val preRequestConversations = uiState.conversations.map { it.toStored() }
         val preRequestSelectedConversationId = uiState.selectedConversationId
+        val sendIdentity = ordinarySendScope.begin(preRequestSelectedConversationId)
         val baseMeta = config.toBaseMessageMeta(profileSnapshot)
         sendMessageJob = viewModelScope.launch {
             try {
@@ -4816,7 +4846,7 @@ class XiaoLingViewModel @JvmOverloads constructor(
                         initialContext = initialContext,
                     ),
                     onEvent = { event ->
-                        handleConversationSendEvent(
+                        if (ordinarySendScope.accepts(sendIdentity, uiState.selectedConversationId)) handleConversationSendEvent(
                             event = event,
                             baseMeta = baseMeta,
                             userMessage = userMessage,
@@ -4825,7 +4855,8 @@ class XiaoLingViewModel @JvmOverloads constructor(
                     },
                 )
             } finally {
-                sendMessageJob = null
+                if (ordinarySendScope.accepts(sendIdentity, uiState.selectedConversationId)) sendMessageJob = null
+                ordinarySendScope.finish(sendIdentity)
             }
         }
     }
@@ -5497,6 +5528,10 @@ class XiaoLingViewModel @JvmOverloads constructor(
                         latencyMs = response.latencyMs,
                     ),
                 )
+                // long: 完整普通响应只在这个发送完成事件签发一次；持久正文恢复后默认没有执行引用。
+                val completed = finalMessages.lastOrNull { it.role == "assistant" }
+                completed?.takeIf { response.actionCompletionConfirmed }
+                    ?.let { genUiLeases.issue(uiState.selectedConversationId, it.id, it.text) }
                 uiState = uiState
                     .withUpdatedCurrentConversation(
                         messages = finalMessages,
@@ -5508,6 +5543,7 @@ class XiaoLingViewModel @JvmOverloads constructor(
                     .copy(
                         sendingMessage = false,
                         result = null,
+                        genUiActionLeases = genUiLeases.available(uiState.selectedConversationId),
                     )
                 // long: 只有模型响应完整收敛后才生成长期记忆候选；取消或断流正文都不能成为新的跨会话事实来源。
                 createMemoryCandidateAfterTurn(
@@ -5584,7 +5620,11 @@ class XiaoLingViewModel @JvmOverloads constructor(
         memoryRecallEnabled: Boolean = runtimeSelection.profile.memoryEnabled,
         workflowRunId: String? = null,
         pluginSelection: com.longdev.xiaoling.agent.AgentPluginExecutionSelection? = null,
+        genUiSelection: com.longdev.xiaoling.genui.GenUiActionSelection? = null,
+        genUiForegroundRevision: Long? = null,
     ) {
+        // long: 普通 Completed 的记忆候选可能仍在异步收尾；新 Agent owner 撤销旧发送代次，旧 finally 不能清空新的停止入口。
+        ordinarySendScope.invalidate()
         val externalInput = uiState.sharedDraftImported
         val effectiveMemoryRecallEnabled = memoryRecallEnabled && runtimeSelection.profile.memoryEnabled
         val currentConversation = uiState.conversations.firstOrNull { it.id == conversationId }
@@ -5631,7 +5671,10 @@ class XiaoLingViewModel @JvmOverloads constructor(
                     conversationId = conversationId,
                     notificationNoteSource = notificationNoteSource,
                 )
-                val summary = if (controlledReplayQualification == null) agentRunUseCase.run(
+                val summary = if (genUiSelection != null) agentRunUseCase.runGenUiAction(
+                    conversationId, userChatMessage.id, genUiSelection, requireNotNull(genUiForegroundRevision),
+                    runtimeSelection.profile, approvalGate, ::publishAgentRunSnapshot,
+                ) else if (controlledReplayQualification == null) agentRunUseCase.run(
                     conversationId = conversationId,
                     userMessageId = userChatMessage.id,
                     goal = goal,
@@ -5721,13 +5764,13 @@ class XiaoLingViewModel @JvmOverloads constructor(
                     )
                     // long: 先把最终答案放进当前会话，等同一份快照完成 Room 保存后再宣告发送结束，避免重建 Activity 读到旧会话而丢失目标级结果卡片。
                     .copy(sendingMessage = true, result = null)
-                if (pluginSelection == null) createMemoryCandidateAfterTurn(
+                if (pluginSelection == null && genUiSelection == null) createMemoryCandidateAfterTurn(
                     userText = goal,
                     conversationId = conversationId,
                     runId = summary.runId,
                 )
                 val answerPersistenceJob = saveConversationSelection()
-                if (pluginSelection == null) publishAgentAnswerabilityShadow(
+                if (pluginSelection == null && genUiSelection == null) publishAgentAnswerabilityShadow(
                     persistenceJob = answerPersistenceJob,
                     persistedMessageId = assistantMessage.id,
                     question = goal,

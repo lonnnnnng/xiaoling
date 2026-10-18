@@ -25,6 +25,7 @@ enum class AgentRunRestartDispositionCode {
     COMMITTED_EFFECT_EVIDENCE_INVALID,
     CONTEXT_EVIDENCE_INVALID,
     PLUGIN_FOREGROUND_SELECTION_EXPIRED,
+    GENUI_SELECTION_EXPIRED,
 }
 
 data class AgentRunRestartDisposition(
@@ -119,6 +120,10 @@ object AgentRunResumePolicy {
         if (AgentPluginExecutionPolicy.isPluginRun(detail)) {
             return restartRequired(AgentRunRestartDispositionCode.PLUGIN_FOREGROUND_SELECTION_EXPIRED,
                 "插件前台许可已失效，请从插件页重新显式发起")
+        }
+        if (GenUiExecutionPolicy.isGenUiRun(detail)) {
+            return restartRequired(AgentRunRestartDispositionCode.GENUI_SELECTION_EXPIRED,
+                "卡片引用已失效，请生成新卡片并重新选择")
         }
         if (detail.contextRecoveryStatus == AgentContextRecoveryStatus.INVALID) {
             return restartRequired(AgentRunRestartDispositionCode.CONTEXT_EVIDENCE_INVALID,
@@ -993,13 +998,16 @@ object AgentRunResumePolicy {
             code = code,
             reason = reason,
             evidenceBoundary = code.toEvidenceBoundary(),
-            suggestedAction = if (code == AgentRunRestartDispositionCode.PLUGIN_FOREGROUND_SELECTION_EXPIRED)
+            suggestedAction = if (code == AgentRunRestartDispositionCode.GENUI_SELECTION_EXPIRED)
+                "保留旧 Run 及其证据，在当前会话生成新卡片并重新选择。"
+                else if (code == AgentRunRestartDispositionCode.PLUGIN_FOREGROUND_SELECTION_EXPIRED)
                 "保留旧 Run 及其证据，从插件页重新选择签名插件并创建新 Run。"
                 else "保留旧 Run 及其证据，按重试门禁确认后创建关联新 Run。",
         ),
     )
 
     private fun AgentRunRestartDispositionCode.toEvidenceBoundary(): String = when (this) {
+        AgentRunRestartDispositionCode.GENUI_SELECTION_EXPIRED -> "历史卡片来源只证明原选择，不能替代本进程的新引用与前台审批。"
         AgentRunRestartDispositionCode.PLUGIN_FOREGROUND_SELECTION_EXPIRED ->
             "签名身份与冻结目录仅记录历史事实，不能替代新一轮前台显式选择。"
         AgentRunRestartDispositionCode.RUN_STATE_NOT_RESUMABLE ->

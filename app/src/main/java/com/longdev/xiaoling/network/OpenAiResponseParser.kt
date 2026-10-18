@@ -7,6 +7,15 @@ import org.json.JSONArray
 import org.json.JSONObject
 
 object OpenAiResponseParser {
+    // long: 可读正文不代表可执行卡片已完整完成；只有显式正常终止能签发 action，缺失、截断或失败均保留只读展示。
+    fun confirmsActionCompletion(apiMode: ApiMode, body: String): Boolean = runCatching {
+        val json = com.longdev.xiaoling.json.StrictJsonObject.parse(body)
+        when (apiMode) {
+            ApiMode.CHAT_COMPLETIONS -> json.optJSONArray("choices")?.optJSONObject(0)?.opt("finish_reason") == "stop"
+            ApiMode.RESPONSES -> json.opt("status") == "completed" && json.isNull("incomplete_details") && json.isNull("error")
+        }
+    }.getOrDefault(false)
+
     fun parseResponsesReasoningSummaries(body: String): List<ModelReasoningSummary> {
         val output = runCatching { JSONObject(body).optJSONArray("output") }.getOrNull() ?: return emptyList()
         return buildList {
@@ -101,7 +110,7 @@ object OpenAiResponseParser {
 
     fun parseStreamEvent(apiMode: ApiMode, data: String): LlmStreamEvent? {
         if (data == "[DONE]") return null
-        val json = runCatching { JSONObject(data) }.getOrNull() ?: return null
+        val json = runCatching { com.longdev.xiaoling.json.StrictJsonObject.parse(data) }.getOrNull() ?: return null
         // long: 同一条 SSE 数据只解析一次，再同时提取增量和服务端最终文本，避免协议层重复反序列化并让 Client 依赖事件类型细节。
         val deltaText = when (apiMode) {
             ApiMode.CHAT_COMPLETIONS -> parseChatStreamDelta(json)
@@ -110,10 +119,24 @@ object OpenAiResponseParser {
         val finalText = if (apiMode == ApiMode.RESPONSES) parseResponsesStreamFinalText(json) else null
         val reasoningSummaryDelta = if (apiMode == ApiMode.RESPONSES) parseReasoningSummaryDelta(json) else null
         val reasoningSummaries = if (apiMode == ApiMode.RESPONSES) parseFinalReasoningSummaries(json) else emptyList()
-        return if (deltaText == null && finalText == null && reasoningSummaryDelta == null && reasoningSummaries.isEmpty()) {
+        val completion = when (apiMode) {
+            ApiMode.CHAT_COMPLETIONS -> json.optJSONArray("choices")?.optJSONObject(0)?.let { choice ->
+                if (choice.isNull("finish_reason")) null else choice.opt("finish_reason") == "stop"
+            }
+            ApiMode.RESPONSES -> when (json.opt("type")) {
+                "response.completed" -> json.optJSONObject("response")?.let {
+                    // long: 状态本身不能确认此前缓存的卡片；终态必须携带可解析的最终正文，空输出或 refusal 只能只读展示。
+                    finalText != null && confirmsActionCompletion(apiMode, it.toString())
+                } ?: false
+                "response.failed", "response.incomplete", "error" -> false
+                else -> null
+            }
+        }
+        return if (deltaText == null && finalText == null && reasoningSummaryDelta == null && reasoningSummaries.isEmpty() && completion == null) {
             null
         } else {
             LlmStreamEvent(
+                actionCompletionConfirmed = completion,
                 deltaText = deltaText,
                 finalText = finalText,
                 reasoningSummaryDelta = reasoningSummaryDelta,

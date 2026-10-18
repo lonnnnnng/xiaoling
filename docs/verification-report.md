@@ -2,6 +2,27 @@
 
 验证日期：2026-10-18（北京时间）
 
+# 2026-10-18 第 290 阶段第三片：GenUI v2 与显式 action
+
+- 第 6 点 Workspace/Browser/GenUI 三片实现基线收口，下一主线为第 7 点 KMP 协议与 codec 固化。Room v44、发布版本 0.1.22 (23) 不变；没有 push/tag/Release。
+- v1 仍只回填草稿；v2 严格版本化 text/facts/input/action，完整标准 JSON、重复键/ID、未知字段/类型、敏感输入和半 JSON 降级 Markdown。固定六个宿主 SAFE 只读工具，会话列表只提交数字条数 1–10，草稿仅内存。
+- Completed 正常终态及最终正文才能签发会话/消息/正文哈希/进程短期一次引用；缺失、截断、失败、空 output/refusal 和终态后正文覆盖不能执行。会话切换及 A→B→A 迟到响应拒绝；新 Agent owner 使旧普通发送 finally 失效，停止入口不会丢失。
+- 点击经真实生产接线进入固定单工具 Runtime，与来源 marker 共事务创建新 Run；审批策略提升，批准前 Executor 为零。原审批/Tool Ledger/PASSED、目录指纹/Profile/resumed 代次、过期/取消与旧 marker 恢复拒绝均沿原账本。无模型重新规划或后台权限继承。
+
+| 已执行门禁 | 结果 | 证据边界 |
+| --- | --- | --- |
+| JVM 聚焦及网络客户端/取消/恢复/重试回归 | **160/160**、12 suites、0 failure/error | 单次引用、严格 JSON、终态缺口、审批0执行/拒绝/漂移/取消、发送代次及客户端真实 loopback SSE；不包含重复运行共享测试基类的计数 |
+| Debug / AndroidTest | 构建通过 | 内部 Debug 证书，不是正式 Release 验收 |
+| 指定 Redmi `wsvwypiz7xwslvl7 / begonia / SDK 36` | **22/22** | 共用协议/Runtime 13、隔离生产 UseCase/Room/原生时间4、Compose交互3、v1兼容1、真实Activity前台代次1 |
+| 文档 corpus / 保护摘要 | **2/2**；7 项摘要完全一致，Memory undo 仍 absent | 与验收前对比，UUID 数据库未写正式配置 |
+| 截图导出 / 视觉检查 | **1/1**；固定表单画面已检查 | 仅夹具画面，无字段或说明文字溢出 |
+| 本地文档链接 / 实际凭据与 APK 审计 | 180 链接有效；36 任务文件及两 APK 命中 **0** | 两项真实凭据仅内存匹配，扫描 APK 解压条目，不输出凭据 |
+
+- Redmi 首轮 21/22：唯一失败为测试截图保存到外部目录的 ENOENT，没有工具/账本失败；改用应用缓存后 UI 单项1/1、最终整组22/22。run-as 另被设备 SELinux 拒绝，截图通过显式固定夹具导出；不改变设备安全策略。失败日志保留。
+- 生产专项使用 UUID Room 与隔离 MCP/Skill 配置，证明原生时间调用、持久审批决定、唯一工具调用/PASSED、来源 marker、事务回滚、初始化失败和磁盘 reopen 后关闭旧 Run。完整真实模型→产品 ViewModel→审批点击联合验收仍独立待办；固定本地 action 不需要模型请求，不能把分段夹具验收称作完整联合。
+- 已提交基线不提升 Browser SERVER_HTML/本机草稿为真实渲染 DOM/网页输入。自然 LMK/Doze/重启、Workspace 历史回收、可写/远端 action 与正式 Release 独立追踪，详见[GenUI 契约](genui-actions.md)和[路线图](personal-agent-roadmap.md)。
+- 本轮证据：`outputs/verification/stage290-genui/` 的 `final-build-jvm.log`、`jvm-results.json`、`final-redmi.log`、`redmi.log`、`ui-repair-redmi.log`、`screenshot-export.log`、`genui-redmi.png`；最后的 corpus/保护摘要/凭据与 APK 审计见该目录门禁文件。
+
 # 2026-10-18 第 290 阶段第二片：Browser 语义 DOM 与本机草稿动作
 
 - 主线仍为第 6 点。本片实现基线为服务端 HTML DOM/action；Workspace 第一片已完成，下一片 GenUI 版本化组件与显式 action，第 6 点尚未整体收口，不进入第 7 点。Room v44/发布版本 `0.1.22 (23)` 不变，详见[Browser 契约](browser-dom-actions.md)和[路线图](personal-agent-roadmap.md)。

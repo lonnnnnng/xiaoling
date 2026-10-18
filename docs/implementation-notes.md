@@ -1,5 +1,10 @@
 # 当前实现说明
 
+## 2026-10-18 第 290 阶段第三片：GenUI 单工具前台审批
+
+- StrictJsonObject 在 Android/JVM 宽松 JSON 前验证完整输入、标准引号及解码后的唯一键。GenUiActionLeases 有界短期引用，ConversationSendScope 冻结普通发送会话/代次；正文恢复不能签发。GenUiActionToolRegistry 冻结 Profile 交集、原定义指纹、参数与 resumed 代次，提升审批策略，固定本地 AgentLlm 及单工具预算沿原 Runtime 验证。Run 与 genui.action.selected 来源共事务，旧 marker 全恢复/重试入口拒绝。
+- 第 6 点三片实现基线收口，完整产品真实模型联合、自然系统恢复与 Release 单列；下一主线为第 7 点 KMP 协议/codec。Room v44/发布版本不变，见[GenUI 契约](genui-actions.md)和[验证报告](verification-report.md)。
+
 ## 2026-10-18 第 290 阶段第二片：Browser DOM/action
 
 - jsoup 1.23.2 提取 schema v1 服务端语义 DOM、父关系/名称与 link/textbox 动作。已知隐藏子树在文本聚合前移除，password form 保留敏感标记；节点/扫描/深度/链接预算一致，超额链接不发布空动作 ref。

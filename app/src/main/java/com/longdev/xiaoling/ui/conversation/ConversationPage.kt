@@ -327,6 +327,12 @@ internal fun ConversationPage(
                                     onOpenLocalNote = actions::openLocalNote,
                                     onOpenMemory = actions::openMemory,
                                     onReuseUserMessage = actions::updatePrompt,
+                                    genUiDraftKey = "${state.conversationId}:${message.id}:${com.longdev.xiaoling.genui.GenUiActionPolicy.hash(message.text)}",
+                                    genUiActionLease = messages.genUiActionLeases[message.id],
+                                    genUiControlsEnabled = !state.composer.sendingMessage && !state.composer.loadingConversationMessages &&
+                                        !state.composer.attachingImage && !state.composer.attachingDocument && !state.composer.sharedDraftImported &&
+                                        state.composer.pendingImage == null && state.composer.pendingDocument == null && !state.composer.awaitingPersonalTaskPlanConfirmation,
+                                    onGenUiAction = { actionId, drafts -> actions.requestGenUiAction(message.id, actionId, drafts) },
                                     speaking = message.id == speakingMessageId,
                                     onSpeak = { actions.speakMessage(message.id, message.text) },
                                     onStopSpeaking = actions::stopSpeaking,

@@ -21,10 +21,10 @@
 
 1. Remote Channel 第 285 阶段按原定 cursor、批次、ACK、重试、过期、后台收件和通知功能收口。稳定部署与长期验收列为独立待办，不阻塞后续主线；临时公网认证互通不代表稳定服务和自然系统恢复已验收。
 2. 第 286 阶段 MCP 已收口：统一 `McpSessionRegistry`、legacy SSE、真实模型 SSE 联合验收及 Context7 认证 HTTPS 只读验收已完成。stdio 等待进程沙箱和生命周期机制，OAuth、Tasks 后置。
-3. 第 287 阶段 Context/Memory 五片实现基线已完成：Memory CAS、有界输入/context snapshot、确定性提取压缩、上下文恢复校验和显式一次性有界后台整理建议。第 4 点两片亦已完成，下一主线为多 Agent；系统长期/质量验收独立追踪，证据等级以报告为准。
+3. 第 287 阶段 Context/Memory 五片实现基线已完成：Memory CAS、有界输入/context snapshot、确定性提取压缩、上下文恢复校验和显式一次性有界后台整理建议。第 4 至第 6 点原定实现基线亦已完成；系统长期/质量验收独立追踪，证据等级以报告为准。
 4. 第 288 阶段 Skill/插件两片原定实现基线已完成：签名 manifest、有界版本回滚、SAFE 前台显式宿主扩展；无签名仅预览、旧 Run 不能继承前台许可。长期系统、完整界面联合和正式 Release 验收独立追踪。
 5. 第 289 阶段多 Agent 两片只读实现基线已收口：持久 child 槽位、来源/预算、原子派生/领取、父取消/恢复收敛，以及任务中心显式入口、父结果单次消费/完成策略和真实提供方联合已完成。仍限前台 Direct、最多两个只读 child；精确共享扣账/费用、完整产品点击联合、自然系统与 Release 独立追踪。
-6. 第 290 阶段 Workspace/Browser/GenUI：Workspace 持久会话第一片已完成，Browser 第二片补服务端语义 DOM、公开链接导航与本机草稿动作。下一片 GenUI 版本化组件和显式 action；静态 HTML 不代表真实渲染 DOM/网页输入，验收分级见报告，本阶段尚未整体收口。
+6. 第 290 阶段 Workspace/Browser/GenUI：三片实现基线收口，包含持久会话 transcript、SERVER_HTML DOM/action、本机草稿及 GenUI v2 单工具显式审批。静态 HTML 不代表真实渲染 DOM/网页输入；完整产品真实模型联合、自然系统与正式 Release 单列，验收分级见报告。下一主线为第 7 点 KMP 协议/codec 固化。
 7. shared 目前主要是 contract，实际 Agent runtime、Memory、MCP、设备和 UI 均在 Android；iOS 不能宣称与 Android 对等。
 
 ### 后续执行顺序
@@ -110,15 +110,23 @@
 - 完整产品界面点击 → ViewModel 会话持久化 → 真实模型联合专项、自然 LMK/Doze/系统重启与正式 Release 验收。
 - 后台/可写 child、递归派生、大规模性能与硬进程隔离。
 
-#### 第 290 阶段：Workspace、Browser 与 GenUI 统一受控面
+#### 第 290 阶段：Workspace、Browser 与 GenUI 统一受控面（三片实现基线收口）
 
 - 第一片 Workspace 已实现独立原子会话账本、Run/命令身份、有界 transcript、真实退出码/超时/取消、关闭与 Run 结束撤销及旧进程中断收敛；固定 argv/逐次审批保持，见[Workspace 契约](workspace-session-transcript.md)和报告。
-- 第二片 Browser 提供 schema v1 SERVER_HTML 语义节点、有界 link/type 草稿引用、owner 隔离、单次消费/取消与前后快照动作证据；原文只留内存，审批/事件/Ledger/模型历史摘要化，旧审批重新打开并确认。click 只做公开 GET，type 不改变真实网页；静态 CSS/动态 DOM 边界及分级验证见[Browser 契约](browser-dom-actions.md)和报告。本阶段尚未整体收口，下一片为 GenUI。
+- 第二片 Browser 提供 schema v1 SERVER_HTML 语义节点、有界 link/type 草稿引用、owner 隔离、单次消费/取消与前后快照动作证据；原文只留内存，审批/事件/Ledger/模型历史摘要化，旧审批重新打开并确认。click 只做公开 GET，type 不改变真实网页；静态 CSS/动态 DOM 边界及分级验证见[Browser 契约](browser-dom-actions.md)和报告。GenUI 第三片也已完成，当前按三片实现基线收口。
+
+- 第三片 GenUI v2：严格版本化 text/facts/input/action、数字条数本机草稿、Completed 正常终态才签发的会话/消息/hash/进程短期单次引用，固定宿主单工具新 Run逐次审批，来源与 Run 共事务；旧 marker 恢复/重试拒绝。JVM、Redmi 生产 UseCase/Room 与 UI 专项见[GenUI 契约](genui-actions.md)和报告。
 
 - Workspace 引入 `WorkspaceSession(sessionId, executionId)`，保存有界命令 transcript、cwd、退出码和中断状态；终端仍从固定 argv 白名单开始，shell/管道/重定向后置。
 - 浏览器本片先固化服务端 HTML 语义 snapshot、link/action 引用和显式 click/本机草稿 type；真实渲染 DOM/accessibility、网页输入、Cookie、登录态、下载、上传、脚本与后台执行独立评审，不因存在快照而默认开放。
 - GenUI 从 text/button 扩展为版本化只读组件、表单草稿和显式 action；每个 action 必须映射到现有审批、Tool Ledger 和结果证据，未知组件安全降级。
 - 退出标准：流式半 JSON 恢复、Activity 重组、未知组件、动作重复、引用过期和跨 session 污染均 fail-closed；至少完成 Redmi 浏览器/GenUI 单项。
+
+##### Workspace/Browser/GenUI 独立待办（不阻塞 KMP 协议固化）
+
+- 真实渲染 DOM/accessibility、网页输入与表单提交、Cookie/登录态、上传下载和脚本能力。
+- 完整真实模型→产品 ViewModel→审批点击联合验收、自然 LMK/Doze/系统重启、正式 Release。
+- Workspace 历史显式回收、长期容量/性能；可写或远端 GenUI action 需另行评审。
 
 #### 第 291 阶段：KMP actual 与多平台收口
 

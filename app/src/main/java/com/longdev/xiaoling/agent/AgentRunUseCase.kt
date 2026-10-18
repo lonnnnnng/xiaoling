@@ -113,6 +113,7 @@ class AgentRunUseCase(
         require(parentRunId == null || childRunId != null) { "child 必须使用已持久登记的槽位" }
         retryOfRunId?.let { source -> baseLedger.runDetail(source)?.let { detail ->
             AgentPluginExecutionPolicy.requireFreshSelection(detail)
+            GenUiExecutionPolicy.requireFreshSelection(detail)
             AgentChildLifecyclePolicy.requireFreshInvocation(detail)
         } }
         val childCheckpoint = childRunId?.let { id ->
@@ -231,6 +232,25 @@ class AgentRunUseCase(
             childCheckpoint != null -> guardChildParent(childCheckpoint.parentRunId) { executeRun() }
             else -> executeRun()
         }
+    }
+
+    suspend fun runGenUiAction(conversationId: String, userMessageId: String,
+        selection: com.longdev.xiaoling.genui.GenUiActionSelection, foregroundRevision: Long,
+        agentProfile: AgentProfileSnapshot, approvalGate: ApprovalGate,
+        onSnapshot: suspend (AgentRunSnapshot) -> Unit = {}): AgentRunSummary {
+        AgentProfilePolicy.validateRunnable(agentProfile)
+        require(conversationId == selection.conversationId)
+        val context = AgentToolExecutionContext(conversationId, userMessageId, "planning-$userMessageId",
+            "读取卡片 ${selection.tool}", memoryRecallEnabled = false)
+        toolRegistry.bindRunContext(context)
+        val registry = GenUiActionToolRegistry(ProfileScopedToolRegistry(toolRegistry, agentProfile.allowedToolNames),
+            selection, pluginForegroundState, foregroundRevision)
+        // long: 显式 action 不调用模型、Skill、Embedding 或 MCP；单工具预算仍由原 Runtime 结算审批、验证与终态。
+        val runtime = MinimalAgentRuntime(ReportingAgentRunLedger(baseLedger, onSnapshot, genUiEvidence = registry.evidenceJson()),
+            registry, registry.fixedModel(), approvalGate = approvalGate, permissionChecker = permissionChecker,
+            options = AgentRuntimeOptions(maxToolCalls = 1, runTimeoutMs = 60_000, toolStepTimeoutMs = 5_000))
+        return registry.guardRun { runtime.run(conversationId, userMessageId, "读取卡片 ${selection.tool}",
+            memoryRecallEnabled = false, agentProfile = agentProfile) }
     }
 
     private suspend fun <T> guardChildParent(parentRunId: String, block: suspend () -> T): T = coroutineScope {
@@ -422,6 +442,7 @@ class AgentRunUseCase(
         val latestSource = baseLedger.runDetail(sourceRunId)
             ?: error("来源 Agent Run 已不存在：$sourceRunId")
         AgentPluginExecutionPolicy.requireFreshSelection(latestSource)
+        GenUiExecutionPolicy.requireFreshSelection(latestSource)
         val persistedProfile = when (val audit = latestSource.inspectAgentProfileAudit()) {
             AgentProfileAuditAssessment.Legacy -> error("来源 Agent Run 缺少 Agent Profile 快照")
             is AgentProfileAuditAssessment.Available -> audit.profile
@@ -482,6 +503,7 @@ class AgentRunUseCase(
     }) { freshDetail ->
         val detail = freshDetail
         AgentPluginExecutionPolicy.requireFreshSelection(detail)
+        GenUiExecutionPolicy.requireFreshSelection(detail)
         AgentChildLifecyclePolicy.requireFreshInvocation(detail)
         val selectionEvent = detail.snapshot.events.lastOrNull { it.type == "skill.selected" }
         val agentProfile = when (val assessment = detail.inspectAgentProfileAudit()) {
@@ -631,6 +653,7 @@ class AgentRunUseCase(
     ): AgentRunSummary = baseLedger.withRecoveryExecution(detail.snapshot.run.id) { freshDetail ->
         val detail = freshDetail
         AgentPluginExecutionPolicy.requireFreshSelection(detail)
+        GenUiExecutionPolicy.requireFreshSelection(detail)
         AgentChildLifecyclePolicy.requireFreshInvocation(detail)
         val ledger = ReportingAgentRunLedger(
             delegate = baseLedger,
@@ -656,6 +679,7 @@ class AgentRunUseCase(
     ): AgentRunSummary = baseLedger.withRecoveryExecution(detail.snapshot.run.id) { freshDetail ->
         val detail = freshDetail
         AgentPluginExecutionPolicy.requireFreshSelection(detail)
+        GenUiExecutionPolicy.requireFreshSelection(detail)
         AgentChildLifecyclePolicy.requireFreshInvocation(detail)
         val ledger = ReportingAgentRunLedger(
             delegate = baseLedger,
@@ -789,6 +813,7 @@ private class ReportingAgentRunLedger(
     private val pluginEvidence: String? = null,
     private val invocationEvidence: String? = null,
     private val childRunId: String? = null,
+    private val genUiEvidence: String? = null,
 ) : AgentRunLedger {
     private val stepRunIds = mutableMapOf<String, String>()
 
@@ -819,6 +844,7 @@ private class ReportingAgentRunLedger(
         try {
             withContext(NonCancellable) {
                 created = when {
+                    genUiEvidence != null -> (delegate as RoomAgentRunRepository).createGenUiRun(conversationId, userMessageId, goal, genUiEvidence)
                     childRunId != null -> (delegate as RoomAgentRunRepository).claimReadOnlyChildRun(childRunId)
                     invocationEvidence != null -> (delegate as RoomAgentRunRepository).createInvokedRun(
                         conversationId, userMessageId, goal, retryOfRunId, parentRunId, invocationEvidence)

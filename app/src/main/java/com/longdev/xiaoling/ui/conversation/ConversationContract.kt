@@ -48,6 +48,8 @@ internal interface ConversationActions {
 
     fun updatePrompt(value: String)
 
+    fun requestGenUiAction(messageId: String, actionId: String, drafts: Map<String, String>) {}
+
     fun updatePersonalTaskMode(enabled: Boolean)
 
     fun removePendingImage()
@@ -134,6 +136,7 @@ internal data class ConversationProviderUiState(
 )
 
 internal data class ConversationMessagesUiState(
+    val genUiActionLeases: Map<String, com.longdev.xiaoling.genui.GenUiActionLease> = emptyMap(),
     val chatMessages: List<ChatMessage> = emptyList(),
     val knowledgeReferenceStatuses: Map<KnowledgeReference, KnowledgeReferenceStatus> = emptyMap(),
     val failedKnowledgeReferenceStatuses: Set<KnowledgeReference> = emptySet(),
@@ -205,6 +208,7 @@ internal object ConversationProjection {
         attachingDocument: Boolean = false,
         loadingConversationMessages: Boolean = false,
         chatMessages: List<ChatMessage> = emptyList(),
+        genUiActionLeases: Map<String, com.longdev.xiaoling.genui.GenUiActionLease> = emptyMap(),
         knowledgeReferenceStatuses: Map<KnowledgeReference, KnowledgeReferenceStatus> = emptyMap(),
         failedKnowledgeReferenceStatuses: Set<KnowledgeReference> = emptySet(),
         answerabilityNotices: Map<String, KnowledgeAnswerabilityUserNotice> = emptyMap(),
@@ -250,6 +254,7 @@ internal object ConversationProjection {
                 hasEnabledModels = ordinaryChatEnabled,
             ),
             messages = ConversationMessagesUiState(
+                genUiActionLeases = genUiActionLeases,
                 chatMessages = chatMessages,
                 knowledgeReferenceStatuses = knowledgeReferenceStatuses,
                 failedKnowledgeReferenceStatuses = failedKnowledgeReferenceStatuses,

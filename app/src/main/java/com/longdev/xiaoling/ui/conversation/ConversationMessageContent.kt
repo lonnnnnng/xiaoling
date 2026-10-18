@@ -72,6 +72,7 @@ import androidx.compose.ui.unit.sp
 import com.longdev.xiaoling.knowledge.KnowledgeAnswerabilityUserNotice
 import com.longdev.xiaoling.knowledge.KnowledgeReference
 import com.longdev.xiaoling.knowledge.KnowledgeReferenceStatus
+import com.longdev.xiaoling.model.MessageOrigin
 import com.longdev.xiaoling.genui.GenUiPolicy
 import com.longdev.xiaoling.model.ImageAttachment
 import com.longdev.xiaoling.model.MessagePart
@@ -118,6 +119,10 @@ internal fun ChatBubble(
     onOpenLocalNote: (String) -> Unit,
     onOpenMemory: (String) -> Unit,
     onReuseUserMessage: (String) -> Unit,
+    genUiDraftKey: String = "",
+    genUiActionLease: com.longdev.xiaoling.genui.GenUiActionLease? = null,
+    genUiControlsEnabled: Boolean = true,
+    onGenUiAction: (String, Map<String, String>) -> Unit = { _, _ -> },
     speaking: Boolean = false,
     onSpeak: () -> Unit = {},
     onStopSpeaking: () -> Unit = {},
@@ -175,6 +180,10 @@ internal fun ChatBubble(
                     onOpenLocalNote = onOpenLocalNote,
                     onOpenMemory = onOpenMemory,
                     onReuseUserMessage = onReuseUserMessage,
+                    genUiDraftKey = genUiDraftKey,
+                    genUiActionLease = genUiActionLease,
+                    genUiControlsEnabled = genUiControlsEnabled,
+                    onGenUiAction = onGenUiAction,
                 )
                 KnowledgeReferencesContent(
                     messageId = message.id,
@@ -261,6 +270,10 @@ private fun MessageBodyParts(
     onOpenLocalNote: (String) -> Unit,
     onOpenMemory: (String) -> Unit,
     onReuseUserMessage: (String) -> Unit,
+    genUiDraftKey: String,
+    genUiActionLease: com.longdev.xiaoling.genui.GenUiActionLease?,
+    genUiControlsEnabled: Boolean,
+    onGenUiAction: (String, Map<String, String>) -> Unit,
 ) {
     val genUiProjection = message
         .takeIf { it.role == "assistant" }
@@ -278,6 +291,11 @@ private fun MessageBodyParts(
                         contentColor = contentColor,
                         // long：按钮只回填用户输入，不自动发送或调用工具，保留现有确认边界。
                         onAction = onReuseUserMessage,
+                        draftKey = genUiDraftKey,
+                        actionLease = genUiActionLease.takeIf { message.origin == MessageOrigin.ORDINARY_ASSISTANT &&
+                            !message.isStreamingInProgress() && message.meta?.errorKind == null && message.meta?.finishReason !in setOf("failed", "cancelled", "length") },
+                        controlsEnabled = genUiControlsEnabled && !message.isStreamingInProgress(),
+                        onHostAction = onGenUiAction,
                     )
                 } else {
                     MessageTextPart(message, part.text, contentColor)

@@ -91,12 +91,14 @@ class OpenAiCompatibleClient(
         } else {
             val execution = executeWithTiming(request, startedAtMs, config.httpDebugLoggingEnabled) { responseBody ->
                 ParsedCompletion(
+                    actionCompletionConfirmed = adapter.confirmsActionCompletion(config.apiMode, responseBody),
                     text = adapter.parseGenerationResponse(config.apiMode, responseBody),
                     reasoningSummaries = adapter.parseReasoningSummaries(config.apiMode, responseBody),
                     usage = adapter.parseTokenUsage(config.apiMode, responseBody),
                 )
             }
             ModelCompletion(
+                actionCompletionConfirmed = execution.value.actionCompletionConfirmed,
                 text = execution.value.text,
                 firstByteLatencyMs = execution.firstByteLatencyMs,
                 firstTokenLatencyMs = null,
@@ -105,6 +107,7 @@ class OpenAiCompatibleClient(
             )
         }
         ModelResponseResult(
+            actionCompletionConfirmed = completion.actionCompletionConfirmed,
             requestUrl = requestUrl,
             model = config.model.trim(),
             latencyMs = monotonicNowMs() - startedAtMs,
@@ -226,6 +229,7 @@ class OpenAiCompatibleClient(
                 val reasoningSummaryBuffers = linkedMapOf<Pair<String?, Int>, StringBuilder>()
                 var firstTokenLatencyMs: Long? = null
                 var finalTextFromStream: String? = null
+                var actionCompletion: Boolean? = null
                 val body = response.body ?: throw ApiFailure(FailureKind.RESPONSE, "服务器没有返回流式响应")
                 // long: 流式响应也要在首个 SSE 字节实际可读后记录 TTFB；已缓冲字节仍由 charStream 消费，不会丢失首个事件。
                 body.source().request(1L)
@@ -237,6 +241,9 @@ class OpenAiCompatibleClient(
                         if (data.isBlank()) return@forEach
                         if (httpDebugLoggingEnabled) NetworkDebugLogger.logStreamEvent(data)
                         val streamEvent = adapter.parseStreamEvent(apiMode, data) ?: return@forEach
+                        // long: 正常终态只能确认当时的正文；后续 delta 或 done 覆盖也要撤销，不能借终态给另一份卡片签发引用。
+                        if (actionCompletion != null && (streamEvent.deltaText != null || streamEvent.finalText != null)) actionCompletion = false
+                        streamEvent.actionCompletionConfirmed?.let { actionCompletion = actionCompletion != false && it }
                         streamEvent.reasoningSummaryDelta?.let { summary ->
                             reasoningSummaryBuffers
                                 .getOrPut(summary.providerItemId to summary.summaryIndex, ::StringBuilder)
@@ -270,6 +277,7 @@ class OpenAiCompatibleClient(
                 }
                 val completedText = finalTextFromStream ?: builder.toString()
                 return ModelCompletion(
+                    actionCompletionConfirmed = actionCompletion == true,
                     text = completedText.ifBlank {
                         throw ApiFailure(FailureKind.RESPONSE, "流式响应没有返回可读文本")
                     },
@@ -300,6 +308,7 @@ class OpenAiCompatibleClient(
         }
 
     private data class ModelCompletion(
+        val actionCompletionConfirmed: Boolean,
         val text: String,
         val firstByteLatencyMs: Long?,
         val firstTokenLatencyMs: Long?,
@@ -308,6 +317,7 @@ class OpenAiCompatibleClient(
     )
 
     private data class ParsedCompletion(
+        val actionCompletionConfirmed: Boolean,
         val text: String,
         val reasoningSummaries: List<ModelReasoningSummary>,
         val usage: ModelTokenUsage?,

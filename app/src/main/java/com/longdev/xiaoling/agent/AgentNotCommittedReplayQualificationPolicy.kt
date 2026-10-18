@@ -22,6 +22,7 @@ object AgentNotCommittedReplayQualificationPolicy {
         definitionLookup: (String) -> ToolDefinition?,
     ): AgentNotCommittedReplayQualificationAssessment {
         if (AgentChildLifecyclePolicy.isManagedRun(detail)) return ineligible("多 Agent 旧批次不能单独重放 child")
+        if (GenUiExecutionPolicy.isGenUiRun(detail)) return ineligible("卡片旧引用不能重放")
         if (AgentPluginExecutionPolicy.isPluginRun(detail)) return ineligible("插件任务须从插件页重新显式发起")
         if (detail.snapshot.run.status != AgentRunStatus.CANCELLED) {
             return ineligible("只有已经完成启动收敛的 Run 才能重新核验受控重放资格")
@@ -77,6 +78,7 @@ object AgentNotCommittedReplayQualificationPolicy {
         definitionLookup: (String) -> ToolDefinition?,
     ): AgentNotCommittedReplayQualificationAssessment {
         if (AgentChildLifecyclePolicy.isManagedRun(detail)) return ineligible("多 Agent 旧批次不能单独重放 child")
+        if (GenUiExecutionPolicy.isGenUiRun(detail)) return ineligible("卡片旧引用不能重放")
         if (AgentPluginExecutionPolicy.isPluginRun(detail)) return ineligible("插件任务须从插件页重新显式发起")
         if (detail.snapshot.run.status != AgentRunStatus.EXECUTING) {
             return ineligible("只有停在执行步骤落库前的 Run 才能评估尚未提交重放资格")

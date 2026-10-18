@@ -266,6 +266,9 @@ private fun XiaoLingContent(
 
             override fun updatePrompt(value: String) = viewModel.updatePrompt(value)
 
+            override fun requestGenUiAction(messageId: String, actionId: String, drafts: Map<String, String>) =
+                viewModel.requestGenUiAction(messageId, actionId, drafts)
+
             override fun updatePersonalTaskMode(enabled: Boolean) = viewModel.updatePersonalTaskMode(enabled)
 
             override fun removePendingImage() = viewModel.removePendingImage()
@@ -861,6 +864,7 @@ private fun XiaoLingUiState.toConversationUiState(): ConversationUiState {
         attachingDocument = attachingDocument,
         loadingConversationMessages = loadingConversationMessages,
         chatMessages = chatMessages,
+        genUiActionLeases = genUiActionLeases,
         knowledgeReferenceStatuses = knowledgeReferenceStatuses,
         failedKnowledgeReferenceStatuses = failedKnowledgeReferenceStatuses,
         answerabilityNotices = answerabilityNotices,

@@ -22,6 +22,8 @@ interface LlmProviderAdapter {
 
     fun parseGenerationResponse(apiMode: ApiMode, body: String): String
 
+    fun confirmsActionCompletion(apiMode: ApiMode, body: String): Boolean = false
+
     fun parseReasoningSummaries(apiMode: ApiMode, body: String): List<ModelReasoningSummary>
 
     fun parseTokenUsage(apiMode: ApiMode, body: String): ModelTokenUsage?
@@ -49,6 +51,7 @@ data class LlmStreamEvent(
     val finalText: String? = null,
     val reasoningSummaryDelta: ModelReasoningSummary? = null,
     val reasoningSummaries: List<ModelReasoningSummary> = emptyList(),
+    val actionCompletionConfirmed: Boolean? = null,
 )
 
 sealed interface RequestInputItem
@@ -88,6 +91,8 @@ data class RequestFunctionCallOutput(
 }
 
 class OpenAiCompatibleAdapter : LlmProviderAdapter {
+    override fun confirmsActionCompletion(apiMode: ApiMode, body: String): Boolean =
+        OpenAiResponseParser.confirmsActionCompletion(apiMode, body)
     override fun modelsUrl(config: ProviderRequestConfig): String =
         ProviderApiUrlBuilder.modelsUrl(config.baseUrl)
 

@@ -65,6 +65,7 @@ data class ModelResponseResult(
     val usage: ModelTokenUsage? = null,
     val responseText: String,
     val reasoningSummaries: List<ModelReasoningSummary> = emptyList(),
+    val actionCompletionConfirmed: Boolean = false,
 )
 
 data class ModelReasoningSummary(

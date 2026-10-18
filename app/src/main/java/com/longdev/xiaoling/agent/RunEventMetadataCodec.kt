@@ -249,6 +249,7 @@ internal object RunEventMetadataCodec {
                 "multi_agent.child.linked",
                 "multi_agent.child.started",
                 AgentPluginExecutionPolicy.SELECTION_EVENT,
+                GenUiExecutionPolicy.SELECTION_EVENT,
                 "plugin.execution.initialization_failed",
                 "run.failed",
                 "run.timeout",

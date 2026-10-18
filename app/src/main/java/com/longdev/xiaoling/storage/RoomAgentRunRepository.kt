@@ -258,6 +258,15 @@ class RoomAgentRunRepository(
             run
         }
 
+    suspend fun createGenUiRun(conversationId: String, userMessageId: String, goal: String, evidence: String): AgentRunRecord =
+        database.withTransaction {
+            // long: 来源标记与新 Run 共事务；进程退出后不能把失效卡片恢复成完整宿主权限。
+            val run = createRun(conversationId, userMessageId, goal, null, null)
+            appendEvent(run.id, com.longdev.xiaoling.agent.GenUiExecutionPolicy.SELECTION_EVENT,
+                "已冻结卡片来源与单工具选择", RunEventMetadata.Reason(evidence))
+            run
+        }
+
     override suspend fun createRun(
         conversationId: String,
         userMessageId: String,
