@@ -1,153 +1,53 @@
 # 小灵
 
-<p align="center">
-  <strong>Android 端、本地优先、可审计、可恢复的个人 Agent</strong>
-</p>
-
-<p align="center">
-  <img alt="Android 8+" src="https://img.shields.io/badge/Android-8.0%2B-3DDC84?logo=android&logoColor=white">
-  <img alt="Kotlin" src="https://img.shields.io/badge/Kotlin-Jetpack%20Compose-7F52FF?logo=kotlin&logoColor=white">
-  <img alt="Room v44" src="https://img.shields.io/badge/Room-v44-4285F4">
-  <img alt="Release v0.1.22" src="https://img.shields.io/badge/Release-v0.1.22-2E7D32">
-</p>
-
-小灵不是一个只会生成文字的聊天客户端，也不是默认拥有全部权限的自动化脚本。它把自然语言目标转换成受控工具调用，在 Android 本地保存计划、审批、执行与验证证据，并让用户始终掌握最终控制权。
-
-七点路线的原定实现基线已完成。第 7 点九片固化[共享可读证据](docs/kmp-readable-evidence.md)、[context snapshot](docs/kmp-context-snapshot.md)、[MCP schema](docs/kmp-mcp-schema.md)、[Remote Channel wire](docs/kmp-remote-channel-wire.md)、[完整结果 codec](docs/kmp-tool-result.md)，并提供 iOS workspace/HTTP/固定页面只读浏览器及[真实前台 Agent loop](docs/ios-foreground-agent.md)。可见 UIKit 宿主与真实模型/公网 HTTPS、取消/后台撤销/显式新 Run 联合已验证；完整 iOS 产品、持久恢复、自然系统和正式 Release 独立追踪，详见[路线图](docs/personal-agent-roadmap.md)和[验证报告](docs/verification-report.md)。
+Android 端、本地优先的个人 Agent。把自然语言目标转换成受控工具调用，在本地保存计划、审批与执行证据，并根据实际结果判断任务是否完成。
 
 ## 下载
 
-短期暂停 iOS 产品工作，当前优先[Android 真实模型与产品验收](docs/android-live-acceptance.md)。第 293 阶段已补[生产设备审批浮层专项](docs/android-device-approval-acceptance.md)四项同轮通过；第 294 阶段补[正式 Workflow 入口专项](docs/android-workflow-acceptance.md)的新建只读与限定定义手动运行/批准/拒绝；第 296 阶段[设置搜索与分步完成专项](docs/android-workflow-completion-acceptance.md)同轮九调用/三审批、精确回读、隐私和 Activity 重建通过；第 297 阶段[正式设置滚动专项](docs/android-workflow-scroll-acceptance.md)同轮六调用/一审批、SAFE 滚动零审批、VERIFIED 和重建通过。编辑器限定应用确认、其他滚动方向/边界、复杂任务、自然系统恢复和正式 Release 继续单列。
+[下载 v0.1.23](https://github.com/lonnnnnng/xiaoling/releases/tag/v0.1.23) · Android 8.0 及以上
 
-- [GitHub Release v0.1.22](https://github.com/lonnnnnng/xiaoling/releases/tag/v0.1.22)
-- 安装包：`xiaoling-v0.1.22.apk`
-- 完整性校验：`xiaoling-v0.1.22.apk.sha256`
-- 系统要求：Android 8.0（API 26）及以上
+Release 提供 `xiaoling-v0.1.23.apk` 和同名 `.apk.sha256` 校验文件。本版更新与验收范围见[发布记录](docs/android-v0.1.23-release.md)。
 
-> 安装前请核对 Release 页面中的 SHA-256。Android 可能提示允许从当前来源安装应用，需要由用户在系统设置中显式授权。
+## 主要能力
 
-## 它能做什么
-
-| 能力 | 当前实现 |
+| 能力 | 说明 |
 | --- | --- |
-| 模型接入 | 用户自配 OpenAI-compatible Provider；支持 Chat Completions、Responses 与 SSE 流式响应 |
-| 对话 | 多会话本地保存、Markdown、图片与文档附件、系统分享入口、语音草稿输入、前台 TTS 朗读 |
-| 系统入口 | 可通过 Android `ASSIST` Activity 或用户确认后的默认数字助理角色打开对话页；不自动录音、不自动发送 |
-| Agent Run | 自然语言目标生成 1 至 8 步计划；确认后才创建 Run；全过程写入本地审计账本 |
-| 个人信息 | 本地笔记、长期记忆、知识库、任务、日历、联系人及当前通知的受控访问 |
-| 知识引用 | 回答可携带文档版本、分块与偏移身份，并跳转当前权威原文；内容漂移时拒绝猜测 |
-| Workflow | 前台手动 Workflow、一次性与非精确定时任务、WorkManager 执行、通知结果导航 |
-| 设备 Agent | 前台观察与受控动作：`snapshot`、`open_app`、`back`、`home`、`tap_ref`、`type_text`、`swipe` |
-| 浏览器与工作区 | 公开网页只读浏览器 Agent；应用私有工作区、文件读写和有界终端会话 |
-| MCP、Skill 与 GenUI | Streamable HTTP MCP 客户端；GitHub `SKILL.json` / `SKILL.md` 导入并固定到 commit；受限 `xiaoling-ui` 卡片输出 |
-| 结果验证 | 以持久化 Tool Ledger 和操作后观察给出 `VERIFIED / PARTIAL / INCOMPLETE`，模型总结不能升级事实结论 |
-
-## 一条任务如何完成
-
-```text
-自然语言目标
-    ↓
-显式 Agent 意图与最小 Profile
-    ↓
-生成计划并由用户确认
-    ↓
-逐步执行、按风险审批
-    ↓
-操作后重新观察与强类型验证
-    ↓
-持久化审计证据与答案级事实入口
-```
-
-关键写入只有在执行器结果、typed verification 和当前数据回读一致时，才会形成 `COMMITTED` 回执。失败、中断或证据不足不会被润色成成功；无法确认提交状态的旧 Run 默认保留不变，并通过关联新 Run 重新开始。
-
-## 安全边界
-
-- 工具必须同时通过应用注册表、当前 Profile、Skill 白名单、运行模式和系统权限检查。
-- 写入、打开应用、点击与文本输入等动作按风险显式审批；`back / home / swipe` 虽为 SAFE，仍要求新鲜观察和操作后验证。
-- API Key 使用 Android Keystore 保护；敏感输入不在审计记录中保存原文，只保留最小指纹与长度。
-- Accessibility 独立授权、独立开关，设备节点引用短生命周期化，并在进入模型前进行隐私过滤。
-- 不提供任意 Shell、Root、ADB、隐藏系统 API，也不执行未经确认的支付、下单、删除、发消息或系统设置修改。
-- 浏览器只读取公开 HTTP(S) 页面，拒绝私网/回环解析、账号密码 URL、脚本、Cookie、表单和自动重定向；工作区写入与终端操作逐次确认，并限制路径、会话、输入、输出和超时。
-- MCP 当前接入 Streamable HTTP 的 `tools/list` / `tools/call`、`resources/list` / `resources/read` 和 `prompts/list` / `prompts/get`，要求 HTTPS（本机调试只允许 loopback），Token 使用 Keystore 加密；工具、资源和 Prompt 目录均在当前 Run 内冻结，资源与 Prompt 只能读取已发现的 URI/名称，远端工具仍按设置页白名单和逐次确认执行。
-- GenUI 当前只接受 assistant 文本中的 `xiaoling-ui` fenced JSON，组件白名单为单层 card、text、button；按钮只回填输入框，不自动发送、不调用网络、代码或系统动作，解析失败时回退普通 Markdown。
-- Remote Channel 已具备签名/白名单校验、独立 Keystore 加密的待确认收件箱，以及设置页手动 P-256 公钥身份配对：指纹核对后保存且默认停用，可启停、撤销。设置页可手动导入九字段签名 JSON，也可为当前公钥登记 HTTPS 地址并主动拉取一条；两种来源都进入跨重启待确认列表，确认卡打开或忽略后才移除加密正文，重放身份保留。当前没有后台网络监听、送达通知或远端自动执行入口。
-- 设备动作目前只承诺少量已验收应用与前台场景，不承诺任意 App；后台或定时设备动作、坐标/截图兜底仍关闭。
-- 后台计划使用 WorkManager 非精确定时语义；已补齐 `KEEP` 实际 Work ID 回读和孤立计划补队，但不承诺自然 LMK 后原地续跑，也未引入 Foreground Service。TTS 仅由用户在前台点击 assistant 消息触发，使用音频焦点和长文本分片；设备无可用系统引擎时保持不可播放。系统助手入口只打开对话页，不读取屏幕、不自动录音或发送。
-- GitHub Skill 导入只保存校验后的指令和来源摘要；仓库目录可发现多个 `SKILL.json` / `SKILL.md` 并要求选择，不执行仓库脚本、不自动授予工具权限；设置页可安装旧声明或 P-256 签名 manifest，确认公钥后默认停用，支持有界历史回滚并保留最高版本/移除身份约束。启用的签名插件可显式运行与当前 Agent 相交的宿主 SAFE 只读能力；无签名声明仍仅预览。账号与云同步、开放 Skill 市场、远程代码安装、stdio/OAuth MCP、多 Agent 扩张和端侧模型管理仍未开放。
+| 对话 | 自配 OpenAI-compatible 模型；支持 Chat Completions、Responses、流式输出、图片与文档附件 |
+| 个人信息 | 本地笔记、记忆、知识库与任务，以及经授权的日历、联系人和通知访问 |
+| Agent 与工作流 | 检查计划后执行；支持手动工作流、限定应用、逐步完成标准与非精确定时任务 |
+| 设备操作 | 前台观察、打开应用、点击、输入和滚动；按风险审批并检查操作后的页面 |
+| 浏览器与工作区 | 公开网页静态内容读取、确认后的链接导航，以及私有工作区文件和有界命令会话 |
+| 扩展 | HTTP / SSE MCP、GitHub Skill、签名插件、受限只读子 Agent 与 GenUI 显式动作 |
+| 审计与恢复 | 保存工具调用和验证结果；中断后检查持久事实，证据不足时保留失败 |
 
 ## 快速开始
 
-1. 安装并打开小灵。
-2. 进入“设置 → 模型提供方”，添加 Provider，填写 Base URL 与 API Key。
-3. 同步模型列表，启用需要的模型。
-4. 返回对话页，选择模型与 API 模式后开始普通对话。
-5. 需要执行工具时，使用 Agent 任务入口或显式 `/agent` 意图，检查计划后再确认执行。
-6. 需要远程工具时，在“设置 → MCP Servers”配置服务器；需要扩展任务指令时，在“设置 → Agent Skills”导入 GitHub 的 `SKILL.json` 或 `SKILL.md`。
-7. 需要接收远程消息时，在“设置 → 远端身份配对”核对并启用发送方公钥，再粘贴签名 JSON，或登记 HTTPS 地址后点击收件按钮。字段、响应格式和签名字节格式见 [Remote Channel 收件协议](docs/remote-channel-signed-import.md)。
-8. 在“设置 → 工作流”新建或编辑步骤；设备任务需显式选择限定应用。可开启完成标准核验，为每一步选择事实标准，确认后保存，再手动运行。目标文字本身不会授予设备动作权限，详见[编辑器确认专项](docs/android-workflow-editor-acceptance.md)。
+1. 安装后进入“设置 → 模型提供方”，填写 Base URL 和 API Key，同步并启用模型。
+2. 返回对话页选择模型，开始对话；需要执行工具时使用 Agent 任务入口或 `/agent`，检查计划后确认。
+3. 在“设置 → 工作流”创建任务。设备步骤需确认限定应用；需要核验完成情况时，为每步选择事实标准。
+4. 按需配置 MCP Servers、Agent Skills 或远端身份配对，并在系统设置中授权需要的权限。
 
-系统分享的文本、图片和文档只会进入可编辑草稿，不会自动发送、调用模型或创建 Agent Run。
+## 权限与边界
+
+- API Key 使用 Android Keystore 保护。无障碍权限独立授权，设备观察会过滤敏感内容。
+- 写入和设备动作按风险审批；模型总结不能代替执行证据。设备操作目前限于已验收应用和前台场景。
+- Remote Channel 的后台收件与通知默认关闭、分别授权；消息仍需本机确认，不自动运行 Agent。
+- 浏览器使用静态 HTML，输入仅保存非敏感本机草稿。MCP 不自动重放工具调用；插件与 GenUI 只开放受限宿主能力。
+- 稳定远端部署、真实通知、自然系统恢复和复杂设备任务仍在验收。短期暂停 iOS 产品工作。
 
 ## 本地构建
 
-环境要求：macOS、JDK 21、Android SDK，以及项目所需的 API 36 构建工具。
+macOS 环境需要 JDK 21、Android SDK 和 API 36 构建工具。
 
 ```zsh
-# Debug 与 JVM 测试
-JAVA_HOME=$(/usr/libexec/java_home -v 21) ./gradlew testDebugUnitTest assembleDebug
-
-# Release（需要本地签名配置）
-JAVA_HOME=$(/usr/libexec/java_home -v 21) ./gradlew assembleRelease
+JAVA_HOME=$(/usr/libexec/java_home -v 21) ./gradlew :app:testDebugUnitTest :app:assembleDebug
+JAVA_HOME=$(/usr/libexec/java_home -v 21) ./gradlew :app:assembleRelease
 ```
 
-产物位置：
-
-- Debug：`app/build/outputs/apk/debug/app-debug.apk`
-- Release：`app/build/outputs/apk/release/app-release.apk`
-
-Release 签名从未跟踪文件 `local-signing/xiaoling-release.env` 读取。请勿把签名文件、密码、API Key 或设备端 Provider 配置提交到仓库。
-
-## 当前状态
-
-第 7 点 KMP 协议/codec 与 iOS 平台实现的原定基线已收口：前五片共享协议、后续原生 workspace/HTTP/固定页面浏览器和第九片真实前台 loop 已完成。静态 framework 与可见 UIKit 验收宿主通过真实 gpt-6-luna 联合文件/页面读取、用户取消、后台撤销和显式新 Run；shared contract v5、Room v44/发布版本保持。iOS 正式产品、持久恢复、后台系统、多窗口与正式 Release 独立追踪，能力矩阵和证据见[前台契约](docs/ios-foreground-agent.md)、[路线图](docs/personal-agent-roadmap.md)及[验证报告](docs/verification-report.md)。
-
-第 5 点多 Agent 两片只读实现基线已收口：child checkpoint/唯一领取/父取消、任务中心显式 1–2 目标、独立会话与父结构化单次消费，真实 gpt-6-luna 联合已通过。精确共享扣账/费用、完整产品点击联合、自然系统和 Release 独立跟踪。详见[child 生命周期](docs/agent-child-lifecycle.md)。
-
-第 4 点 Skill/插件（第 288 阶段）原定实现基线已完成：签名 manifest、公钥/内容确认、有界版本回滚和 SAFE 前台执行网关。签名插件须启用、填写目标并显式点击；目录受 manifest/ACI/Profile/动态 SAFE 交集约束，停用或离开前台撤销，旧 Run 须重新选择。每轮最多 3 调用/60 秒，工具 10 秒，插件标记与 Run 同事务。第 7 点原定实现基线亦已收口；长期系统、完整产品界面联合与正式 Release 验收独立追踪。详见[签名与回滚](docs/agent-plugin-signing.md)、[前台执行契约](docs/agent-plugin-execution.md)和[验证报告](docs/verification-report.md)。
-
-第 3 点 Context/Memory（第 287 阶段）的五片实现基线已完成：Memory CAS、有界输入/context snapshot、确定性提取压缩、上下文恢复校验与显式一次性有界后台整理建议，开发 Room v44。整理仅处理近 7 天最多 20 个已完成任务的原始用户陈述，以持久 outbox 送到候选列表，正式记忆由用户确认；受控独立进程证据与长期验证边界见报告。第 4 点两片亦已完成，第 7 点原定实现基线亦已收口。详见[Memory CAS](docs/memory-cas.md)、[输入快照](docs/agent-context-snapshot.md)、[压缩契约](docs/agent-context-compression.md)、[恢复契约](docs/agent-context-recovery.md)、[整理契约](docs/memory-maintenance.md)、[路线图](docs/personal-agent-roadmap.md)和[验证报告](docs/verification-report.md)。
-
-第 2 点 MCP 已收口：应用级 `McpSessionRegistry` 统一设置/Run 会话，支持 Streamable HTTP 与 legacy SSE；配置变更撤销旧连接，取消/断流清目录，后续显式操作重新发现且不重放工具调用。Redmi 已通过真实 `gpt-6-luna` 的 SSE 成功/取消/停用，以及 Context7 认证 HTTPS 的发现和只读解析。Context7 为真实外部 Streamable HTTP，SSE 服务端仍为隔离 loopback；`query-docs`、OAuth、stdio、Tasks、后台 MCP 和正式 Release 独立后置，详见[MCP 会话契约](docs/mcp-session-registry.md)。
-
-第 1 点 Remote Channel（第 285 阶段）按 cursor、批次、ACK、重试、过期、后台收件和通知功能收口，含接收公钥注册/导出、认证 HTTPS 客户端及 HTTP 服务。稳定部署、容量回收、长期自然系统恢复、真实通知和 Release 验收列为独立待办，不阻塞后续主线；既有临时公网合成证据保持原等级。
-
-| 项目 | 状态 |
-| --- | --- |
-| 正式版本 | `v0.1.22`（`versionCode 23`） |
-| 当前开发数据库 | Room v44（正式 v0.1.22 发布包仍为 v40） |
-| 开发里程碑 | 第四组 Run/Task Runtime v2 P0-b 已完成，包含浏览器、工作区/终端、受限 MCP、GitHub Skill、后台可靠性、TTS、系统助手、插件/ACI/GenUI 与任务中心汇总投影 |
-| JVM 历史基线（2026-08-13） | `1118 / 1118` 通过 |
-| Lint 历史基线（2026-08-13） | 通过 |
-| Redmi 全量历史基线（2026-08-13） | `424 tests / 363 passed / 61 skipped / 0 failed / 0 errors` |
-| 验收设备 | Redmi `begonia` 真机；不使用模拟器 |
-
-`v0.1.22` 发布 Remote Channel 前台签名收件：已配对 P-256 身份可手动导入九字段 JSON，或从已登记的 HTTPS 来源主动拉取一条；验签、去重后写入 Keystore 加密待确认箱，由用户决定打开或忽略。Redmi 已通过临时公网合成发送方的真实 DNS/TLS 验收；稳定生产发送方、后台送达和通知尚未验收。正式 APK 大小 `3,445,458` 字节，SHA-256 为 `0150a377bd030a1d169f01d49c0407ee7161aa11e0a95a4ff93e9a59603a657b`。APK Signature Scheme v2 与 `zipalign` 校验通过。详细证据见 [路线图](docs/personal-agent-roadmap.md) 和 [验证报告](docs/verification-report.md)。
-
-完整回归基线完成于 2026-08-13；它与后续阶段的聚焦 Redmi 证据分开记录。当前 Release 为 `v0.1.22`，发布资产、未执行的验证项和未覆盖边界均以验证报告为准。
-
-本版发布前已通过 shared 全测试、app Debug JVM 单测 `1331/1331`、Debug/AndroidTest APK 构建、Debug lint、Release 构建和 `lintVitalRelease`；Redmi 前台 HTTPS 聚焦真机回归通过。当前设备装的是另一证书的 Debug 包，因此未覆盖安装正式 APK；也未把历史全量 AndroidJUnitRunner 结果冒充本版全量 instrumentation。
-
-第 264 阶段一次性提醒改期已完成：精确唯一任务、完整时间审批、当前计划指纹核对、系统入队与 Room 原子替换、答案级查看任务均已通过 Redmi 聚焦验收，旧 Run 保持不变。第 265 阶段已在 Redmi 真机完成指定系统计算器闭环：自然语言目标生成计划、用户确认、5 次逐动作审批、每步操作后重新观察与验证，最终读取 `56`；小灵恢复后显示 `7/7` 步骤完成，目标级结论为已验证。第 266 阶段五个可靠性切片已完成：设备观察恢复、模型失败处置、审批取消组合、排队进程对账及长任务预算/未知提交边界均已用局部证据锁定；不恢复旧协程、不重放未知副作用、不因模拟回收引入后台服务。第 267 阶段修正目标级验证对 AOSP/Google 计算器与时钟等已登记等价包族的兼容，未扩大白名单；下一步在 Redmi 用已有白名单包族做一次真实个人任务闭环验收。
+APK 位于 `app/build/outputs/apk/`。Release 签名读取未跟踪的 `local-signing/xiaoling-release.env`；凭据与签名文件不得提交。
 
 ## 文档
 
-- [文档索引](docs/README.md)：长期文档入口与当前项目基线
-- [产品需求](docs/requirements.md)：目标、能力边界、隐私与非目标
-- [个人 Agent 路线图](docs/personal-agent-roadmap.md)：阶段计划、完成度与后续优先级
-- [实现说明](docs/implementation-notes.md)：架构、数据模型和关键实现约束
-- [验证报告](docs/verification-report.md)：构建、真机测试与发布证据
-- [参考项目分析](docs/reference-apps-analysis.md)：外部项目调研与取舍
-
-## 项目原则
-
-小灵优先保证一条完整个人 Agent 主链真实可用，再扩展更多工具与入口。每项能力都应具备明确意图、最小授权、可审计执行、操作后验证和当前权威事实回读；细节打磨不能取代主线闭环。
+- [文档索引](docs/README.md)：各功能契约与专项验收
+- [产品需求](docs/requirements.md) · [实现说明](docs/implementation-notes.md)
+- [路线图](docs/personal-agent-roadmap.md) · [验证报告](docs/verification-report.md)

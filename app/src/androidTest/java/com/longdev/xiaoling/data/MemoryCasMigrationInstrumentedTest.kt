@@ -23,9 +23,18 @@ class MemoryCasMigrationInstrumentedTest {
     @get:Rule val helper = MigrationTestHelper(InstrumentationRegistry.getInstrumentation(), XiaoLingDatabase::class.java)
 
     @Test fun migrate40To41PreservesMemoryFtsAndLegacyOperationThenAllowsCas() = runBlocking {
+        verifyLegacyMemoryMigration(41)
+    }
+
+    @Test fun migrate40To44PreservesLegacyStateAcrossCompleteReleaseUpgrade() = runBlocking {
+        // long: 上一正式版本停留在 v40；直接验证当前 schema，不能只用逐段迁移成功推断整条升级链可安装。
+        verifyLegacyMemoryMigration(44)
+    }
+
+    private suspend fun verifyLegacyMemoryMigration(targetVersion: Int) {
         assertEquals("begonia", android.os.Build.DEVICE)
         val context = ApplicationProvider.getApplicationContext<Context>()
-        val name = "stage287-migration-${UUID.randomUUID()}.db"
+        val name = "memory-migration-40-to-$targetVersion-${UUID.randomUUID()}.db"
         try {
             helper.createDatabase(name, 40).apply {
                 execSQL("""INSERT INTO agent_memories
@@ -37,7 +46,7 @@ class MemoryCasMigrationInstrumentedTest {
                 execSQL("INSERT INTO agent_memory_operations (idempotencyKey,memoryId,payloadHash,resultHash,createdAt) VALUES ('old-delete','deleted','4efe543f95638ffa7b20bf117b48c8e5aa545560e4052812e15db838d5c7ec96','b11c5a7c9687d81f064f49e6782c2193c00c2219fcb14ad0b2965f36c7c1386d',160)")
                 close()
             }
-            helper.runMigrationsAndValidate(name, 41, true, *XiaoLingDatabase.migrations()).close()
+            helper.runMigrationsAndValidate(name, targetVersion, true, *XiaoLingDatabase.migrations()).close()
             val database = Room.databaseBuilder(context, XiaoLingDatabase::class.java, name).addMigrations(*XiaoLingDatabase.migrations()).build()
             try {
                 val store = RoomAgentMemoryStore(context, database, File(context.cacheDir, "$name.undo"))
@@ -71,6 +80,9 @@ class MemoryCasMigrationInstrumentedTest {
                 assertEquals(operation, dao.getMemoryOperation("old-operation"))
                 assertEquals(AgentMemoryDeleteOperationVerification.Verified, store.verifyDeletedOperation("old-delete", "deleted"))
                 assertNull(dao.getMemoryOperation("old-delete")?.expectedVersion)
+                // long: 升级只能新增空上下文和整理账本，不能从旧记忆自动派生模型输入或启动后台整理。
+                assertNull(database.memoryMaintenanceDao().checkpoint())
+                assertEquals(0, database.memoryMaintenanceDao().outboxCount())
             } finally { database.close() }
         } finally { context.deleteDatabase(name) }
     }

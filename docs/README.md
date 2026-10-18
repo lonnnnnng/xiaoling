@@ -1,5 +1,10 @@
 # 文档索引
 
+## Android 发布与当前验收
+
+- [v0.1.23 发布记录](android-v0.1.23-release.md)：更新范围、数据升级、发布门禁及独立待办。
+- [工作流编辑器专项](android-workflow-editor-acceptance.md)：限定应用与完成标准的正式编辑器确认，以及批准、拒绝、两步只读的真实模型证据。
+
 ## 第 299 阶段恢复与持续输入隐私
 
 - [恢复完成约束与持续输入隐私](android-recovery-input-privacy-acceptance.md)：冻结完成契约贯通三恢复入口，缺动作/后置观察保持失败；同 Run 快照/Direct 后置快照持续保护拼接与局部显示。隔离生产恢复 UseCase 和真实模型公开 Probe 通过，自然恢复与跨 Run 隐私单列。
