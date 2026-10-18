@@ -63,9 +63,9 @@ class WorkflowManagementDialogsInstrumentedTest {
 
         override fun refreshWorkflows() = Unit
 
-        override fun createWorkflow(name: String, stepGoals: List<String>) = Unit
+        override fun createWorkflow(input: WorkflowEditorInput) = Unit
 
-        override fun updateWorkflow(workflowId: String, name: String, stepGoals: List<String>) = Unit
+        override fun updateWorkflow(workflowId: String, input: WorkflowEditorInput) = Unit
 
         override fun setWorkflowEnabled(workflowId: String, enabled: Boolean) = Unit
 

@@ -20,6 +20,18 @@ def descriptor(test, method, stage=292, evidence=None, arguments=None, required_
 
 TEST = "agent.AndroidLiveAcceptanceInstrumentedTest"
 PHASES = {}
+# long: 编辑器专项必须证明正式确认、Room 冻结、生产审批决定和重建展示；预置定义的旧设备成功不能替代这些回执。
+for decision, receipt, visible in (
+        ("approve", "WORKFLOW_EDITOR_APPROVE goalStatus=VERIFIED goalReason=ALL_CRITERIA_VERIFIED calls=3 approvals=1 executorVerified=true finalPackageChecked=true ", "visibleOpenAction"),
+        ("deny", "WORKFLOW_EDITOR_DENY status=FAILED calls=2 approvals=1 noActionResult=true noPostSnapshot=true goalVerified=false failureAuditRetained=true ", "visibleFailure")):
+    PHASES[f"workflow-editor-{decision}"] = descriptor("agent.AndroidWorkflowLiveInstrumentedTest",
+        "actualEditorConfirmsScopeAndContractThroughRealModel", stage=300, evidence="EVIDENCE WORKFLOW_EDITOR",
+        required_evidence=("EVIDENCE WORKFLOW_SCOPE businessContentEmpty=true ", "EVIDENCE " + receipt,
+            "EVIDENCE WORKFLOW_EDITOR targetConfirmed=true contractConfirmed=true roomEqual=true frozenEqual=true editReloadEqual=true definitionSeeded=false ",
+            f"EVIDENCE WORKFLOW_RECREATE visibleResult=true {visible}=true roomGoalEqual=true ",
+            f"EVIDENCE WORKFLOW case=device-editor-{decision} ", "EVIDENCE WORKFLOW_KEY aliasStateRestored=true ",
+            "EVIDENCE WORKFLOW_RESTORE originalProviderAndProfiles=true preferencesEqual=true oldAuditRowsEqual=true memoryUndo=absent authorizationSelectionEqual=true temporaryDefinitionsRemoved=true runAuditRetained=true"),
+        arguments={"stage300Case": f"device-editor-{decision}"})
 PHASES["device-input-privacy"] = descriptor("agent.DeviceInputPrivacyLiveInstrumentedTest",
     "realModelInputKeepsRepeatedConcatenatedAndRecoveredObservationsPrivate", stage=299, evidence="EVIDENCE INPUT_PRIVACY",
     required_evidence=("EVIDENCE INPUT_PRIVACY realModel=true realAccessibility=true publicProbeOnly=true calls=3 approvals=1 nativeInputs=1 exactReadBack=true concatenatedRaw=true repeatedSnapshots=2 recoveredSnapshots=2 roomReopened=true auditPrivate=true ",

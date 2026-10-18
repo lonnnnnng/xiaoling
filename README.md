@@ -84,6 +84,7 @@
 5. 需要执行工具时，使用 Agent 任务入口或显式 `/agent` 意图，检查计划后再确认执行。
 6. 需要远程工具时，在“设置 → MCP Servers”配置服务器；需要扩展任务指令时，在“设置 → Agent Skills”导入 GitHub 的 `SKILL.json` 或 `SKILL.md`。
 7. 需要接收远程消息时，在“设置 → 远端身份配对”核对并启用发送方公钥，再粘贴签名 JSON，或登记 HTTPS 地址后点击收件按钮。字段、响应格式和签名字节格式见 [Remote Channel 收件协议](docs/remote-channel-signed-import.md)。
+8. 在“设置 → 工作流”新建或编辑步骤；设备任务需显式选择限定应用。可开启完成标准核验，为每一步选择事实标准，确认后保存，再手动运行。目标文字本身不会授予设备动作权限，详见[编辑器确认专项](docs/android-workflow-editor-acceptance.md)。
 
 系统分享的文本、图片和文档只会进入可编辑草稿，不会自动发送、调用模型或创建 Agent Run。
 

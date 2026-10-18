@@ -2,6 +2,8 @@
 
 ## 2026-10-18：Android 产品验收优先
 
+第 300 阶段补[普通工作流编辑器确认](android-workflow-editor-acceptance.md)：限定应用、每步事实标准、完成时应用可显式确认，经正式 VM/Room 保存并随 Run 冻结。指定 Redmi 的真实模型批准链 VERIFIED，拒绝链保持 FAILED；两项均由编辑器创建并从页面手动运行，没有预置定义。编辑器/Room 六项、完整 JVM 1632/1632、主机门禁 13/13 通过。自然系统恢复、复杂任务、跨 Run 隐私、Remote 稳定部署/通知与签名 Release 继续独立，iOS 产品暂停。
+
 第 299 阶段补[恢复完成约束与持续输入隐私](android-recovery-input-privacy-acceptance.md)：三类恢复从冻结 Workflow Step 还原完成要求，缺动作/后置观察不能本地收尾；输入尝试后同 Run 快照及 Direct 动作内嵌快照持续省略显示文字。生产恢复 UseCase/隔离 Room 专项与真实模型公开输入、拼接/连续观察及受控重开通过，完整 JVM 1628/1628。保护不跨 Run，输入后的文字导航受限；自然 LMK/Doze/重启、普通编辑器限定应用、复杂任务和长期/Release 仍独立。
 
 第 298 阶段已补[滚动方向与边界](android-directional-scroll-acceptance.md)：修正左右 Android action 映射，open_app 在原回读预算内等待目标包；最新 Debug 上正式 up/down 往返、顶部 down 的失败边界、隔离公开页 left/right 四项同轮通过。正式往返九调用/一审批、目标 VERIFIED；顶部未移动保持 FAILED，零滚动审批。原生崩溃及前置打开失败均保留，普通编辑器、持续隐私、新完成约束自然恢复、复杂任务和长期系统/Release 继续独立。
@@ -10,7 +12,7 @@
 
 第 296 阶段已补[Workflow 分步完成与输入隐私](android-workflow-completion-acceptance.md)，正式设置搜索同轮九调用/三审批、目标 VERIFIED、精确回读、隐私与 Activity 重建通过。新鲜前台完成约束及下一次 snapshot 投影已回归；持续隐私、自然恢复、编辑器限定应用和复杂任务仍独立，单次设置滚动由第 297 阶段补验。
 
-用户决定短期不做 iOS 产品。第 291 阶段协议/codec 与宿主验收保留，产品工作暂停；第 292 阶段已有功能真实模型验收见[Android 真实验收](android-live-acceptance.md)。第 293 阶段生产浮层四项同轮通过，见[浮层专项](android-device-approval-acceptance.md)；第 294 阶段补正式 Workflow 页面新建两步只读、预置限定定义的手动运行/打开设置批准与拒绝，三项跨三轮通过，见[Workflow 专项](android-workflow-acceptance.md)。普通编辑器尚无限定应用确认字段，其他设备动作和完整复杂任务仍单列。七点实现基线完成不等于所有产品/长期/Release 验收完成，独立待办保持。
+用户决定短期不做 iOS 产品。第 291 阶段协议/codec 与宿主验收保留，产品工作暂停；第 292 阶段已有功能真实模型验收见[Android 真实验收](android-live-acceptance.md)。第 293 阶段生产浮层四项同轮通过，见[浮层专项](android-device-approval-acceptance.md)；第 294 阶段补正式 Workflow 页面新建两步只读、预置限定定义的手动运行/打开设置批准与拒绝，三项跨三轮通过，见[Workflow 专项](android-workflow-acceptance.md)。第 294 阶段验收时普通编辑器尚无限定应用确认字段，该缺口由第 300 阶段补齐；完整复杂任务仍单列。七点实现基线完成不等于所有产品/长期/Release 验收完成，独立待办保持。
 
 ## 2026-10-17：六个参考仓库同步后的路线基线
 

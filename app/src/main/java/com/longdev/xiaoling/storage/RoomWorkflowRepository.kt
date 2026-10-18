@@ -9,6 +9,7 @@ import com.longdev.xiaoling.agent.WorkflowRecoveryContextPolicy
 import com.longdev.xiaoling.agent.AgentTaskOneTimeScheduleRecord
 import com.longdev.xiaoling.agent.AgentTaskRescheduleRequest
 import com.longdev.xiaoling.automation.WorkflowDefinitionPolicy
+import com.longdev.xiaoling.automation.WorkflowDefinitionConfirmation
 import com.longdev.xiaoling.automation.WorkflowGoalVerificationContract
 import com.longdev.xiaoling.automation.WorkflowGoalVerificationContractCodec
 import com.longdev.xiaoling.automation.WorkflowGoalVerificationDecisionCodec
@@ -115,10 +116,15 @@ class RoomWorkflowRepository(
         return createWorkflow(name, listOf(WorkflowStepDefinitionInput(goal)))
     }
 
-    suspend fun createWorkflow(name: String, steps: List<WorkflowStepDefinitionInput>): WorkflowRecord {
+    suspend fun createWorkflow(
+        name: String,
+        steps: List<WorkflowStepDefinitionInput>,
+        confirmation: WorkflowDefinitionConfirmation = WorkflowDefinitionConfirmation(),
+    ): WorkflowRecord {
         val normalizedName = name.trim()
         val normalizedSteps = steps.map { WorkflowStepDefinitionInput(it.goal.trim()) }
         WorkflowDefinitionPolicy.validate(normalizedName, normalizedSteps)
+        confirmation.validate(normalizedSteps.size)
         return database.withTransaction {
             val dao = database.workflowDao()
             val now = System.currentTimeMillis()
@@ -126,8 +132,8 @@ class RoomWorkflowRepository(
                 normalizedName,
                 normalizedSteps,
                 now,
-                targetAppPackage = null,
-                goalVerificationContract = null,
+                targetAppPackage = confirmation.targetAppPackage,
+                goalVerificationContract = confirmation.goalVerificationContract,
             )
             dao.upsertWorkflow(workflow)
             dao.upsertWorkflowStepDefinitions(definitions)
@@ -276,10 +282,12 @@ class RoomWorkflowRepository(
         workflowId: String,
         name: String,
         steps: List<WorkflowStepDefinitionInput>,
+        confirmation: WorkflowDefinitionConfirmation? = null,
     ): WorkflowRecord {
         val normalizedName = name.trim()
         val normalizedSteps = steps.map { WorkflowStepDefinitionInput(it.goal.trim()) }
         WorkflowDefinitionPolicy.validate(normalizedName, normalizedSteps)
+        confirmation?.validate(normalizedSteps.size)
         return database.withTransaction {
             val dao = database.workflowDao()
             val current = dao.getWorkflow(workflowId) ?: error("工作流不存在：$workflowId")
@@ -301,8 +309,9 @@ class RoomWorkflowRepository(
                 name = normalizedName,
                 // long: 编辑只替换后续 Run 使用的定义；历史 Run 已持有自己的步骤快照，因此不会被定义变化改写。
                 goal = normalizedSteps.first().goal,
-                // long: 普通 Workflow 编辑器没有重新确认目标级完成标准；步骤变化后必须撤销新 Run 的验证资格，不能继续套用旧计划标准。
-                goalVerificationContract = null,
+                // long: 编辑器提交显式确认的新边界；旧调用没有确认对象时仍保留限定应用并撤销旧完成标准，不能偷用旧计划。
+                targetAppPackage = if (confirmation != null) confirmation.targetAppPackage else current.targetAppPackage,
+                goalVerificationContract = confirmation?.goalVerificationContract?.let(WorkflowGoalVerificationContractCodec::encode),
                 updatedAt = now,
             )
             dao.upsertWorkflow(updated)

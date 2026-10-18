@@ -33,7 +33,7 @@ internal fun androidLiveProvider(stage: Int = 292): ProviderRequestConfig {
 }
 
 internal fun requireAndroidLiveScope(stage: Int = 292) {
-    require(stage in setOf(292, 293, 294, 295, 297, 298, 299))
+    require(stage in setOf(292, 293, 294, 295, 297, 298, 299, 300))
     require(InstrumentationRegistry.getArguments().getString("stage${stage}RealRun") == "true") { "真实验收必须显式选择并提供内存配置" }
     check(android.os.Build.DEVICE == "begonia" && android.os.Build.VERSION.SDK_INT == 36) { "只允许指定 Redmi/SDK 真机" }
 }

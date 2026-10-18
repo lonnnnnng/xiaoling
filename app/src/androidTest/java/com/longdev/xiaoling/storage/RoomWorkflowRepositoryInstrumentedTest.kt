@@ -23,6 +23,7 @@ import com.longdev.xiaoling.automation.ScheduledWorkflowStopCoordinator
 import com.longdev.xiaoling.automation.ScheduledWorkflowStopFallbackCoordinator
 import com.longdev.xiaoling.automation.ScheduledWorkflowStopOutcome
 import com.longdev.xiaoling.automation.WorkflowRunStatus
+import com.longdev.xiaoling.automation.WorkflowDefinitionConfirmation
 import com.longdev.xiaoling.automation.WorkflowGoalVerificationContract
 import com.longdev.xiaoling.automation.WorkflowGoalVerificationSpec
 import com.longdev.xiaoling.automation.WorkflowGoalVerificationStatus
@@ -380,6 +381,43 @@ class RoomWorkflowRepositoryInstrumentedTest {
             workflow.steps.map { it.goal },
             run.steps.map { WorkflowStepSnapshotCodec.decodeInput(it.inputSnapshot).goal },
         )
+    }
+
+    @Test
+    fun editorConfirmationPersistsAndOnlyChangesFutureRunSnapshots() = runBlocking {
+        val tools = listOf("device.snapshot", "device.open_app", "device.snapshot")
+        val contract = WorkflowGoalVerificationContract("打开设置并复查", WorkflowGoalVerificationSpec(tools, "com.android.settings", listOf(tools)))
+        val confirmation = WorkflowDefinitionConfirmation("com.android.settings", contract)
+        val created = repository.createWorkflow("普通编辑器", listOf(WorkflowStepDefinitionInput("打开设置")), confirmation)
+        assertEquals(confirmation.targetAppPackage, created.targetAppPackage)
+        assertEquals(contract, created.goalVerificationContract)
+        val historical = repository.createManualRun(created.id, "editor-session")
+        val frozen = WorkflowStepSnapshotCodec.decodeInput(historical.steps.single().inputSnapshot)
+        assertEquals(contract, frozen.goalVerificationContract)
+        assertEquals("com.android.settings", frozen.targetAppPackage)
+        repository.completeRun(historical.run.id, WorkflowRunStatus.CANCELLED, errorMessage = "结束旧 Run")
+        val closedHistorical = repository.runDetail(historical.run.id)!!
+        val readContract = WorkflowGoalVerificationContract("读取时间", WorkflowGoalVerificationSpec(listOf("app.current_time"), requiredToolNamesByStep = listOf(listOf("app.current_time"))))
+        val updated = repository.updateWorkflow(created.id, "编辑后", listOf(WorkflowStepDefinitionInput("读取时间")), WorkflowDefinitionConfirmation(null, readContract))
+        assertNull(updated.targetAppPackage)
+        assertEquals(readContract, updated.goalVerificationContract)
+        val future = repository.createManualRun(created.id, "editor-session")
+        assertEquals(readContract, WorkflowStepSnapshotCodec.decodeInput(future.steps.single().inputSnapshot).goalVerificationContract)
+        assertEquals(closedHistorical, repository.runDetail(historical.run.id))
+        assertEquals(historical.steps.single().inputSnapshot, closedHistorical.steps.single().inputSnapshot)
+        assertTrue(runCatching { repository.updateWorkflow(created.id, "活动期间", listOf(WorkflowStepDefinitionInput("改写")), confirmation) }.isFailure)
+    }
+
+    @Test
+    fun invalidEditorBoundaryDoesNotWriteDefinitionOrSteps() = runBlocking {
+        val contract = WorkflowGoalVerificationContract("错位标准", WorkflowGoalVerificationSpec(listOf("app.current_time", "app.get_info"),
+            requiredToolNamesByStep = listOf(listOf("app.current_time"), listOf("app.get_info"))))
+        val bad = WorkflowDefinitionConfirmation(null, contract)
+        assertTrue(runCatching { repository.createWorkflow("不能保存", listOf(WorkflowStepDefinitionInput("一步")), bad) }.isFailure)
+        assertTrue(repository.listWorkflows().isEmpty())
+        val existing = repository.createWorkflow("旧定义", "旧目标")
+        assertTrue(runCatching { repository.updateWorkflow(existing.id, "不能改写", listOf(WorkflowStepDefinitionInput("一步")), bad) }.isFailure)
+        assertEquals(existing, repository.listWorkflows().single())
     }
 
     @Test

@@ -4,6 +4,8 @@ import com.longdev.xiaoling.automation.ScheduledTaskRecord
 import com.longdev.xiaoling.automation.ScheduledTaskStatus
 import com.longdev.xiaoling.automation.ScheduledTaskType
 import com.longdev.xiaoling.automation.WorkflowRecord
+import com.longdev.xiaoling.automation.WorkflowDefinitionConfirmation
+import com.longdev.xiaoling.automation.WorkflowGoalVerificationContract
 import com.longdev.xiaoling.automation.WorkflowDeviceActionDecisionPolicy
 import com.longdev.xiaoling.automation.WorkflowDeviceActionDecisionStatus
 import com.longdev.xiaoling.automation.WorkflowRunDetail
@@ -30,9 +32,9 @@ data class WorkflowRetryConfirmationUiState(
 interface WorkflowManagementActions {
     fun refreshWorkflows()
 
-    fun createWorkflow(name: String, stepGoals: List<String>)
+    fun createWorkflow(input: WorkflowEditorInput)
 
-    fun updateWorkflow(workflowId: String, name: String, stepGoals: List<String>)
+    fun updateWorkflow(workflowId: String, input: WorkflowEditorInput)
 
     fun setWorkflowEnabled(workflowId: String, enabled: Boolean)
 
@@ -59,6 +61,12 @@ interface WorkflowManagementActions {
     fun cancelWorkflowSchedule(scheduleId: String)
 }
 
+data class WorkflowEditorInput(
+    val name: String,
+    val stepGoals: List<String>,
+    val confirmation: WorkflowDefinitionConfirmation = WorkflowDefinitionConfirmation(),
+)
+
 internal data class WorkflowManagementUiState(
     val loading: Boolean = false,
     val error: String? = null,
@@ -72,6 +80,8 @@ internal data class WorkflowItemUiState(
     val enabled: Boolean,
     val primaryGoal: String,
     val stepGoals: List<String>,
+    val targetAppPackage: String? = null,
+    val goalVerificationContract: WorkflowGoalVerificationContract? = null,
     val latestRun: WorkflowRunUiState?,
     val runs: List<WorkflowRunUiState>,
     val scheduledTasks: List<WorkflowScheduledTaskUiState>,
@@ -315,6 +325,8 @@ internal object WorkflowManagementProjection {
                     primaryGoal = workflow.steps.firstOrNull()?.goal ?: workflow.goal,
                     stepGoals = workflow.steps.sortedBy { it.sequence }.map { it.goal }
                         .ifEmpty { listOf(workflow.goal) },
+                    targetAppPackage = workflow.targetAppPackage,
+                    goalVerificationContract = workflow.goalVerificationContract,
                     latestRun = workflowRuns.firstOrNull(),
                     runs = workflowRuns,
                     scheduledTasks = tasksByWorkflow[workflow.id].orEmpty().map { task ->

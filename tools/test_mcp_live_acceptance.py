@@ -13,6 +13,20 @@ from verify_android_live_acceptance import PHASES
 
 
 class McpLiveAcceptanceAuditTest(unittest.TestCase):
+    def test_editor_requires_confirmation_freeze_decision_recreation_and_restore(self):
+        for name in ("workflow-editor-approve", "workflow-editor-deny"):
+            spec = PHASES[name]
+            records = [marker + "\n" for marker in spec["requiredEvidence"]] + ["OK (1 test)\n"]
+            self.assertTrue(live.instrumentation_verdict(0, True, records, spec)["passed"])
+            for index in range(len(spec["requiredEvidence"])):
+                self.assertFalse(live.instrumentation_verdict(0, True, records[:index] + records[index + 1:], spec)["passed"])
+            for field in ("targetConfirmed", "contractConfirmed", "frozenEqual", "editReloadEqual", "roomGoalEqual",
+                          "businessContentEmpty", "aliasStateRestored", "originalProviderAndProfiles", "preferencesEqual",
+                          "oldAuditRowsEqual", "authorizationSelectionEqual", "temporaryDefinitionsRemoved", "runAuditRetained"):
+                self.assertFalse(live.instrumentation_verdict(0, True, [line.replace(field + "=true", field + "=false") for line in records], spec)["passed"])
+            self.assertFalse(live.instrumentation_verdict(0, True, [line.replace("definitionSeeded=false", "definitionSeeded=true") for line in records], spec)["passed"])
+            self.assertFalse(live.instrumentation_verdict(0, False, records, spec)["passed"])
+
     def test_input_privacy_requires_continuous_recovered_business_and_restore_evidence(self):
         spec = PHASES["device-input-privacy"]
         records = [marker + "\n" for marker in spec["requiredEvidence"]] + ["OK (1 test)\n"]

@@ -187,8 +187,8 @@ internal fun WorkflowManagementPage(
     if (showCreateDialog) {
         WorkflowEditorDialog(
             workflow = null,
-            onConfirm = { name, stepGoals ->
-                actions.createWorkflow(name, stepGoals)
+            onConfirm = { input ->
+                actions.createWorkflow(input)
                 showCreateDialog = false
             },
             onDismiss = { showCreateDialog = false },
@@ -197,8 +197,8 @@ internal fun WorkflowManagementPage(
     editingWorkflow?.let { workflow ->
         WorkflowEditorDialog(
             workflow = workflow,
-            onConfirm = { name, stepGoals ->
-                actions.updateWorkflow(workflow.id, name, stepGoals)
+            onConfirm = { input ->
+                actions.updateWorkflow(workflow.id, input)
                 editingWorkflow = null
             },
             onDismiss = { editingWorkflow = null },
@@ -823,102 +823,6 @@ private enum class WorkflowScheduleMode(val label: String) {
 }
 
 @Composable
-private fun WorkflowEditorDialog(
-    workflow: WorkflowItemUiState?,
-    onConfirm: (String, List<String>) -> Unit,
-    onDismiss: () -> Unit,
-) {
-    var name by remember(workflow?.id) { mutableStateOf(workflow?.name.orEmpty()) }
-    var stepGoals by remember(workflow?.id) {
-        mutableStateOf(workflow?.stepGoals?.ifEmpty { listOf(workflow.primaryGoal) } ?: listOf(""))
-    }
-    val normalizedGoals = stepGoals.map(String::trim)
-    val valid = name.isNotBlank() &&
-        name.length <= WorkflowDefinitionPolicy.MAX_NAME_LENGTH &&
-        normalizedGoals.isNotEmpty() &&
-        normalizedGoals.size <= WorkflowDefinitionPolicy.MAX_STEPS &&
-        normalizedGoals.all { it.isNotBlank() && it.length <= WorkflowDefinitionPolicy.MAX_GOAL_LENGTH }
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text(if (workflow == null) "新建工作流" else "编辑工作流", style = MaterialTheme.typography.titleSmall) },
-        text = {
-            Column(
-                modifier = Modifier.heightIn(max = 500.dp).verticalScroll(rememberScrollState()),
-                verticalArrangement = Arrangement.spacedBy(8.dp),
-            ) {
-                WorkflowCompactTextField(
-                    value = name,
-                    onValueChange = { name = it },
-                    label = "名称",
-                    placeholder = "例如：每日回顾",
-                    singleLine = true,
-                )
-                stepGoals.forEachIndexed { index, goal ->
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(4.dp),
-                    ) {
-                        Text("步骤 ${index + 1}", style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.SemiBold)
-                        Spacer(Modifier.weight(1f))
-                        IconButton(
-                            onClick = {
-                                stepGoals = stepGoals.toMutableList().also { goals ->
-                                    val current = goals.removeAt(index)
-                                    goals.add(index - 1, current)
-                                }
-                            },
-                            enabled = index > 0,
-                            modifier = Modifier.size(28.dp),
-                        ) { Icon(Icons.Default.ArrowUpward, contentDescription = "步骤上移", modifier = Modifier.size(15.dp)) }
-                        IconButton(
-                            onClick = {
-                                stepGoals = stepGoals.toMutableList().also { goals ->
-                                    val current = goals.removeAt(index)
-                                    goals.add(index + 1, current)
-                                }
-                            },
-                            enabled = index < stepGoals.lastIndex,
-                            modifier = Modifier.size(28.dp),
-                        ) { Icon(Icons.Default.ArrowDownward, contentDescription = "步骤下移", modifier = Modifier.size(15.dp)) }
-                        IconButton(
-                            onClick = { stepGoals = stepGoals.toMutableList().also { it.removeAt(index) } },
-                            enabled = stepGoals.size > 1,
-                            modifier = Modifier.size(28.dp),
-                        ) { Icon(Icons.Default.Delete, contentDescription = "删除步骤", modifier = Modifier.size(15.dp)) }
-                    }
-                    WorkflowCompactTextField(
-                        value = goal,
-                        onValueChange = { value ->
-                            stepGoals = stepGoals.toMutableList().also { it[index] = value }
-                        },
-                        label = "Agent 目标",
-                        placeholder = "描述这个步骤要完成的目标",
-                        minLines = 2,
-                    )
-                }
-                OutlinedButton(
-                    onClick = { stepGoals = stepGoals + "" },
-                    enabled = stepGoals.size < WorkflowDefinitionPolicy.MAX_STEPS,
-                    modifier = Modifier.fillMaxWidth(),
-                ) {
-                    Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(16.dp))
-                    Spacer(Modifier.width(6.dp))
-                    Text("添加步骤")
-                }
-            }
-        },
-        confirmButton = {
-            TextButton(
-                onClick = { onConfirm(name.trim(), normalizedGoals) },
-                enabled = valid,
-            ) { Text("保存") }
-        },
-        dismissButton = { TextButton(onClick = onDismiss) { Text("取消") } },
-    )
-}
-
-@Composable
 private fun WorkflowPageTitle(text: String) {
     Text(
         text = text,
@@ -930,7 +834,7 @@ private fun WorkflowPageTitle(text: String) {
 }
 
 @Composable
-private fun WorkflowCompactTextField(
+internal fun WorkflowCompactTextField(
     value: String,
     onValueChange: (String) -> Unit,
     label: String,

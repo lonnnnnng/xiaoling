@@ -164,6 +164,7 @@ import com.longdev.xiaoling.system.ProcessExitObservation
 import com.longdev.xiaoling.system.RoomProcessExitObservationStore
 import com.longdev.xiaoling.system.collectProcessExitObservationsBestEffort
 import com.longdev.xiaoling.ui.workflow.WorkflowManagementActions
+import com.longdev.xiaoling.ui.workflow.WorkflowEditorInput
 import com.longdev.xiaoling.ui.workflow.WorkflowDeviceActionApprovalEvidence
 import com.longdev.xiaoling.ui.workflow.WorkflowDeviceActionApprovalEvidencePolicy
 import com.longdev.xiaoling.ui.workflow.WorkflowDeviceObservationProjection
@@ -2394,11 +2395,11 @@ class XiaoLingViewModel @JvmOverloads constructor(
         }
     }
 
-    override fun createWorkflow(name: String, stepGoals: List<String>) {
+    override fun createWorkflow(input: WorkflowEditorInput) {
         viewModelScope.launch {
             runCatching {
                 withContext(Dispatchers.IO) {
-                    workflowRepository.createWorkflow(name, stepGoals.map(::WorkflowStepDefinitionInput))
+                    workflowRepository.createWorkflow(input.name, input.stepGoals.map(::WorkflowStepDefinitionInput), input.confirmation)
                 }
             }.onSuccess { workflow ->
                 uiState = uiState.copy(
@@ -2412,7 +2413,7 @@ class XiaoLingViewModel @JvmOverloads constructor(
         }
     }
 
-    override fun updateWorkflow(workflowId: String, name: String, stepGoals: List<String>) {
+    override fun updateWorkflow(workflowId: String, input: WorkflowEditorInput) {
         if (workflowId in uiState.mutatingWorkflowIds) return
         uiState = uiState.copy(
             mutatingWorkflowIds = uiState.mutatingWorkflowIds + workflowId,
@@ -2423,8 +2424,9 @@ class XiaoLingViewModel @JvmOverloads constructor(
                 withContext(Dispatchers.IO) {
                     workflowRepository.updateWorkflow(
                         workflowId = workflowId,
-                        name = name,
-                        steps = stepGoals.map(::WorkflowStepDefinitionInput),
+                        name = input.name,
+                        steps = input.stepGoals.map(::WorkflowStepDefinitionInput),
+                        confirmation = input.confirmation,
                     )
                 }
             }.onSuccess { workflow ->
