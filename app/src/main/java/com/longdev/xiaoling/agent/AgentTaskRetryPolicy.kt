@@ -34,6 +34,7 @@ data class AgentTaskRetryEvidence(
 
 object AgentTaskRetryPolicy {
     fun evaluate(detail: AgentRunDetailRecord): AgentTaskRetryEligibility {
+        if (AgentChildLifecyclePolicy.isManagedRun(detail)) return AgentTaskRetryEligibility.NotRetryable
         // long: 普通重试会重新打开原生工具面，不能继承插件页一次性的能力许可。
         if (AgentPluginExecutionPolicy.isPluginRun(detail)) return AgentTaskRetryEligibility.NotRetryable
         // long: 只有已明确结束且没有成功结果的 Run 才能重新运行；处理中或已完成 Run 禁止重试，避免同一目标被并发执行或重复产生结果。

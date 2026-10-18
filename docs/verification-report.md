@@ -2,6 +2,17 @@
 
 验证日期：2026-10-18（北京时间）
 
+# 2026-10-18 第 289 阶段第一片：child checkpoint 与有界生命周期
+
+- 主线：已进入第 5 点多 Agent，第一片完成核心持久生命周期；第 5 点尚未收口。下一片为显式派生产品入口、父结构化结果摘要/消费与完成策略，再做真实提供方联合验收。Room v44/发布版本 `0.1.22 (23)` 不变，见[child 契约](agent-child-lifecycle.md)和[路线图](personal-agent-roadmap.md)。
+- 实现：唯一来源/父与批次进程代次/冻结 Profile/父最新可信预算，前台 Direct 根 Run/非外部输入/非插件；固定 13 项宿主只读能力与父 Profile、注册 SAFE/NONE 交集，Skill 清空、自动记忆召回关闭、知识无 Embedding。最多两个 child、独立 3 calls/60 秒、模型 20 秒/工具 10 秒，不超过父最新持久预算余额。批次 schema v1 JSON 限 32768 字符，目标保存于各 Run，槽位/Profile/预算及所有 Run/期望数/双向关系共事务，唯一领取，重复批次拒绝。
+- 取消/恢复：父取消、终态与恢复关闭同事务取消标记 child，普通 retry/已完成 child 不受影响。创建/回调阶段补结算，批次 finally 清理活动槽位，批次和公开 child 入口监听父状态，包括模型 socket 等待；返回取 Room 终态，超时维持 BUDGET_EXHAUSTED，结果/错误摘要限 20000/500 字符。旧批次/child 标记即使损坏也阻止单 Run 原地恢复、重试与受控重放，不重领旧 slot、不重放旧工具。
+- JVM/构建：JDK 21 wrapper 定向生命周期、协调器、任务中心投影、恢复/重试、event codec 与插件 Runtime，共 `139 tests / 0 failures / 0 errors / 0 skipped`，7 个实际测试类；受控重放门禁覆盖于恢复与新生命周期类，没有同名单独测试类。进程代次补强后的最终构建与测试结果另存 `owner-current-build.log`，Debug/AndroidTest 构建成功。未跑全量 JVM、Lint 或 Release。
+- Redmi：仅 `wsvwypiz7xwslvl7 / begonia / SDK 36`，两 APK 均 `install -r`。新生命周期 12 项 + 原 Room 定向 4 项，`OK (16 tests)`、16.64s，逐项无失败/跳过。覆盖第二 child 写入故障整批回滚、重复批次、并发唯一领取、来源/协议漂移拒绝、磁盘重开、真实 production UseCase/OpenAI client/原生时间与 typed Tool Ledger、timeout/普通失败兄弟隔离和 PARTIAL 投影、持久父取消模型等待；父取消/prepare 与父终态/child 完成各实际并发 8 轮，普通 retry 未误取消。
+- 独立进程：`tools/verify_child_lifecycle_process.py` 三轮各 `OK (1 test)`，初轮 PID `2704 → 2777 → 2843`、`process-current/result.json completed=true`；进程代次补强后另存 `process-owner-current/result.json`，不覆盖初轮。先保存 COMPLETED child 与真实宿主时间 PASSED/VERIFYING child；新进程先证明未领取旧槽位不能在启动对账前领取，再关闭旧父/未完成 child，完成快照与原 Tool Ledger 不变；第三进程新父/新槽位运行成功，旧终态与账本拒绝迟到覆盖，全部通过后删除严格 UUID 测试数据库。Runtime 使用脚本 LLM，受控 force-stop，不冒充真实提供方或自然系统恢复。
+- 失败/复核：新进程夹具给 ToolCall 误传 `reason` 参数，两次 AndroidTest 编译失败日志保留，修正后构建及设备验收通过。两个只读复核补发现公开 child 的 apiMode 漂移入口，已增加校验及拒绝前无 claim 回归；取消/派生和终态/完成并发两项另补真实竞争验证。收尾再绑定父来源/批次的进程代次，补 JVM 旧 owner 及真实独立进程未领取槽位拒绝，确保启动对账之前也不继承旧权限。正式偏好/undo、最终六份文档语料、链接和制品/凭据审计另存本片忽略证据目录 `outputs/verification/stage289-child-checkpoint/`，不保存秘密原文。
+- 边界：父来源为持久 invocation 审计，本片没有完整产品界面/Activity resumed 联合验收。生产 child 测试仅开放原生时间，不读正式 notes/memory/knowledge；注入隔离的是 Run/MCP/Skill 账本，不能扩大为所有数据 store 隔离。每 child 预算上限并非父/child 精确共享扣账、实时父 deadline 或费用预算。协作式取消不保证硬中断任意阻塞工具。自然 LMK/Doze/系统重启、后台/可写 child、完整 UI/真实提供方联合及正式 Release 独立后置；未 push/tag/发版，`refs/` 保留。
+
 # 2026-10-18 第 288 阶段第二片：SAFE 前台执行网关
 
 - 主线：第 4 点 Skill/插件的原定签名 manifest、版本回滚、SAFE 前台宿主扩展两片实现基线收口；下一点为第 5 点多 Agent。完整产品界面点击到真实模型的联合专项、自然 LMK/Doze/系统重启与正式 Release 独立追踪，不追加为本阶段切片。Room v44/发布版本 `0.1.22 (23)` 不变，见[执行契约](agent-plugin-execution.md)和[路线图](personal-agent-roadmap.md)。

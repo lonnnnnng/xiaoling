@@ -110,6 +110,11 @@ object AgentRunResumePolicy {
         definitionLookup: (String) -> ToolDefinition? = { null },
         committedVerificationSupport: (String) -> Boolean = { false },
     ): AgentRunResumeAssessment {
+        // long: 原子登记不代表可以恢复旧子协程；父批次与 child 都保留证据并关闭，禁止单 Run 恢复绕过父取消。
+        if (AgentChildLifecyclePolicy.isManagedRun(detail)) {
+            return restartRequired(AgentRunRestartDispositionCode.RUN_STATE_NOT_RESUMABLE,
+                "多 Agent 旧批次需要新的前台父 Run，不能恢复旧 child 执行栈")
+        }
         // long: 插件前台选择随旧进程消失，历史工具成功也不能授权原生 Registry 继续执行。
         if (AgentPluginExecutionPolicy.isPluginRun(detail)) {
             return restartRequired(AgentRunRestartDispositionCode.PLUGIN_FOREGROUND_SELECTION_EXPIRED,

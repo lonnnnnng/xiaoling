@@ -1,5 +1,10 @@
 # 当前实现说明
 
+## 2026-10-18 第 289 阶段第一片：事件 checkpoint 与唯一领取
+
+- 以结构化 Reason JSON 固定批次 schema v1、父 ID、进程代次、slot/Run ID、只读 Profile 和预算；Room v44 同事务登记所有 child、父数量与双向关联，领取标记事务互斥。Reporting 创建期结算、child 继承注入账本/MCP Registry/Skill store，知识无 Embedding。父取消与终态只关闭有 child 标记的活动派生 Run，普通 retry/已完成证据保留；旧 marker 即使损坏也拒绝原地恢复、重试和重放。
+- Room v44/版本 `0.1.22 (23)` 不变；预算为各 child 上界，未实现父/child 精确共享扣账。契约见[child 生命周期](agent-child-lifecycle.md)，验证分级见报告。
+
 ## 2026-10-18 第 288 阶段第二片：一次性 SAFE 前台网关
 
 - `AgentPluginExecutionSelection/Binding` 绑定签名双摘要、进程 Registry 身份、插件/前台代次并单次 claim；恢复后新选择的空代次明确使用 `0L`，旧进程对象不能复用。Registry 在版本/启停/移除写盘前发出代次变化，失败也撤销。

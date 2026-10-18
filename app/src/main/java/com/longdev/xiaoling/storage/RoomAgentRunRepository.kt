@@ -6,6 +6,13 @@ import com.longdev.xiaoling.agent.APPROVAL_REQUEST_NO_EXPIRY_AT
 import com.longdev.xiaoling.agent.ApprovalRequestRecord
 import com.longdev.xiaoling.agent.ApprovalRequestStatus
 import com.longdev.xiaoling.agent.AgentRunLedger
+import com.longdev.xiaoling.agent.AgentChildCheckpoint
+import com.longdev.xiaoling.agent.AgentChildSlot
+import com.longdev.xiaoling.agent.AgentChildLifecyclePolicy
+import com.longdev.xiaoling.agent.AgentProfileSnapshot
+import com.longdev.xiaoling.agent.ReadOnlyChildAgentSpec
+import com.longdev.xiaoling.agent.MultiAgentPolicy
+import com.longdev.xiaoling.agent.agentProfileSnapshotOrNull
 import com.longdev.xiaoling.agent.AgentPluginExecutionPolicy
 import com.longdev.xiaoling.agent.AgentContextInput
 import com.longdev.xiaoling.agent.AgentContextRecoveryStatus
@@ -88,6 +95,80 @@ class RoomAgentRunRepository(
     context: Context,
     private val database: XiaoLingDatabase = XiaoLingDatabase.getInstance(context),
 ) : AgentRunLedger {
+    suspend fun createInvokedRun(conversationId: String, userMessageId: String, goal: String, retryOfRunId: String?,
+        parentRunId: String?, invocation: String): AgentRunRecord = database.withTransaction {
+        val run = createRun(conversationId, userMessageId, goal, retryOfRunId, parentRunId)
+        appendEvent(run.id, AgentChildLifecyclePolicy.INVOCATION_EVENT, "已冻结 Run 来源", RunEventMetadata.Reason(invocation))
+        run
+    }
+
+    suspend fun prepareReadOnlyChildRuns(parentRunId: String, conversationId: String, userMessageId: String,
+        specs: List<ReadOnlyChildAgentSpec>, parentProfile: AgentProfileSnapshot, childProfile: AgentProfileSnapshot): AgentChildCheckpoint =
+        database.withTransaction {
+            MultiAgentPolicy.validateChildren(specs)
+            require(specs.map { it.id } == specs.indices.map { "child-${it + 1}" })
+            val parent = runDetail(parentRunId) ?: error("父 Run 不存在")
+            AgentChildLifecyclePolicy.validateParent(parent, parentProfile)
+            require(parent.snapshot.run.conversationId == conversationId && parent.snapshot.run.userMessageId == userMessageId)
+            require(childProfile == parentProfile.copy(allowedToolNames = childProfile.allowedToolNames,
+                allowedSkillIds = emptyList(), memoryEnabled = false)) { "child 不得改变父模型或身份" }
+            require(childProfile.allowedToolNames.all { it in parentProfile.allowedToolNames })
+            require(parent.snapshot.events.none { it.type == AgentChildLifecyclePolicy.BATCH_EVENT ||
+                it.type == AgentEventTypes.MULTI_AGENT_CHILDREN_EXPECTED }) { "父 Run 已冻结过 child 批次" }
+            val options = AgentChildLifecyclePolicy.options(parent)
+            // long: 所有槽位与关联一次提交；取消或第二个 child 插入失败时不能留下计数、孤立 Run 或半条关系。
+            val slots = specs.map { spec ->
+                val run = createRun(conversationId, "$userMessageId.${spec.id}", spec.goal, null, parentRunId)
+                AgentChildSlot(spec.id, run.id)
+            }
+            val checkpoint = AgentChildCheckpoint(parentRunId, childProfile, options, slots)
+            val raw = AgentChildLifecyclePolicy.encode(checkpoint)
+            require(raw.length <= 32_768)
+            appendEvent(parentRunId, AgentChildLifecyclePolicy.BATCH_EVENT, "已冻结只读 child 槽位与预算", RunEventMetadata.Reason(raw))
+            appendEvent(parentRunId, AgentEventTypes.MULTI_AGENT_CHILDREN_EXPECTED, "已冻结只读 child 数量：${slots.size}",
+                RunEventMetadata.ChildRunExpectation(slots.size))
+            slots.forEach { slot ->
+                appendEvent(slot.runId, AgentChildLifecyclePolicy.CHILD_EVENT, "只读 child 已绑定父批次", RunEventMetadata.Reason(raw))
+                appendEvent(slot.runId, "multi_agent.child.linked", "只读 child 已关联父 Run", RunEventMetadata.Reason(parentRunId))
+                appendEvent(parentRunId, "multi_agent.child.started", "已登记只读 child：${slot.id}", RunEventMetadata.Reason(slot.runId))
+            }
+            AgentChildLifecyclePolicy.decode(raw)
+        }
+
+    suspend fun readOnlyChildCheckpoint(runId: String): AgentChildCheckpoint = database.withTransaction {
+        val detail = runDetail(runId) ?: error("child Run 不存在")
+        val childEvent = detail.snapshot.events.filter { it.type == AgentChildLifecyclePolicy.CHILD_EVENT }.single()
+        val raw = (childEvent.metadata as? RunEventMetadata.Reason)?.reason ?: error("child checkpoint 损坏")
+        val checkpoint = AgentChildLifecyclePolicy.decode(raw)
+        require(checkpoint.slots.count { it.runId == runId } == 1 && detail.snapshot.run.parentRunId == checkpoint.parentRunId)
+        val parent = runDetail(checkpoint.parentRunId) ?: error("父 Run 不存在")
+        val parentRaw = (parent.snapshot.events.filter { it.type == AgentChildLifecyclePolicy.BATCH_EVENT }.single().metadata
+            as? RunEventMetadata.Reason)?.reason
+        require(raw == parentRaw) { "父子 checkpoint 不一致" }
+        checkpoint
+    }
+
+    suspend fun claimReadOnlyChildRun(runId: String): AgentRunRecord = database.withTransaction {
+        val checkpoint = readOnlyChildCheckpoint(runId)
+        AgentChildLifecyclePolicy.requireCurrentOwner(checkpoint)
+        val parent = requireNotNull(runDetail(checkpoint.parentRunId))
+        AgentChildLifecyclePolicy.validateParent(parent, requireNotNull(parent.agentProfileSnapshotOrNull()))
+        val child = snapshot(runId)
+        require(child.run.status == AgentRunStatus.QUEUED && child.run.cancelRequestedAt == null &&
+            child.events.none { it.type == AgentChildLifecyclePolicy.CLAIM_EVENT }) { "child 槽位已领取或已结束" }
+        // long: 领取标记与状态读取同事务；并发执行同一槽位只能有一个胜者，旧进程不会重领。
+        appendEvent(runId, AgentChildLifecyclePolicy.CLAIM_EVENT, "本进程已领取只读 child 槽位", RunEventMetadata.Reason(runId))
+        child.run
+    }
+
+    private suspend fun cancelPreparedChildren(parentRunId: String, reason: String) {
+        database.agentRunDao().getRunsByParentRunId(parentRunId).forEach { child ->
+            // long: retry 也使用 parentRunId，因此只取消带独立 child 标记的派生 Run，不能顺带关闭历史重试。
+            if (child.status !in TERMINAL_RUN_STATUS_NAMES && database.agentRunDao().getEvents(child.id)
+                    .any { it.type == AgentChildLifecyclePolicy.CHILD_EVENT }) cancelActiveRun(child.id, reason)
+        }
+    }
+
     suspend fun createPluginRun(conversationId: String, userMessageId: String, goal: String, evidence: String): AgentRunRecord =
         database.withTransaction {
             // long: Run 与插件身份标记必须同事务，避免进程在两次写入间退出后，恢复把插件轮次误当成完整宿主权限。
@@ -145,7 +226,7 @@ class RoomAgentRunRepository(
         return run
     }
 
-    override suspend fun updateRunStatus(runId: String, status: AgentRunStatus, result: String?, errorMessage: String?) {
+    override suspend fun updateRunStatus(runId: String, status: AgentRunStatus, result: String?, errorMessage: String?) = database.withTransaction {
         val now = System.currentTimeMillis()
         // long: 启动恢复与旧模型协程可能并发写入同一 Run；终态条件必须落在单条 SQL 中，避免“先读后写”让迟到结果覆盖已冻结的恢复处置。
         val updatedRows = database.agentRunDao().updateRunStatusIfActive(
@@ -157,8 +238,9 @@ class RoomAgentRunRepository(
             completedAt = now.takeIf { status.isTerminal },
             terminalStatuses = TERMINAL_RUN_STATUS_NAMES,
         )
-        if (updatedRows == 0) return
+        if (updatedRows == 0) return@withTransaction
         appendEventInternal(runId, "run.status", status.name, metadata = null, allowTerminalRun = true)
+        if (status.isTerminal) cancelPreparedChildren(runId, "父 Run 已结束")
     }
 
     override suspend fun appendStep(
@@ -622,6 +704,7 @@ class RoomAgentRunRepository(
                     metadata = RunEventMetadata.Reason(reason),
                 )
             }
+            if (freshRun.cancelRequestedAt != null) cancelPreparedChildren(runId, "父 Run 请求取消")
             freshRun.cancelRequestedAt != null
         }
     }
@@ -673,6 +756,7 @@ class RoomAgentRunRepository(
             if (updatedRows == 0) return@withTransaction false
             appendEventInternal(runId, "run.cancelled", reason, RunEventMetadata.Reason(reason), allowTerminalRun = true)
             appendEventInternal(runId, "run.status", AgentRunStatus.CANCELLED.name, metadata = null, allowTerminalRun = true)
+            cancelPreparedChildren(runId, "父 Run 已取消")
             true
         }
     }
@@ -1041,6 +1125,7 @@ class RoomAgentRunRepository(
                         createdAt = now,
                     ),
                 )
+                cancelPreparedChildren(freshRun.id, "父 Run 在进程恢复时关闭")
                 true
             }
             if (closed) closedCount += 1

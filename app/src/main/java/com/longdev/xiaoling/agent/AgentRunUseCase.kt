@@ -18,6 +18,12 @@ import com.longdev.xiaoling.storage.RoomKnowledgeDocumentStore
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.job
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.CoroutineStart
 
 class AgentRunUseCase(
     context: Context,
@@ -69,9 +75,10 @@ class AgentRunUseCase(
         mcpServerStore = mcpServerStore,
         mcpClient = mcpClient,
     )
+    private val sharedSkillStore = skillStore ?: RoomAgentSkillStore(context.applicationContext)
     private val skillCatalog = AgentSkillCatalog(
         // long: 验收可隔离 Skill 同步写入；生产仍使用既有 Room store。
-        store = skillStore ?: RoomAgentSkillStore(context.applicationContext),
+        store = sharedSkillStore,
         registeredTools = toolRegistry::registeredTools,
     )
 
@@ -95,11 +102,33 @@ class AgentRunUseCase(
         onSnapshot: suspend (AgentRunSnapshot) -> Unit = {},
         pluginSelection: AgentPluginExecutionSelection? = null,
         externalInput: Boolean = false,
+        childRunId: String? = null,
     ): AgentRunSummary {
         AgentProfilePolicy.validateRunnable(agentProfile)
         require(config.model == agentProfile.model) { "Agent Profile 模型快照与请求配置不一致" }
         require(config.providerId == agentProfile.providerId) { "Agent Profile 提供方快照与请求配置不一致" }
-        retryOfRunId?.let { source -> baseLedger.runDetail(source)?.let(AgentPluginExecutionPolicy::requireFreshSelection) }
+        require(parentRunId == null || childRunId != null) { "child 必须使用已持久登记的槽位" }
+        retryOfRunId?.let { source -> baseLedger.runDetail(source)?.let { detail ->
+            AgentPluginExecutionPolicy.requireFreshSelection(detail)
+            AgentChildLifecyclePolicy.requireFreshInvocation(detail)
+        } }
+        val childCheckpoint = childRunId?.let { id ->
+            require(config.apiMode == agentProfile.apiMode) { "child 请求协议与冻结 Profile 不一致" }
+            require(pluginSelection == null && retryOfRunId == null && !externalInput && !memoryRecallEnabled &&
+                executionOrigin == AgentExecutionOrigin.FOREGROUND && invocationSource == AgentInvocationSource.DIRECT &&
+                userAttachments.image == null && userAttachments.document == null)
+            val checkpoint = baseLedger.readOnlyChildCheckpoint(id)
+            AgentChildLifecyclePolicy.requireCurrentOwner(checkpoint)
+            val frozen = baseLedger.snapshot(id).run
+            require(agentProfile.allowedToolNames.all { name -> toolRegistry.registeredDefinition(name)?.let {
+                it.risk == ToolRisk.SAFE && it.approvalPolicy == ToolApprovalPolicy.NONE
+            } == true }) { "child 工具不再属于 SAFE/NONE" }
+            require(checkpoint.parentRunId == parentRunId && checkpoint.profile == agentProfile &&
+                frozen.goal == goal && frozen.conversationId == conversationId && frozen.userMessageId == userMessageId) {
+                "child 请求与冻结槽位不一致"
+            }
+            checkpoint
+        }
         require(pluginSelection == null || retryOfRunId == null) { "插件任务必须显式创建新 Run" }
         val invocationContext = AgentToolExecutionContext(
             conversationId = conversationId,
@@ -112,7 +141,7 @@ class AgentRunUseCase(
             workflowDeviceActionContext = workflowDeviceActionContext,
         )
         // long: 插件只读范围不隐式启用知识 Embedding 网络请求；模型规划仍使用用户当前 Profile 配置。
-        val runToolRegistry = if (pluginSelection != null) toolRegistry else toolRegistryFor(agentProfile.providerId, config)
+        val runToolRegistry = if (pluginSelection != null || childCheckpoint != null) toolRegistry else toolRegistryFor(agentProfile.providerId, config)
         // long: 同一个 UseCase 会跨多个 Agent/Workflow Run 复用生产 Registry；先绑定当前 planning context，避免 Profile 初始化读取上一条 Workflow 的短期限制。
         (runToolRegistry as? AgentRunContextAwareToolRegistry)?.bindRunContext(invocationContext)
         val availableToolNames = runToolRegistry.availableToolsFor(
@@ -161,6 +190,8 @@ class AgentRunUseCase(
             delegate = baseLedger,
             onSnapshot = onSnapshot,
             pluginEvidence = pluginToolRegistry?.evidenceJson(),
+            invocationEvidence = AgentChildLifecyclePolicy.invocation(executionOrigin, invocationSource, externalInput),
+            childRunId = childRunId,
         )
         val runtime = MinimalAgentRuntime(
             ledger = ledger,
@@ -176,7 +207,7 @@ class AgentRunUseCase(
             approvalGate = approvalGate,
             permissionChecker = permissionChecker,
             // long: 直接 Agent 的设备动作闭环需要“打开/观察/动作/观察/收尾观察”等多个事实；只对 Profile 明确授权设备动作的前台直接 Run 提高上限，通用 Agent 与 Workflow 仍保持默认有界预算。
-            options = if (pluginToolRegistry != null) AgentRuntimeOptions(maxToolCalls = 3, runTimeoutMs = 60_000,
+            options = childCheckpoint?.options ?: if (pluginToolRegistry != null) AgentRuntimeOptions(maxToolCalls = 3, runTimeoutMs = 60_000,
                 toolStepTimeoutMs = AgentPluginExecutionPolicy.MAX_TOOL_TIMEOUT_MS) else runtimeOptionsFor(agentProfile, invocationSource),
         )
         suspend fun executeRun() = runtime.run(
@@ -192,7 +223,27 @@ class AgentRunUseCase(
             workflowDeviceActionContext = workflowDeviceActionContext,
             parentRunId = parentRunId,
         )
-        return if (pluginToolRegistry != null) pluginToolRegistry.guardRun { executeRun() } else executeRun()
+        return when {
+            pluginToolRegistry != null -> pluginToolRegistry.guardRun { executeRun() }
+            childCheckpoint != null -> guardChildParent(childCheckpoint.parentRunId) { executeRun() }
+            else -> executeRun()
+        }
+    }
+
+    private suspend fun <T> guardChildParent(parentRunId: String, block: suspend () -> T): T = coroutineScope {
+        val runJob = currentCoroutineContext().job
+        // long: 直接使用已登记槽位的执行入口也要监听父取消，不能只靠外层批次协程关闭正在等待模型的 socket。
+        val watcher = launch(start = CoroutineStart.UNDISPATCHED) {
+            while (true) {
+                val parent = baseLedger.snapshot(parentRunId).run
+                if (parent.status.isTerminal || parent.cancelRequestedAt != null) {
+                    runJob.cancel(CancellationException("父 Run 已结束或请求取消"))
+                    return@launch
+                }
+                delay(100)
+            }
+        }
+        try { block() } finally { watcher.cancel() }
     }
 
     suspend fun runReadOnlyChildAgents(
@@ -205,8 +256,9 @@ class AgentRunUseCase(
         agentProfile: AgentProfileSnapshot,
     ): List<ReadOnlyChildAgentResult> {
         val allowedChildTools = agentProfile.allowedToolNames
-            .filter { it in READ_ONLY_CHILD_AGENT_TOOL_NAMES }
+            .filter { it in AgentChildLifecyclePolicy.toolNames }
             .filter { toolRegistry.registeredDefinition(it)?.risk == ToolRisk.SAFE }
+            .filter { toolRegistry.registeredDefinition(it)?.approvalPolicy == ToolApprovalPolicy.NONE }
             .distinct()
         require(allowedChildTools.isNotEmpty()) {
             "当前 Agent Profile 没有可供只读子 Agent 使用的 SAFE 工具"
@@ -221,96 +273,58 @@ class AgentRunUseCase(
             ReadOnlyChildAgentSpec(id = "child-${index + 1}", goal = goal)
         }
         MultiAgentPolicy.validateChildren(childSpecs)
-        // long: 父 Run 先冻结期望子任务数量；任务中心只有拿到这条结构化证据，才允许把子 Run 汇总标为完整成功或完整失败。
-        baseLedger.appendEvent(
-            runId = parentRunId,
-            type = AgentEventTypes.MULTI_AGENT_CHILDREN_EXPECTED,
-            message = "已冻结只读子 Agent 数量：${childSpecs.size}",
-            metadata = RunEventMetadata.ChildRunExpectation(childSpecs.size),
-        )
-        val coordinator = MultiAgentCoordinator()
-        return coordinator.run(
-            parent = MultiAgentParentContext(
-                parentRunId = parentRunId,
-                executionOrigin = AgentExecutionOrigin.FOREGROUND,
-                invocationSource = AgentInvocationSource.DIRECT,
-            ),
-            children = childSpecs,
-        ) { child ->
-            val childUseCase = AgentRunUseCase(appContext, client)
-            var childRunId: String? = null
-            var childLinkRecorded = false
-            try {
-                val summary = childUseCase.run(
-                    conversationId = conversationId,
-                    userMessageId = "$userMessageId.${child.id}",
-                    goal = child.goal,
-                    skillSelectionGoal = child.goal,
-                    config = config,
-                    summarySystemPrompt = summarySystemPrompt,
-                    agentProfile = childProfile,
-                    memoryRecallEnabled = false,
-                    executionOrigin = AgentExecutionOrigin.FOREGROUND,
-                    invocationSource = AgentInvocationSource.DIRECT,
-                    parentRunId = parentRunId,
-                    approvalGate = AutoApprovalGate(),
-                    onSnapshot = { snapshot ->
-                        childRunId = snapshot.run.id
-                        if (!childLinkRecorded) {
-                            childLinkRecorded = true
-                            // long: 关联事件必须写在子 Run 进入终态前；Room 对终态 Run 拒绝迟到事件，避免父子关系出现半条审计链。
-                            baseLedger.appendEvent(
-                                runId = snapshot.run.id,
-                                type = "multi_agent.child.linked",
-                                message = "只读子 Agent 已关联父 Run",
-                                metadata = RunEventMetadata.Reason(parentRunId),
-                            )
-                            baseLedger.appendEvent(
-                                runId = parentRunId,
-                                type = "multi_agent.child.started",
-                                message = "已启动只读子 Agent：${child.id}",
-                                metadata = RunEventMetadata.Reason(snapshot.run.id),
-                            )
+        require(config.providerId == agentProfile.providerId && config.model == agentProfile.model && config.apiMode == agentProfile.apiMode)
+        var checkpoint: AgentChildCheckpoint? = null
+        try {
+            // long: 即使调用方在提交瞬间取消，也先拿到已提交槽位，再由 finally 关闭未开始的 child。
+            checkpoint = withContext(NonCancellable) {
+                baseLedger.prepareReadOnlyChildRuns(parentRunId, conversationId, userMessageId, childSpecs, agentProfile, childProfile)
+            }
+            val frozen = requireNotNull(checkpoint)
+            return coroutineScope {
+                val batchJob = currentCoroutineContext().job
+                val watcher = launch(start = CoroutineStart.UNDISPATCHED) {
+                    while (true) {
+                        val parent = baseLedger.snapshot(parentRunId).run
+                        if (parent.status.isTerminal || parent.cancelRequestedAt != null) {
+                            batchJob.cancel(CancellationException("父 Run 已结束或请求取消"))
+                            return@launch
                         }
-                    },
-                )
-                val childSettledType = if (summary.status == AgentRunStatus.COMPLETED) {
-                    "multi_agent.child.completed"
-                } else {
-                    "multi_agent.child.failed"
+                        delay(100)
+                    }
                 }
-                baseLedger.appendEvent(
-                    runId = parentRunId,
-                    type = childSettledType,
-                    message = if (summary.status == AgentRunStatus.COMPLETED) {
-                        "只读子 Agent 已完成：${child.id}"
-                    } else {
-                        "只读子 Agent 未成功完成：${child.id}"
-                    },
-                    metadata = RunEventMetadata.Reason(childRunId ?: summary.runId),
-                )
-                ReadOnlyChildAgentResult(
-                    childId = child.id,
-                    childRunId = childRunId ?: summary.runId,
-                    status = summary.status,
-                    responseText = summary.responseText,
-                )
-            } catch (error: CancellationException) {
-                throw error
-            } catch (error: Throwable) {
-                baseLedger.appendEvent(
-                    runId = parentRunId,
-                    type = "multi_agent.child.failed",
-                    message = "只读子 Agent 失败：${child.id}",
-                    metadata = RunEventMetadata.Reason(error.message ?: "子 Agent 执行失败"),
-                )
-                ReadOnlyChildAgentResult(
-                    childId = child.id,
-                    childRunId = childRunId,
-                    status = AgentRunStatus.FAILED,
-                    responseText = null,
-                    errorMessage = error.message ?: "子 Agent 执行失败",
-                )
+                try {
+                    MultiAgentCoordinator().run(MultiAgentParentContext(parentRunId,
+                        AgentExecutionOrigin.FOREGROUND, AgentInvocationSource.DIRECT), childSpecs) { child ->
+                        val slot = frozen.slots.single { it.id == child.id }
+                        var childUseCase: AgentRunUseCase? = null
+                        try {
+                            // long: 每个 child 有独立 Registry/MCP owner，但共用同一注入账本；验收和生产都不能偷偷换到默认数据库。
+                            childUseCase = AgentRunUseCase(appContext, client, mcpSessions, baseLedger,
+                                plugins, pluginForegroundState, sharedSkillStore)
+                            childUseCase.run(conversationId, "$userMessageId.${child.id}", child.goal,
+                                config = config, summarySystemPrompt = summarySystemPrompt, agentProfile = frozen.profile,
+                                memoryRecallEnabled = false, parentRunId = parentRunId, childRunId = slot.runId)
+                        } catch (error: CancellationException) {
+                            throw error
+                        } catch (error: Throwable) {
+                            // long: Runtime 超时已有 BUDGET_EXHAUSTED 终态，不能在父返回值中重写成普通 FAILED；初始化失败才补结算。
+                            withContext(NonCancellable) {
+                                baseLedger.updateRunStatus(slot.runId, AgentRunStatus.FAILED, errorMessage = "child 初始化或执行失败")
+                            }
+                        } finally {
+                            childUseCase?.closeMcpOwners()
+                        }
+                        val run = baseLedger.snapshot(slot.runId).run
+                        ReadOnlyChildAgentResult(child.id, slot.runId, run.status,
+                            run.result?.take(AgentChildLifecyclePolicy.MAX_RESULT_CHARS), run.errorMessage?.take(500))
+                    }
+                } finally { watcher.cancel() }
+            }
+        } finally {
+            // long: 父协程取消、构造失败或返回中断均关闭所有未完成槽位；成功 child 和其 Tool Ledger 保持原终态。
+            withContext(NonCancellable) {
+                checkpoint?.slots?.forEach { baseLedger.cancelActiveRun(it.runId, "只读 child 批次已结束") }
             }
         }
     }
@@ -395,6 +409,7 @@ class AgentRunUseCase(
     }) { freshDetail ->
         val detail = freshDetail
         AgentPluginExecutionPolicy.requireFreshSelection(detail)
+        AgentChildLifecyclePolicy.requireFreshInvocation(detail)
         val selectionEvent = detail.snapshot.events.lastOrNull { it.type == "skill.selected" }
         val agentProfile = when (val assessment = detail.inspectAgentProfileAudit()) {
             AgentProfileAuditAssessment.Legacy -> null
@@ -543,6 +558,7 @@ class AgentRunUseCase(
     ): AgentRunSummary = baseLedger.withRecoveryExecution(detail.snapshot.run.id) { freshDetail ->
         val detail = freshDetail
         AgentPluginExecutionPolicy.requireFreshSelection(detail)
+        AgentChildLifecyclePolicy.requireFreshInvocation(detail)
         val ledger = ReportingAgentRunLedger(
             delegate = baseLedger,
             onSnapshot = onSnapshot,
@@ -567,6 +583,7 @@ class AgentRunUseCase(
     ): AgentRunSummary = baseLedger.withRecoveryExecution(detail.snapshot.run.id) { freshDetail ->
         val detail = freshDetail
         AgentPluginExecutionPolicy.requireFreshSelection(detail)
+        AgentChildLifecyclePolicy.requireFreshInvocation(detail)
         val ledger = ReportingAgentRunLedger(
             delegate = baseLedger,
             onSnapshot = onSnapshot,
@@ -669,21 +686,6 @@ internal val LEGACY_RUN_TOOL_NAMES = setOf(
 )
 
 private const val DIRECT_DEVICE_MAX_TOOL_CALLS = 8
-private val READ_ONLY_CHILD_AGENT_TOOL_NAMES = setOf(
-    "app.current_time",
-    "app.get_info",
-    "app.get_battery",
-    "app.get_connectivity",
-    "app.get_storage",
-    "app.list_conversations",
-    "app.search_conversations",
-    "notes.list",
-    "notes.search",
-    "notes.get",
-    "memory.search",
-    "memory.get",
-    "knowledge.search",
-)
 private val DIRECT_DEVICE_ACTION_TOOL_NAMES = setOf(
     "device.open_app",
     "device.back",
@@ -712,6 +714,8 @@ private class ReportingAgentRunLedger(
     private val delegate: AgentRunLedger,
     private val onSnapshot: suspend (AgentRunSnapshot) -> Unit,
     private val pluginEvidence: String? = null,
+    private val invocationEvidence: String? = null,
+    private val childRunId: String? = null,
 ) : AgentRunLedger {
     private val stepRunIds = mutableMapOf<String, String>()
 
@@ -722,9 +726,7 @@ private class ReportingAgentRunLedger(
         retryOfRunId: String?,
     ): AgentRunRecord {
         if (pluginEvidence != null) return createPluginRecord(conversationId, userMessageId, goal)
-        val run = delegate.createRun(conversationId, userMessageId, goal, retryOfRunId)
-        emit(run.id)
-        return run
+        return createRecord(conversationId, userMessageId, goal, retryOfRunId, null)
     }
 
     override suspend fun createRun(
@@ -735,9 +737,30 @@ private class ReportingAgentRunLedger(
         parentRunId: String?,
     ): AgentRunRecord {
         if (pluginEvidence != null) return createPluginRecord(conversationId, userMessageId, goal)
-        val run = delegate.createRun(conversationId, userMessageId, goal, retryOfRunId, parentRunId)
-        emit(run.id)
-        return run
+        return createRecord(conversationId, userMessageId, goal, retryOfRunId, parentRunId)
+    }
+
+    private suspend fun createRecord(conversationId: String, userMessageId: String, goal: String,
+        retryOfRunId: String?, parentRunId: String?): AgentRunRecord {
+        var created: AgentRunRecord? = null
+        try {
+            withContext(NonCancellable) {
+                created = when {
+                    childRunId != null -> (delegate as RoomAgentRunRepository).claimReadOnlyChildRun(childRunId)
+                    invocationEvidence != null -> (delegate as RoomAgentRunRepository).createInvokedRun(
+                        conversationId, userMessageId, goal, retryOfRunId, parentRunId, invocationEvidence)
+                    else -> delegate.createRun(conversationId, userMessageId, goal, retryOfRunId, parentRunId)
+                }
+            }
+            return requireNotNull(created).also { emit(it.id) }
+        } catch (error: Throwable) {
+            // long: Runtime 拿到 Run 之前的取消与回调失败也要结算，避免一次性槽位已领取却永久停在 QUEUED。
+            created?.let { run -> withContext(NonCancellable) {
+                if (error is CancellationException) (delegate as? RoomAgentRunRepository)?.cancelActiveRun(run.id, "Run 初始化取消")
+                else delegate.updateRunStatus(run.id, AgentRunStatus.FAILED, errorMessage = "Run 初始化失败")
+            } }
+            throw error
+        }
     }
 
     private suspend fun createPluginRecord(conversationId: String, userMessageId: String, goal: String): AgentRunRecord {

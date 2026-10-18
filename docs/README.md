@@ -1,12 +1,16 @@
 # 文档索引
 
-## 当前交付：第 288 阶段 Skill/插件（两片实现基线完成）
+## 当前交付：第 289 阶段多 Agent（第一片完成，第 5 点未收口）
 
-- 签名 manifest、公钥/内容确认、身份绑定、最高版本与 3 项历史回滚，以及 SAFE 前台显式执行已实现。声明映射宿主固定只读能力，交集与目录冻结、停用/前台撤销、初始化结算和旧 Run 恢复拒绝沿真实 Runtime/Room 验证。无签名仍仅预览。详见[签名与回滚](agent-plugin-signing.md)、[执行契约](agent-plugin-execution.md)及[验证报告](verification-report.md)。主线下一点为第 5 点多 Agent，长期系统、完整界面联合和正式 Release 独立追踪。
+- child 槽位、来源/Profile/预算、全部 Run 与关系共事务登记，唯一领取；父取消、失败部分完成、旧批次重启关闭与终态保护已验证。当前只验生产 UseCase/Runtime/Room，第二片接显式派生界面与父结果消费，再做真实提供方联合。Room v44/发布版本不变，详见[child 生命周期](agent-child-lifecycle.md)和[验证报告](verification-report.md)。
+
+## 第 288 阶段 Skill/插件（两片实现基线完成）
+
+- 签名 manifest、公钥/内容确认、身份绑定、最高版本与 3 项历史回滚，以及 SAFE 前台显式执行已实现。声明映射宿主固定只读能力，交集与目录冻结、停用/前台撤销、初始化结算和旧 Run 恢复拒绝沿真实 Runtime/Room 验证。无签名仍仅预览。详见[签名与回滚](agent-plugin-signing.md)、[执行契约](agent-plugin-execution.md)及[验证报告](verification-report.md)。当前主线为第 5 点多 Agent，长期系统、完整界面联合和正式 Release 独立追踪。
 
 ## 第 287 阶段 Context/Memory（实现基线已收口）
 
-- 第 3 点 Context/Memory 五片实现基线已具备：Memory CAS、有界输入快照、确定性提取压缩、上下文恢复校验，以及显式一次性有界后台整理建议。开发 Room v44；整理不自动写正式记忆。详见[Memory CAS](memory-cas.md)、[输入快照](agent-context-snapshot.md)、[压缩契约](agent-context-compression.md)、[恢复契约](agent-context-recovery.md)、[整理契约](memory-maintenance.md)与[验证报告](verification-report.md)。第 4 点两片也已完成，下一主线为第 5 点多 Agent，长期系统/质量验收独立追踪。
+- 第 3 点 Context/Memory 五片实现基线已具备：Memory CAS、有界输入快照、确定性提取压缩、上下文恢复校验，以及显式一次性有界后台整理建议。开发 Room v44；整理不自动写正式记忆。详见[Memory CAS](memory-cas.md)、[输入快照](agent-context-snapshot.md)、[压缩契约](agent-context-compression.md)、[恢复契约](agent-context-recovery.md)、[整理契约](memory-maintenance.md)与[验证报告](verification-report.md)。第 4 点两片也已完成，当前主线为第 5 点多 Agent，长期系统/质量验收独立追踪。
 
 ## 第 286 阶段 MCP（已收口）
 
