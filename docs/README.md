@@ -12,6 +12,7 @@
 - [Remote Channel wire codec](kmp-remote-channel-wire.md)：第四片固化 message/batch/ACK/request/proof 与公开 manifest；Android 验签、密文入箱与前台许可保留。
 - [完整 Tool result codec](kmp-tool-result.md)：第五片补齐结果引用/恢复失败/私有幂等键，新增完整 v1 帧和 Android 双向入口；shared contract v5，模型投影脱敏及历史持久格式保持。
 - [iOS 本地 workspace](ios-workspace.md)：第六片提供原生文件平台实现、宿主新建与模型前台只读 Executor；真实隔离文件及 scripted shared loop/codec 联合通过。没有 iOS App 或真实 UIKit owner，下一片 HTTP client。
+- [iOS HTTP client](ios-http-client.md)：第七片提供宿主HTTPS origin、普通有界GET/POST、总时限/取消/关闭、redirect与Cookie/cache/credential边界。真实原生loopback socket验收；没有流式SSE/Provider或公网TLS活体验收，下一片只读浏览器。
 - Workspace 第一片已落地独立原子会话账本、有界 transcript 与中断收敛，见[Workspace 契约](workspace-session-transcript.md)。Browser 第二片补服务端语义 DOM、逐次审批 click/本机草稿 type、引用消费与类型化动作证据，见[Browser 契约](browser-dom-actions.md)和[验证报告](verification-report.md)。GenUI 第三片也已完成，三片实现基线收口；Room v44/发布版本不变。
 
 ## 第 289 阶段多 Agent（两片只读实现基线收口）

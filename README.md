@@ -13,7 +13,7 @@
 
 小灵不是一个只会生成文字的聊天客户端，也不是默认拥有全部权限的自动化脚本。它把自然语言目标转换成受控工具调用，在 Android 本地保存计划、审批、执行与验证证据，并让用户始终掌握最终控制权。
 
-开发主线已完成第 6 点 Workspace/Browser/GenUI 三片实现基线：[GenUI v2](docs/genui-actions.md) 提供版本化组件、本机表单草稿和固定单工具前台审批。当前第 7 点前五片已固化[共享可读证据](docs/kmp-readable-evidence.md)、[context snapshot](docs/kmp-context-snapshot.md)、[MCP schema](docs/kmp-mcp-schema.md)、[Remote Channel wire](docs/kmp-remote-channel-wire.md)和[完整结果 codec](docs/kmp-tool-result.md)；第六片已提供[iOS 本地 workspace](docs/ios-workspace.md)平台实现与共享只读 Executor，shared contract v5，下一片 HTTP client。原生文件/scripted loop 已验证，真实 UIKit/模型/产品入口仍待推进。真实渲染 DOM、自然系统恢复与正式 Release 独立追踪，详见[路线图](docs/personal-agent-roadmap.md)和[验证报告](docs/verification-report.md)。
+开发主线已完成第 6 点 Workspace/Browser/GenUI 三片实现基线：[GenUI v2](docs/genui-actions.md) 提供版本化组件、本机表单草稿和固定单工具前台审批。当前第 7 点前五片已固化[共享可读证据](docs/kmp-readable-evidence.md)、[context snapshot](docs/kmp-context-snapshot.md)、[MCP schema](docs/kmp-mcp-schema.md)、[Remote Channel wire](docs/kmp-remote-channel-wire.md)和[完整结果 codec](docs/kmp-tool-result.md)；第六片已提供[iOS 本地 workspace](docs/ios-workspace.md)，第七片已提供[iOS HTTP client](docs/ios-http-client.md)宿主有界网络端口，shared contract v5，下一片只读浏览器。原生文件/scripted loop与真实loopback socket已验证，真实UIKit/模型/产品入口及公网TLS活体验收仍待推进。真实渲染 DOM、自然系统恢复与正式 Release 独立追踪，详见[路线图](docs/personal-agent-roadmap.md)和[验证报告](docs/verification-report.md)。
 
 ## 下载
 
@@ -106,7 +106,7 @@ Release 签名从未跟踪文件 `local-signing/xiaoling-release.env` 读取。�
 
 ## 当前状态
 
-当前主线为第 7 点 KMP 协议/codec 与 iOS 平台实现：前五片已具备可读证据、context snapshot、MCP descriptor/有界 validator/raw codec、Remote Channel wire/canonical bytes 和完整结果 v1 私有帧；第六片 iOS 文件实现提供有界 list/read、宿主新建不覆盖及共享前台只读 Executor。shared contract v5，Android 保留历史持久格式、MCP session/transport、验签、审批和恢复权限，模型投影去除幂等键。下一片 HTTP client，随后只读浏览器和真实前台 loop；当前没有 iOS App 或 UIKit owner。平台矩阵及边界见[iOS 文件](docs/ios-workspace.md)、[共享证据](docs/kmp-readable-evidence.md)、[context](docs/kmp-context-snapshot.md)、[MCP schema](docs/kmp-mcp-schema.md)、[Remote wire](docs/kmp-remote-channel-wire.md)和[结果](docs/kmp-tool-result.md)契约。第 6 点（第 290 阶段）三片实现基线已收口：Workspace 持久会话与中断收敛；Browser SERVER_HTML 语义 DOM、逐次审批链接 GET/本机草稿 type；GenUI v2 版本化组件、仅内存草稿与单工具前台显式审批。type 不改变真实网页。完整产品真实模型联合、自然系统恢复和正式 Release 单列；Room v44/发布版本不变，见[Workspace 契约](docs/workspace-session-transcript.md)、[Browser 契约](docs/browser-dom-actions.md)、[GenUI 契约](docs/genui-actions.md)和[验证报告](docs/verification-report.md)。
+当前主线为第 7 点 KMP 协议/codec 与 iOS 平台实现：前五片已具备可读证据、context snapshot、MCP descriptor/有界 validator/raw codec、Remote Channel wire/canonical bytes 和完整结果 v1 私有帧；第六片iOS文件实现提供有界list/read、宿主新建不覆盖及共享前台只读Executor，第七片HTTP宿主端口提供HTTPS origin、有界GET/POST与取消/关闭。shared contract v5，Android 保留历史持久格式、MCP session/transport、验签、审批和恢复权限，模型投影去除幂等键。下一片只读浏览器，随后真实前台loop；当前没有iOS App、UIKit owner、Provider/SSE或公网TLS活体验收。平台矩阵及边界见[iOS HTTP](docs/ios-http-client.md)、[iOS 文件](docs/ios-workspace.md)、[共享证据](docs/kmp-readable-evidence.md)、[context](docs/kmp-context-snapshot.md)、[MCP schema](docs/kmp-mcp-schema.md)、[Remote wire](docs/kmp-remote-channel-wire.md)和[结果](docs/kmp-tool-result.md)契约。第 6 点（第 290 阶段）三片实现基线已收口：Workspace 持久会话与中断收敛；Browser SERVER_HTML 语义 DOM、逐次审批链接 GET/本机草稿 type；GenUI v2 版本化组件、仅内存草稿与单工具前台显式审批。type 不改变真实网页。完整产品真实模型联合、自然系统恢复和正式 Release 单列；Room v44/发布版本不变，见[Workspace 契约](docs/workspace-session-transcript.md)、[Browser 契约](docs/browser-dom-actions.md)、[GenUI 契约](docs/genui-actions.md)和[验证报告](docs/verification-report.md)。
 
 第 5 点多 Agent 两片只读实现基线已收口：child checkpoint/唯一领取/父取消、任务中心显式 1–2 目标、独立会话与父结构化单次消费，真实 gpt-6-luna 联合已通过。精确共享扣账/费用、完整产品点击联合、自然系统和 Release 独立跟踪。详见[child 生命周期](docs/agent-child-lifecycle.md)。
 

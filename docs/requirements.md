@@ -1,5 +1,11 @@
 # 产品需求
 
+## 2026-10-18 第 291 阶段第七片：iOS HTTP client
+
+- HTTP宿主端口仅普通有界GET/POST，宿主登记1–8个HTTPS origin，精确scheme/host/port匹配；不把请求/认证头变成模型参数，不把origin策略冒充公网DNS/SSRF门禁。默认1 MiB、最大2 MiB响应，512 KiB请求、4并发和完整请求总时限。
+- 独立ephemeral NSURLSession禁Cookie/credential/cache，拒绝所有redirect，session/task两层仅系统默认ServerTrust，其余challenge拒绝。取消/关闭先撤销Exchange，晚到回调不复活；HTTP原始状态/字节不生成业务验证、提交或重放许可，取消不证明POST未提交。
+- 平台类经共享接口注入，真实loopback socket及common门禁验收；没有Provider/SSE、真实模型/UIKit或公网TLS活体验收。shared Agent v5/HTTP v1、Room v44/发布版本保持，下一片只读浏览器，见[HTTP契约](ios-http-client.md)和[报告](verification-report.md)。
+
 ## 2026-10-18 第 291 阶段第六片：iOS 本地 workspace
 
 - 宿主注入可信 App 私有根，iOS 平台文件实现提供有界 list/严格 UTF-8 读取及宿主新文件创建；模型目录仅 workspace.list/read_file，禁止写入、shell、后台和自动重放。文件端口独立于原终端端口。

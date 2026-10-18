@@ -1,6 +1,6 @@
 # iOS 本地 workspace 平台实现
 
-第 291 阶段第六片，继续第 7 点。新增 `iosMain` 原生文件实现与共享只读 Executor，接到现有 shared Agent loop；没有 Swift App、framework 导出或 expect/actual factory。shared contract 保持 v5，文件策略 v1，Room v44、发布版本 `0.1.22 (23)` 保持。下一片推进 iOS HTTP client，随后只读浏览器与真实前台 loop。
+第 291 阶段第六片，继续第 7 点。新增 `iosMain` 原生文件实现与共享只读 Executor，接到现有 shared Agent loop；没有 Swift App、framework 导出或 expect/actual factory。shared contract 保持 v5，文件策略 v1，Room v44、发布版本 `0.1.22 (23)` 保持。第七片已提供[iOS HTTP client](ios-http-client.md)，后续推进只读浏览器与真实前台loop。
 
 ## 平台能力与宿主责任
 

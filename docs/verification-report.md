@@ -2,6 +2,30 @@
 
 验证日期：2026-10-18（北京时间）
 
+# 2026-10-18 第 291 阶段第七片：iOS HTTP宿主端口
+
+- 第7点继续推进；本片新增common HTTP契约v1和普通iosMain IosHttpClient，供可信宿主注入。仅有界GET/POST，1–8个HTTPS origin、512 KiB请求、默认1 MiB/最大2 MiB响应、4并发及100–60,000ms总时限；URL/Headers/防御性复制与诊断脱敏门禁。shared Agent contract v5、Room v44、发布版本 `0.1.22 (23)` 保持，Android原网络实现未迁移。
+- 独立ephemeral NSURLSession禁Cookie/storage/credential/cache，拒绝所有redirect，session/task两层仅系统默认ServerTrust，其余challenge拒绝。NSLock保护Exchange登记与单次领取，取消/close撤销pending并cancel实际task，迟到回调忽略；已在close前领取的完成不追改失败。Content-Length与实际追加双限额，固定错误无原NSError/cause/URL/正文；HTTP状态和原始bytes不产生业务验证/提交或重放许可。
+
+| 验证层 | 本轮结果 | 证据范围 |
+| --- | --- | --- |
+| shared Android Debug / Release | **各92/92** | 既有85项与新增7项URL/origin/Header、限额/复制/诊断及原始非UTF8字节 |
+| shared iOS Simulator arm64 | **117/117** | 同一92项、原生workspace11项与HTTP socket14项 |
+| iOS arm64平台编译 | **通过** | 包含文件与HTTP平台类，不是iOS App或真机产品运行 |
+| App聚焦JVM | **35/35** | Provider普通/流式与取消、MCP传输边界、Browser DOM/取消/DNS回归 |
+| Debug / AndroidTest / Debug Lint | **通过** | 内部Debug制品，正式Release未构建或发布 |
+| 指定Redmi网络回归 | **5/5** | 隔离loopback MCP握手/资源/取消3项，Browser owner/stale/敏感目标及Runtime取消2项 |
+| 最终文档corpus / 保护 | **2/2** | 正式7项偏好/Memory undo摘要与验收前一致 |
+
+- native14项使用Simulator进程内真实随机端口socket，不是URLProtocol注入：GET/POST与显式fixture认证头、普通401/503状态、同源/跨origin redirect不连接目标、Cookie/cache两请求、declared/chunked溢出与精确预算、头前/正文取消、总时限、close/复用、目标拒绝/预取消、并发、截断、0x00/0xff原样及Basic challenge拒绝。取消/关闭/时限在夹具清理前等待peer EOF或ECONNRESET，其他错误不计成功；没有用客户端返回状态代替实际socket关闭。
+- 当前Simulator **iPhone 16 Pro / iOS18.3**，UUID `EADF8DFC-ED26-4C03-8735-C0889ECB2DA5`；Xcode **16.2 (16C5032a)**、编译SDK **iPhoneSimulator18.2.sdk**。通过 `xcrun simctl spawn --standalone` 执行native test.kexe，没有Swift App或可见App窗口。SDK头文件带行号快照保存在证据目录；Apple旧URL缺页及动态配置页导航正文不作为API证明。
+- 初次Native编译的NSMutableURLRequest只读属性经带cachePolicy/timeout工厂修正，Darwin inet_addr导入及未绑定ntohs宏改为显式网络序端口读取。首次socket运行暴露阻塞accept清理超时，改非阻塞listener；下一轮117项有3项暂停连接失败，原因是Darwin accept继承非阻塞标记，恢复accepted连接阻塞并保留有限收发超时后全通过。失败日志和3项失败摘要保留，未删除或改写为成功。
+- 独立源码/SDK审查没有发现确定性结算竞争；补齐session-level challenge、跨origin跳转和原生二进制回归。测试只证明HTTP loopback行为；TLS信任处理与无存储配置有SDK/源码证据，未活体验证公网DNS/TLS、坏证书或mTLS。宿主origin策略不是公网DNS/SSRF门禁；IPv6、未编码Unicode URL和流式SSE不在首片范围。
+- 四个Exchange正文buffer最多8 MiB，完成复制/NSData/原生Header和网络内部内存不在此上限内。宿主必须close；取消/失败不能证明POST未提交，也不能据无应用重试循环承诺系统底层从不处理传输重试。没有Provider/MCP/Browser上层adapter、真实模型或UIKit/前台产品链路。
+- Redmi仅 `wsvwypiz7xwslvl7 / begonia / Redmi Note 8 Pro / SDK36`，install -r保留数据。MCP仅本机夹具配置，Browser使用UUID根和内存Room；未卸载或清正式数据。最终文档assets逐字节一致、本地链接路径和两项实际凭据/源码/本片证据/两APK/native test.kexe审计通过；实际凭据只在进程内匹配，摘要和计数见artifact-audit/verification-summary，不输出值。
+- 下一片 **iOS只读浏览器**，随后真实前台loop；第7点尚未整体收口，前六点长期独立待办保持。没有factory/framework/Swift App、真实模型/公网TLS/自然系统或正式Release证据。中文本地提交，无push/tag/Release，原refs/保留。
+- 契约及矩阵：[HTTP宿主端口](ios-http-client.md)、[iOS workspace](ios-workspace.md)、[共享证据](kmp-readable-evidence.md)、[路线图](personal-agent-roadmap.md)。证据目录 `outputs/verification/stage291-ios-http/` 保存初次/最终native日志、失败与最终XML汇总、SDK/网页抓取、App构建/Lint/JVM、Redmi原日志、最终语料/保护、文档assets/链接及凭据/产物审计。
+
 # 2026-10-18 第 291 阶段第六片：iOS 本地 workspace 平台实现
 
 - 当前推进第 7 点；前五片协议/codec 固化后，本片新增共享文件端口、只读 Executor 与 `iosMain` 的 IosLocalWorkspace。文件端口独立于原终端命令端口，由宿主注入可信 App 私有根；模型仅 workspace.list/read_file，宿主另有新文件创建接口。shared contract v5、文件策略 v1、Room v44、发布版本 `0.1.22 (23)` 保持。

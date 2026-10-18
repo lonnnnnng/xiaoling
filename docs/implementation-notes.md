@@ -1,5 +1,11 @@
 # 当前实现说明
 
+## 2026-10-18 第 291 阶段第七片：iOS 有界网络平台实现
+
+- commonMain新增SharedHttpClient/Request/Response/TargetPolicy，v1宿主origin和URL/Header/原始字节限额；防御性复制、脱敏toString及固定错误，不解析业务或升级验证/提交。Android原OkHttp Provider/MCP/Browser保持原实现。
+- iosMain的IosHttpClient创建独立ephemeral session、串行delegate与NSLock Exchange账本，固定有界正文、完整总时限、取消task、幂等close与回调单次领取。拒绝redirect和隐式认证，系统默认TLS；Foundation内部内存不在正文buffer上限内，宿主必须close。
+- Simulator真实原生socket覆盖GET/POST/状态、溢出、Cookie/cache、redirect/Basic challenge及取消/close/时限；源码和SDK审查不替代公网TLS/mTLS活体验收。普通平台实现类没有factory/framework/App，下一片只读浏览器，详见[HTTP契约](ios-http-client.md)与[报告](verification-report.md)。
+
 ## 2026-10-18 第 291 阶段第六片：iOS 文件平台实现
 
 - commonMain 新增 SharedWorkspaceFiles/有界文件策略与 SharedReadOnlyWorkspaceExecutor；文件端口独立于 SharedWorkspaceRuntime，模型仅 list/read_file，前台 owner 及取消前后复核，成功仅 content，不补验证/提交回执。
