@@ -23,7 +23,7 @@
 2. 第 286 阶段 MCP 已收口：统一 `McpSessionRegistry`、legacy SSE、真实模型 SSE 联合验收及 Context7 认证 HTTPS 只读验收已完成。stdio 等待进程沙箱和生命周期机制，OAuth、Tasks 后置。
 3. 第 287 阶段 Context/Memory 五片实现基线已完成：Memory CAS、有界输入/context snapshot、确定性提取压缩、上下文恢复校验和显式一次性有界后台整理建议。第 4 点两片亦已完成，下一主线为多 Agent；系统长期/质量验收独立追踪，证据等级以报告为准。
 4. 第 288 阶段 Skill/插件两片原定实现基线已完成：签名 manifest、有界版本回滚、SAFE 前台显式宿主扩展；无签名仅预览、旧 Run 不能继承前台许可。长期系统、完整界面联合和正式 Release 验收独立追踪。
-5. 第 289 阶段多 Agent 第一片已完成持久 child 槽位、来源/预算、原子派生/领取、父取消、失败部分完成和旧批次重启收敛；仍限前台 Direct、最多两个只读 child。第二片接显式界面、父结果消费/完成策略及真实提供方联合，第 5 点尚未收口。
+5. 第 289 阶段多 Agent 两片只读实现基线已收口：持久 child 槽位、来源/预算、原子派生/领取、父取消/恢复收敛，以及任务中心显式入口、父结果单次消费/完成策略和真实提供方联合已完成。仍限前台 Direct、最多两个只读 child；精确共享扣账/费用、完整产品点击联合、自然系统与 Release 独立追踪。
 6. Workspace/Browser/GenUI 合为后续一组：补 session transcript、DOM/action、版本化组件和显式 action。
 7. shared 目前主要是 contract，实际 Agent runtime、Memory、MCP、设备和 UI 均在 Android；iOS 不能宣称与 Android 对等。
 
@@ -96,13 +96,19 @@
 - 完整产品界面点击到真实模型的联合专项、自然 LMK/Doze/系统重启、正式 Release 验收。
 - 发布者密钥轮换/永久撤销、动态定义热加载代次、不可信外部代码沙箱、插件市场及后台执行。
 
-#### 第 289 阶段：多 Agent 持久生命周期（当前主线，第 5 点第一片完成）
+#### 第 289 阶段：多 Agent 持久生命周期（第 5 点两片只读实现基线收口）
 
 - 第一片已实现：Room v44 事件 checkpoint、完整父来源/Profile 审计、全部 child Run/期望数/双向关联共事务与唯一领取；独立 3 calls/60 秒及父最新持久预算上界，父取消/终态关闭、真实 Room 状态返回和旧批次恢复拒绝。JVM、Redmi loopback/宿主时间、并发竞争与三进程证据见[child 契约](agent-child-lifecycle.md)和报告。
-- 第二片范围：前台显式派生入口、父结构化结果摘要/消费与完成策略，以及真实提供方联合验收；第一片不收口第 5 点。精确共享预算扣账/费用、自然系统恢复、后台/可写 child 与正式 Release 保持独立边界。
+- 第二片已完成：任务中心显式 1–2 目标、独立会话/父 ID、一次性真实 resumed 许可，父创建/来源/Profile/预算共事务，结构化消费全部 child 真实终态并原子完成父任务；部分失败不记全成功。JVM 43、Redmi 定向 34、真实 gpt-6-luna 两 child 时间/PASSED/唯一消费 1 项通过，证据等级见报告。原定两片只读实现基线收口，下一主线为第 290 阶段。
 - 将当前最多两个只读 child 扩展为受限 child runtime：每个 child 有独立 Run、预算、取消 token、checkpoint、结果摘要和失败类型；父 Run 只接受结构化结果。
 - 保持 `REMOTE / WORKFLOW / BACKGROUND / depth>0` 禁止派生，写工具和设备动作继续逐次审批；先做只读检索/规划 child，再评估可写 child。
 - 退出标准：并发上限、单 child 超时、父取消、子失败部分完成、进程重启和迟到结果都能收敛，旧 Run/ledger 不被覆盖。
+
+##### 多 Agent 独立待办（不阻塞 Workspace/Browser/GenUI）
+
+- 父/child 精确共享扣账、令牌/费用预算与持久 deadline；当前为独立 child 上限和父单调等待上限。
+- 完整产品界面点击 → ViewModel 会话持久化 → 真实模型联合专项、自然 LMK/Doze/系统重启与正式 Release 验收。
+- 后台/可写 child、递归派生、大规模性能与硬进程隔离。
 
 #### 第 290 阶段：Workspace、Browser 与 GenUI 统一受控面
 

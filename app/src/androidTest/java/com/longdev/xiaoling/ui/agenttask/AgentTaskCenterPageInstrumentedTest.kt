@@ -1,11 +1,14 @@
 package com.longdev.xiaoling.ui.agenttask
 
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.test.junit4.v2.createComposeRule
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.assertIsNotEnabled
 import com.longdev.xiaoling.agent.AgentRunDetailRecord
 import com.longdev.xiaoling.agent.AgentRunRecord
 import com.longdev.xiaoling.agent.AgentRunRestartDisposition
@@ -22,6 +25,20 @@ import org.junit.Test
 class AgentTaskCenterPageInstrumentedTest {
     @get:Rule
     val composeRule = createComposeRule()
+
+    @Test fun pageRoutesExplicitBatchStartAndStopIndependentlyOfSelectedConversation() {
+        val actions = FakeAgentTaskCenterActions()
+        var state by androidx.compose.runtime.mutableStateOf(taskCenterState())
+        composeRule.setContent { MaterialTheme { AgentTaskCenterPage(state, actions, {}) } }
+        composeRule.onNodeWithTag("agent-child-new").performClick()
+        composeRule.runOnIdle {
+            assertEquals(1, actions.newBatchCount)
+            state = state.copy(childBatchRunning = true, childBatchParentRunId = "parent-independent")
+        }
+        composeRule.onNodeWithTag("agent-child-new").assertIsNotEnabled()
+        composeRule.onNodeWithTag("agent-child-stop").performClick()
+        composeRule.runOnIdle { assertEquals(1, actions.stopBatchCount) }
+    }
 
     @Test
     fun pageRoutesRunActionsWithoutConcreteViewModel() {
@@ -239,5 +256,11 @@ class AgentTaskCenterPageInstrumentedTest {
         override fun confirmAgentRunRetry() = Unit
 
         override fun cancelAgentRunRetry() = Unit
+        override fun requestReadOnlyChildBatch() { newBatchCount += 1 }
+        override fun confirmReadOnlyChildBatch(goals: List<String>) = Unit
+        override fun cancelReadOnlyChildBatchDraft() = Unit
+        override fun stopReadOnlyChildBatch() { stopBatchCount += 1 }
+        var newBatchCount = 0
+        var stopBatchCount = 0
     }
 }

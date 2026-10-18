@@ -32,6 +32,11 @@ interface AgentTaskCenterActions {
     fun confirmAgentRunRetry()
 
     fun cancelAgentRunRetry()
+
+    fun requestReadOnlyChildBatch()
+    fun confirmReadOnlyChildBatch(goals: List<String>)
+    fun cancelReadOnlyChildBatchDraft()
+    fun stopReadOnlyChildBatch()
 }
 
 internal data class AgentTaskCenterUiState(
@@ -39,6 +44,10 @@ internal data class AgentTaskCenterUiState(
     val error: String? = null,
     val runs: List<AgentTaskCenterRunUiState> = emptyList(),
     val pendingRetryConfirmation: AgentRetryConfirmationUiState? = null,
+    val childBatchDraftOpen: Boolean = false,
+    val childBatchRunning: Boolean = false,
+    val childBatchParentRunId: String? = null,
+    val childBatchAgentLabel: String = "",
 )
 
 internal enum class AgentTaskCenterTerminalReason {
@@ -107,6 +116,10 @@ internal object AgentTaskCenterProjection {
         selectedRunId: String?,
         retryingRunId: String?,
         pendingRetryConfirmation: AgentRetryConfirmationUiState? = null,
+        childBatchDraftOpen: Boolean = false,
+        childBatchRunning: Boolean = false,
+        childBatchParentRunId: String? = null,
+        childBatchAgentLabel: String = "",
     ): AgentTaskCenterUiState {
         val historyByRunId = history.groupBy { it.snapshot.run.id }
         val retriesBySourceRunId = history
@@ -245,6 +258,10 @@ internal object AgentTaskCenterProjection {
                 )
             },
             pendingRetryConfirmation = pendingRetryConfirmation,
+            childBatchDraftOpen = childBatchDraftOpen,
+            childBatchRunning = childBatchRunning,
+            childBatchParentRunId = childBatchParentRunId,
+            childBatchAgentLabel = childBatchAgentLabel,
         )
     }
 

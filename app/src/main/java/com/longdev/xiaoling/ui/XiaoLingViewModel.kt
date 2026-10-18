@@ -172,6 +172,9 @@ import com.longdev.xiaoling.ui.workflow.WorkflowRetryConfirmationUiState
 import com.longdev.xiaoling.ui.agentprofile.AgentProfileEditDraft
 import com.longdev.xiaoling.ui.agentprofile.AgentProfileManagementActions
 import com.longdev.xiaoling.ui.agenttask.AgentTaskCenterActions
+import com.longdev.xiaoling.ui.agenttask.childBatchLaunchProblem
+import com.longdev.xiaoling.agent.AgentChildBatchPolicy
+import com.longdev.xiaoling.agent.AgentChildBatchSelection
 import com.longdev.xiaoling.ui.agenttask.AgentRetryConfirmationUiState
 import com.longdev.xiaoling.ui.memory.AgentMemoryEditUiState
 import com.longdev.xiaoling.ui.memory.MemoryManagementActions
@@ -358,6 +361,9 @@ data class XiaoLingUiState(
     val processExitObservationError: String? = null,
     val retryingAgentRunId: String? = null,
     val pendingAgentRetryConfirmation: AgentRetryConfirmationUiState? = null,
+    val childBatchDraftOpen: Boolean = false,
+    val childBatchRunning: Boolean = false,
+    val childBatchParentRunId: String? = null,
     val agentRetryNavigationConversationId: String? = null,
     val loadingMemories: Boolean = false,
     val memories: List<AgentMemoryRecord> = emptyList(),
@@ -844,6 +850,7 @@ class XiaoLingViewModel @JvmOverloads constructor(
     private val agentConversationRuntimeStateStore = AgentConversationRuntimeStateStore()
     private val agentLaunchPreflightCoordinator = AgentLaunchPreflightCoordinator()
     private var sendMessageJob: Job? = null
+    private var agentRunHistoryRefreshGeneration = 0L
     private var personalTaskPlanningRequestId: String? = null
     private var personalTaskOperationRequestId: String? = null
     private var pendingPersonalTaskExecution: PendingPersonalTaskExecution? = null
@@ -1923,11 +1930,12 @@ class XiaoLingViewModel @JvmOverloads constructor(
     }
 
     fun stopGenerating() {
-        val runId = uiState.activeAgentRun?.run?.id
+        val runId = if (uiState.childBatchRunning) uiState.childBatchParentRunId else uiState.activeAgentRun?.run?.id
+        val stoppingJob = sendMessageJob
         val reason = "用户停止 Agent 任务"
         if (runId == null) {
             agentApprovalDecisionCoordinator.cancelActive()
-            sendMessageJob?.cancel()
+            stoppingJob?.cancel()
             return
         }
         viewModelScope.launch {
@@ -1937,13 +1945,15 @@ class XiaoLingViewModel @JvmOverloads constructor(
                     agentRunRepository.requestCancel(runId, reason)
                 }
             }
-            agentApprovalDecisionCoordinator.cancelActive()
-            sendMessageJob?.cancel()
+            // long: 持久取消等待期间旧批次可能已完成；只停止当时捕获的 Job，不能误取消用户随后启动的新任务或审批。
+            if (sendMessageJob === stoppingJob) agentApprovalDecisionCoordinator.cancelActive()
+            stoppingJob?.cancel()
         }
     }
 
     override fun refreshAgentRunHistory() {
         if (uiState.loadingAgentRunHistory) return
+        val generation = ++agentRunHistoryRefreshGeneration
         uiState = uiState.copy(loadingAgentRunHistory = true, agentRunHistoryError = null)
         viewModelScope.launch {
             runCatching {
@@ -1951,6 +1961,7 @@ class XiaoLingViewModel @JvmOverloads constructor(
                     agentRunRepository.recentRunDetails(AGENT_RUN_HISTORY_LIMIT)
                 }
             }.onSuccess { history ->
+                if (generation != agentRunHistoryRefreshGeneration) return@onSuccess
                 val selectedId = uiState.selectedAgentRunId
                     ?.takeIf { id -> history.any { it.snapshot.run.id == id } }
                     ?: history.firstOrNull()?.snapshot?.run?.id
@@ -1961,6 +1972,7 @@ class XiaoLingViewModel @JvmOverloads constructor(
                     agentRunHistoryError = null,
                 )
             }.onFailure { error ->
+                if (generation != agentRunHistoryRefreshGeneration) return@onFailure
                 uiState = uiState.copy(
                     loadingAgentRunHistory = false,
                     agentRunHistoryError = error.message ?: "无法读取 Agent 任务",
@@ -4624,6 +4636,88 @@ class XiaoLingViewModel @JvmOverloads constructor(
         uiState = uiState.copy(personalTaskMode = false)
         sendAgentRun("/agent ${goal.trim()}", runtimeSelection, pluginSelection = selection)
         return true
+    }
+
+    override fun requestReadOnlyChildBatch() {
+        uiState.childBatchLaunchProblem()?.let { showValidation(it); return }
+        if (selectedAgentLaunchPreflight() == null) return
+        if (!getApplication<XiaoLingApplication>().agentPluginForeground.state.value.resumed) {
+            showValidation("只读多 Agent 只允许在应用前台发起")
+            return
+        }
+        uiState = uiState.copy(childBatchDraftOpen = true)
+    }
+
+    override fun cancelReadOnlyChildBatchDraft() { uiState = uiState.copy(childBatchDraftOpen = false) }
+
+    override fun stopReadOnlyChildBatch() { if (uiState.childBatchRunning) stopGenerating() }
+
+    override fun confirmReadOnlyChildBatch(goals: List<String>) {
+        if (!uiState.childBatchDraftOpen) return
+        uiState.childBatchLaunchProblem()?.let { showValidation(it); return }
+        val normalized = runCatching { AgentChildBatchPolicy.goals(goals) }
+            .getOrElse { showValidation(it.message ?: "请填写有效的子任务目标"); return }
+        val runtime = selectedAgentLaunchPreflight()?.runtimeSelection ?: return
+        val selection = runCatching { AgentChildBatchSelection.capture(getApplication<XiaoLingApplication>().agentPluginForeground) }
+            .getOrElse { showValidation(it.message ?: "前台许可不可用"); return }
+        val conversationId = "conversation-child-${UUID.randomUUID()}"
+        val userMessage = ChatMessage(id = newChatMessageId(), role = "user",
+            text = normalized.mapIndexed { index, goal -> "目标 ${index + 1}：$goal" }.joinToString("\n"), createdAt = System.currentTimeMillis())
+        val summaryPrompt = PromptPolicy.agentSummarySystemPrompt(uiState.promptSettings)
+        // long: 批次建立独立会话，不消费聊天输入框或附件；父 ID 独立保存，切换会话后仍能准确停止该批次。
+        uiState = uiState.copy(childBatchDraftOpen = false, childBatchRunning = true, sendingMessage = true,
+            childBatchParentRunId = null, result = null).withUpdatedConversation(conversationId, listOf(userMessage), "")
+        val persistence = conversationPersistenceCoordinator.captureSnapshot(
+            uiState.conversations.map { it.toStored() }, uiState.selectedConversationId)
+        sendMessageJob = viewModelScope.launch {
+            var failure: String? = null
+            try {
+                conversationPersistenceCoordinator.cancelPendingSaveAndJoin()
+                conversationPersistenceCoordinator.persist(persistence)
+                withContext(Dispatchers.IO) {
+                    agentRunUseCase.runReadOnlyChildBatch(conversationId, userMessage.id, normalized,
+                        runtime.config, summaryPrompt, runtime.profile, selection,
+                        onParentCreated = { id -> withContext(Dispatchers.Main.immediate) {
+                            uiState = uiState.copy(childBatchParentRunId = id, selectedAgentRunId = id)
+                        } }, onSnapshot = { snapshot ->
+                        withContext(Dispatchers.Main.immediate) {
+                            uiState = uiState.copy(childBatchParentRunId = snapshot.run.id, selectedAgentRunId = snapshot.run.id)
+                            rememberAgentRun(snapshot)
+                        }
+                    })
+                }
+            } catch (error: CancellationException) { failure = "只读多 Agent 已停止或离开前台" }
+            catch (error: Throwable) { failure = "只读多 Agent 执行失败" }
+            finally {
+                // long: UI 结论统一回读 Room；取消与成功竞争时，不能用协程异常文案覆盖已经提交的真实终态。
+                withContext(NonCancellable) {
+                    val parentId = uiState.childBatchParentRunId
+                    try {
+                        val parentDetail = withContext(Dispatchers.IO) { parentId?.let { agentRunRepository.runDetail(it) } }
+                        val recent = withContext(Dispatchers.IO) { agentRunRepository.recentRunDetails(AGENT_RUN_HISTORY_LIMIT) }
+                        val history = if (parentDetail != null && recent.none { it.snapshot.run.id == parentId }) listOf(parentDetail) + recent else recent
+                        val parent = parentDetail?.snapshot?.run
+                        appendWorkflowMessage(conversationId, ChatMessage(role = if (parent?.status == AgentRunStatus.COMPLETED) "assistant" else "error",
+                            text = parent?.result ?: parent?.errorMessage ?: failure ?: "任务未产生结果", createdAt = System.currentTimeMillis()))
+                        conversationPersistenceCoordinator.cancelPendingSaveAndJoin()
+                        // long: 结果保存采用可传播异常的 suspend 事务；普通 Job.join 只表示结束，不能当成持久成功证据。
+                        conversationPersistenceCoordinator.persist(conversationPersistenceCoordinator.captureSnapshot(
+                            uiState.conversations.map { it.toStored() }, uiState.selectedConversationId))
+                        // long: 批次终态回读优先于较早发出的刷新，旧列表返回后不能把完成状态退回执行中。
+                        agentRunHistoryRefreshGeneration += 1
+                        uiState = uiState.copy(agentRunHistory = history, loadingAgentRunHistory = false, agentRunHistoryError = null,
+                            result = OperationResult(parent?.status == AgentRunStatus.COMPLETED, "只读多 Agent 已结束",
+                                parent?.errorMessage ?: if (parent?.status == AgentRunStatus.COMPLETED) "结果已保存到任务中心和独立会话"
+                                else failure ?: "请查看任务中心中的逐项目标结果", OperationResultAction.OPEN_AGENT_RUN_HISTORY))
+                    } catch (error: Throwable) {
+                        uiState = uiState.copy(agentRunHistoryError = "无法回读或保存批次结果，请刷新任务中心")
+                    } finally {
+                        uiState = uiState.copy(childBatchRunning = false, childBatchParentRunId = null, sendingMessage = false)
+                        sendMessageJob = null
+                    }
+                }
+            }
+        }
     }
 
     fun sendMessage() {

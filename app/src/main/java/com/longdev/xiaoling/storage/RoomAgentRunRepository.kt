@@ -9,6 +9,10 @@ import com.longdev.xiaoling.agent.AgentRunLedger
 import com.longdev.xiaoling.agent.AgentChildCheckpoint
 import com.longdev.xiaoling.agent.AgentChildSlot
 import com.longdev.xiaoling.agent.AgentChildLifecyclePolicy
+import com.longdev.xiaoling.agent.AgentChildBatchPolicy
+import com.longdev.xiaoling.agent.AgentChildBatchOutcome
+import com.longdev.xiaoling.agent.AgentChildConsumedResult
+import com.longdev.xiaoling.agent.AgentProfilePolicy
 import com.longdev.xiaoling.agent.AgentProfileSnapshot
 import com.longdev.xiaoling.agent.ReadOnlyChildAgentSpec
 import com.longdev.xiaoling.agent.MultiAgentPolicy
@@ -95,6 +99,78 @@ class RoomAgentRunRepository(
     context: Context,
     private val database: XiaoLingDatabase = XiaoLingDatabase.getInstance(context),
 ) : AgentRunLedger {
+    suspend fun createReadOnlyChildParent(conversationId: String, userMessageId: String, goals: List<String>,
+        profile: AgentProfileSnapshot, foregroundRevision: Long): AgentRunRecord = database.withTransaction {
+        val normalized = AgentChildBatchPolicy.goals(goals)
+        AgentProfilePolicy.validateRunnable(profile)
+        require(foregroundRevision > 0)
+        val run = createInvokedRun(conversationId, userMessageId,
+            normalized.mapIndexed { index, goal -> "目标 ${index + 1}：$goal" }.joinToString("\n"), null, null,
+            AgentChildLifecyclePolicy.invocation(com.longdev.xiaoling.agent.AgentExecutionOrigin.FOREGROUND,
+                com.longdev.xiaoling.agent.AgentInvocationSource.DIRECT, false))
+        // long: 父身份、前台选择和预算与 Run 一起提交；即使尚未创建 child，进程恢复也不能把它当普通任务继续执行。
+        appendEvent(run.id, AgentChildBatchPolicy.SELECTION_EVENT, "已显式选择前台只读多 Agent", RunEventMetadata.Reason(
+            JSONObject().put("schemaVersion", 1).put("ownerSessionId", AgentChildLifecyclePolicy.processSessionId)
+                .put("foregroundRevision", foregroundRevision).put("goals", JSONArray(normalized)).toString()))
+        appendEvent(run.id, AgentEventTypes.PROFILE_SELECTED, "已冻结父 Agent：${profile.name}", RunEventMetadata.AgentProfileSelection(profile))
+        appendEvent(run.id, AgentEventTypes.EXECUTION_BUDGET_UPDATED, "已建立父批次预算",
+            RunEventMetadata.ExecutionBudget(AgentChildBatchPolicy.PARENT_TIMEOUT_MS, 0))
+        updateRunStatus(run.id, AgentRunStatus.THINKING)
+        snapshot(run.id).run
+    }
+
+    suspend fun settleReadOnlyChildParent(parentRunId: String, allowCompletion: () -> Boolean): AgentRunSnapshot = database.withTransaction {
+        val parent = runDetail(parentRunId) ?: error("父 Run 不存在")
+        val consumed = parent.snapshot.events.filter { it.type == AgentChildBatchPolicy.CONSUMED_EVENT }
+        require(consumed.size <= 1) { "child 结果消费标记重复" }
+        if (consumed.isNotEmpty()) {
+            val outcome = AgentChildBatchPolicy.decode((consumed.single().metadata as? RunEventMetadata.Reason)?.reason
+                ?: error("child 结果消费标记损坏"))
+            require(outcome.parentRunId == parentRunId && outcome.status == parent.snapshot.run.status &&
+                outcome.summary() == parent.snapshot.run.result) { "child 汇总与父终态冲突" }
+            return@withTransaction parent.snapshot
+        }
+        if (parent.snapshot.run.status.isTerminal) return@withTransaction parent.snapshot
+        if (parent.snapshot.run.cancelRequestedAt != null || !allowCompletion()) {
+            cancelActiveRun(parentRunId, "只读多 Agent 已取消或前台许可失效")
+            return@withTransaction snapshot(parentRunId)
+        }
+        AgentChildLifecyclePolicy.validateParent(parent, requireNotNull(parent.agentProfileSnapshotOrNull()))
+        val selection = JSONObject((parent.snapshot.events.single { it.type == AgentChildBatchPolicy.SELECTION_EVENT }.metadata
+            as? RunEventMetadata.Reason)?.reason ?: error("父批次选择损坏"))
+        require(selection.getInt("schemaVersion") == 1 && selection.getString("ownerSessionId") == AgentChildLifecyclePolicy.processSessionId)
+        val raw = (parent.snapshot.events.single { it.type == AgentChildLifecyclePolicy.BATCH_EVENT }.metadata
+            as? RunEventMetadata.Reason)?.reason ?: error("父 checkpoint 损坏")
+        val checkpoint = AgentChildLifecyclePolicy.decode(raw)
+        AgentChildLifecyclePolicy.requireCurrentOwner(checkpoint)
+        require(checkpoint.parentRunId == parentRunId)
+        val goals = selection.getJSONArray("goals")
+        require(goals.length() == checkpoint.slots.size)
+        val results = checkpoint.slots.mapIndexed { index, slot ->
+            require(readOnlyChildCheckpoint(slot.runId) == checkpoint)
+            val child = requireNotNull(runDetail(slot.runId))
+            val run = child.snapshot.run
+            require(run.status.isTerminal && run.completedAt != null) { "child 尚未结算，父任务不能完成" }
+            require(run.goal == goals.getString(index) && run.conversationId == parent.snapshot.run.conversationId &&
+                run.userMessageId == "${parent.snapshot.run.userMessageId}.${slot.id}" && run.rootRunId == parentRunId)
+            AgentChildConsumedResult(slot.id, run.id, run.goal, run.status, run.completedAt,
+                run.result?.take(AgentChildLifecyclePolicy.MAX_RESULT_CHARS), run.errorMessage?.take(500),
+                child.toolLedger.results.count { it.verificationStatus == ToolVerificationStatus.PASSED })
+        }
+        val outcome = AgentChildBatchOutcome(parentRunId, results)
+        // long: Room 查询会挂起，前台许可或调用方 Job 可能在读取 child 时失效；以最后一次许可检查作为结算决策边界。
+        if (!allowCompletion()) {
+            cancelActiveRun(parentRunId, "只读多 Agent 在结果读取期间取消或离开前台")
+            return@withTransaction snapshot(parentRunId)
+        }
+        // long: 消费全部槽位与父终态同事务；重入只返回同一份冻结结果，取消事务获胜后迟到汇总不能写成完成。
+        appendEvent(parentRunId, AgentChildBatchPolicy.CONSUMED_EVENT, "已消费全部 child 终态与验证事实",
+            RunEventMetadata.Reason(AgentChildBatchPolicy.encode(outcome)))
+        updateRunStatus(parentRunId, outcome.status, outcome.summary(),
+            if (outcome.status == AgentRunStatus.FAILED) "只读子任务未全部成功，请查看逐项目标结果" else null)
+        snapshot(parentRunId)
+    }
+
     suspend fun createInvokedRun(conversationId: String, userMessageId: String, goal: String, retryOfRunId: String?,
         parentRunId: String?, invocation: String): AgentRunRecord = database.withTransaction {
         val run = createRun(conversationId, userMessageId, goal, retryOfRunId, parentRunId)
@@ -109,6 +185,10 @@ class RoomAgentRunRepository(
             require(specs.map { it.id } == specs.indices.map { "child-${it + 1}" })
             val parent = runDetail(parentRunId) ?: error("父 Run 不存在")
             AgentChildLifecyclePolicy.validateParent(parent, parentProfile)
+            parent.snapshot.events.singleOrNull { it.type == AgentChildBatchPolicy.SELECTION_EVENT }?.let { event ->
+                val goals = JSONObject((event.metadata as? RunEventMetadata.Reason)?.reason ?: error("父批次选择损坏")).getJSONArray("goals")
+                require(specs.map { it.goal } == (0 until goals.length()).map(goals::getString)) { "child 目标与用户前台选择不一致" }
+            }
             require(parent.snapshot.run.conversationId == conversationId && parent.snapshot.run.userMessageId == userMessageId)
             require(childProfile == parentProfile.copy(allowedToolNames = childProfile.allowedToolNames,
                 allowedSkillIds = emptyList(), memoryEnabled = false)) { "child 不得改变父模型或身份" }

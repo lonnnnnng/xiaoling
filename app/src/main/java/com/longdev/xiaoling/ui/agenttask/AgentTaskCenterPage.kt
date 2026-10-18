@@ -142,6 +142,14 @@ internal fun AgentTaskCenterPage(
             onBack = onBack,
             onRefresh = actions::refreshAgentRunHistory,
         )
+        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+            TextButton(onClick = actions::requestReadOnlyChildBatch, enabled = !state.childBatchRunning,
+                modifier = Modifier.testTag("agent-child-new")) { Text("新建只读多 Agent") }
+            if (state.childBatchRunning) {
+                Text("只读任务进行中", style = MaterialTheme.typography.labelSmall, modifier = Modifier.weight(1f))
+                TextButton(onClick = actions::stopReadOnlyChildBatch, modifier = Modifier.testTag("agent-child-stop")) { Text("停止") }
+            }
+        }
         AgentTaskFilterBar(
             selected = taskFilter,
             onSelected = { taskFilter = it },

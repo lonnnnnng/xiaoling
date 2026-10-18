@@ -30,7 +30,7 @@ object AgentChildLifecyclePolicy {
         "notes.get", "memory.search", "memory.get", "knowledge.search")
 
     fun isManagedRun(detail: AgentRunDetailRecord): Boolean =
-        detail.snapshot.events.any { it.type == BATCH_EVENT || it.type == CHILD_EVENT }
+        detail.snapshot.events.any { it.type == BATCH_EVENT || it.type == CHILD_EVENT || it.type == AgentChildBatchPolicy.SELECTION_EVENT }
 
     fun requireFreshInvocation(detail: AgentRunDetailRecord) {
         // long: checkpoint 只记录旧派生事实；单独重试 child 会绕过父批次的槽位、预算和取消边界。

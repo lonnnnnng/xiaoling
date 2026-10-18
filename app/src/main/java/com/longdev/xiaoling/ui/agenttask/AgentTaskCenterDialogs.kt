@@ -5,6 +5,8 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Restore
@@ -14,7 +16,12 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.setValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
@@ -26,6 +33,9 @@ internal fun AgentTaskCenterDialogs(
     state: AgentTaskCenterUiState,
     actions: AgentTaskCenterActions,
 ) {
+    if (state.childBatchDraftOpen) {
+        AgentChildBatchDialog(state.childBatchAgentLabel, actions::confirmReadOnlyChildBatch, actions::cancelReadOnlyChildBatchDraft)
+    }
     state.pendingRetryConfirmation?.let { pending ->
         AgentRetryConfirmationDialog(
             pending = pending,
@@ -33,6 +43,32 @@ internal fun AgentTaskCenterDialogs(
             onDismiss = actions::cancelAgentRunRetry,
         )
     }
+}
+
+@Composable
+private fun AgentChildBatchDialog(agentLabel: String, onConfirm: (List<String>) -> Unit, onDismiss: () -> Unit) {
+    var first by remember { mutableStateOf("") }
+    var second by remember { mutableStateOf("") }
+    val valid = first.isNotBlank() && first.trim().length <= 2_000 && second.trim().length <= 2_000
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("新建只读多 Agent") },
+        text = {
+            Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text("Agent：$agentLabel", style = MaterialTheme.typography.bodySmall)
+                Text("填写 1–2 个独立目标。子任务只使用已授权的基础只读能力；离开应用前台会停止。结果保存到独立会话。",
+                    style = MaterialTheme.typography.bodySmall)
+                OutlinedTextField(first, { first = it }, label = { Text("目标 1") },
+                    modifier = Modifier.testTag("agent-child-goal-1"), maxLines = 3, isError = first.trim().length > 2_000)
+                OutlinedTextField(second, { second = it }, label = { Text("目标 2（可选）") },
+                    modifier = Modifier.testTag("agent-child-goal-2"), maxLines = 3, isError = second.trim().length > 2_000)
+            }
+        },
+        confirmButton = { Button(onClick = {
+            onConfirm(listOf(first.trim(), second.trim()).filter(String::isNotBlank))
+        }, enabled = valid, modifier = Modifier.testTag("agent-child-confirm")) { Text("开始只读任务") } },
+        dismissButton = { TextButton(onClick = onDismiss, modifier = Modifier.testTag("agent-child-draft-cancel")) { Text("取消") } },
+    )
 }
 
 @Composable

@@ -1,5 +1,12 @@
 # 当前实现说明
 
+## 2026-10-18 第 289 阶段第二片：一次性父批次与事务消费
+
+- `AgentChildBatchSelection` 绑定前台状态实例/代次并单次 claim，整轮观察实际 resumed 撤销；`runReadOnlyChildBatch` 创建独立父任务，立即不可取消通知父 ID，再执行现有 child Runtime。父单调等待上限 60 秒及等待预算不冒充并发 child 精确共享扣账。
+- `createReadOnlyChildParent` 同事务保存 Run/来源/选择/Profile/预算；选择 marker 在 child prepare 前也归入 managed Run。`prepareReadOnlyChildRuns` 增加选择目标绑定，`settleReadOnlyChildParent` 事务回读全部 slot/lineage/完成时间/终态与验证数量、两次许可和原 Job 检查、单次 schema v1 消费/父完成。部分失败保留成功结果且父 FAILED；marker 插入故障回滚、取消竞争和磁盘重开幂等均有设备证据。
+- 任务中心 actions/页面/dialog、应用壳桥接与 ViewModel 前台确认接线；文本目标与无秘密 Agent 标签、独立会话、父 ID 跨会话停止、结果 Room 权威回读、可传播保存失败、刷新代次防迟到、捕获旧停止 Job。普通发送草稿、附件、共享来源、自动记忆候选及影子请求不进入该链。
+- 真实模型仅时间工具/UUID Run 与 Skill 账本/USB 内存配置，真实 MainActivity 生命周期探针不初始化正式 VM；Compose 验证 Fake actions 路由，与完整产品 ViewModel 点击联合分级。第 5 点两片实现基线收口，独立边界与证据见[child 契约](agent-child-lifecycle.md)和报告。
+
 ## 2026-10-18 第 289 阶段第一片：事件 checkpoint 与唯一领取
 
 - 以结构化 Reason JSON 固定批次 schema v1、父 ID、进程代次、slot/Run ID、只读 Profile 和预算；Room v44 同事务登记所有 child、父数量与双向关联，领取标记事务互斥。Reporting 创建期结算、child 继承注入账本/MCP Registry/Skill store，知识无 Embedding。父取消与终态只关闭有 child 标记的活动派生 Run，普通 retry/已完成证据保留；旧 marker 即使损坏也拒绝原地恢复、重试和重放。

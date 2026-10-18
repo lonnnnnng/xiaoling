@@ -45,12 +45,12 @@ internal class ChildLifecycleFixture(val context: Context, val name: String) : A
         return run
     }
     suspend fun prepare(parent: AgentRunRecord) = repo.prepareReadOnlyChildRuns(parent.id, "fixture-c", "fixture-m", specs, profile, childProfile)
-    fun useCase() = AgentRunUseCase(context, OpenAiCompatibleClient(), McpSessionRegistry(object : McpServerStore {
+    fun useCase(foreground: AgentPluginForegroundState? = null) = AgentRunUseCase(context, OpenAiCompatibleClient(), McpSessionRegistry(object : McpServerStore {
         override fun list() = emptyList<McpServerConfig>()
         override fun get(id: String): McpServerConfig? = null
         override fun upsert(config: McpServerConfig): McpServerConfig = error("夹具不得写 MCP")
         override fun delete(id: String): Boolean = error("夹具不得写 MCP")
-    }), repo, skillStore = RoomAgentSkillStore(context, db))
+    }), repo, pluginForeground = foreground, skillStore = RoomAgentSkillStore(context, db))
     fun reopen() { close(); db = open() }
     override fun close() { db.close() }
     fun delete() { close(); check(context.deleteDatabase("$name.db")) }

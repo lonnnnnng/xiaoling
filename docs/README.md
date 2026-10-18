@@ -1,8 +1,8 @@
 # 文档索引
 
-## 当前交付：第 289 阶段多 Agent（第一片完成，第 5 点未收口）
+## 当前交付：第 289 阶段多 Agent（两片只读实现基线收口）
 
-- child 槽位、来源/Profile/预算、全部 Run 与关系共事务登记，唯一领取；父取消、失败部分完成、旧批次重启关闭与终态保护已验证。当前只验生产 UseCase/Runtime/Room，第二片接显式派生界面与父结果消费，再做真实提供方联合。Room v44/发布版本不变，详见[child 生命周期](agent-child-lifecycle.md)和[验证报告](verification-report.md)。
+- child 持久槽位/唯一领取、父取消/旧批次恢复，任务中心显式 1–2 目标、实际前台代次许可、独立会话与父结构化单次结果消费已完成。JVM 43、Redmi 定向 34、真实 gpt-6-luna 两 child/PASSED/父消费 1 项通过；完整产品点击联合、精确共享扣账/费用、自然系统及 Release 单列。下一主线为第 6 点 Workspace/Browser/GenUI，Room v44/发布版本不变，详见[child 生命周期](agent-child-lifecycle.md)和[验证报告](verification-report.md)。
 
 ## 第 288 阶段 Skill/插件（两片实现基线完成）
 

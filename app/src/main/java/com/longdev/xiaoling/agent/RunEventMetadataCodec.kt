@@ -244,6 +244,8 @@ internal object RunEventMetadataCodec {
                 AgentChildLifecyclePolicy.BATCH_EVENT,
                 AgentChildLifecyclePolicy.CHILD_EVENT,
                 AgentChildLifecyclePolicy.CLAIM_EVENT,
+                AgentChildBatchPolicy.SELECTION_EVENT,
+                AgentChildBatchPolicy.CONSUMED_EVENT,
                 "multi_agent.child.linked",
                 "multi_agent.child.started",
                 AgentPluginExecutionPolicy.SELECTION_EVENT,

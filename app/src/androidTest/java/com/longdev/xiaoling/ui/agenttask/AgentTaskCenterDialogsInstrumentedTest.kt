@@ -8,6 +8,8 @@ import androidx.compose.ui.test.junit4.v2.createComposeRule
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performTextInput
+import androidx.compose.ui.test.assertIsNotEnabled
 import com.longdev.xiaoling.agent.AgentRunRestartDispositionCode
 import com.longdev.xiaoling.agent.AgentTaskRetryEvidenceCode
 import org.junit.Assert.assertEquals
@@ -17,6 +19,22 @@ import org.junit.Test
 class AgentTaskCenterDialogsInstrumentedTest {
     @get:Rule
     val composeRule = createComposeRule()
+
+    @Test fun explicitChildDialogRequiresFirstGoalAndRoutesOneOrTwoLocalTargets() {
+        val actions = FakeAgentTaskCenterActions({}, {})
+        composeRule.setContent { MaterialTheme {
+            AgentTaskCenterDialogs(AgentTaskCenterUiState(childBatchDraftOpen = true, childBatchAgentLabel = "时间 Agent · fixture"), actions)
+        } }
+        composeRule.onNodeWithTag("agent-child-confirm").assertIsNotEnabled()
+        composeRule.onNodeWithTag("agent-child-goal-1").performTextInput("读取时间一")
+        composeRule.onNodeWithTag("agent-child-confirm").performClick()
+        composeRule.runOnIdle { assertEquals(listOf("读取时间一"), actions.batchGoals) }
+        composeRule.onNodeWithTag("agent-child-goal-2").performTextInput("读取时间二")
+        composeRule.onNodeWithTag("agent-child-confirm").performClick()
+        composeRule.runOnIdle { assertEquals(listOf("读取时间一", "读取时间二"), actions.batchGoals) }
+        composeRule.onNodeWithTag("agent-child-draft-cancel").performClick()
+        composeRule.runOnIdle { assertEquals(1, actions.batchCancelCount) }
+    }
 
     @Test
     fun pendingRetryShowsEvidenceAndRoutesDecisionThroughFeatureActions() {
@@ -122,6 +140,12 @@ class AgentTaskCenterDialogsInstrumentedTest {
         override fun selectAgentRun(runId: String) = Unit
 
         override fun requestAgentRunRetry(runId: String) = Unit
+        override fun requestReadOnlyChildBatch() = Unit
+        override fun confirmReadOnlyChildBatch(goals: List<String>) { batchGoals = goals }
+        override fun cancelReadOnlyChildBatchDraft() { batchCancelCount += 1 }
+        override fun stopReadOnlyChildBatch() = Unit
+        var batchGoals: List<String>? = null
+        var batchCancelCount = 0
 
         override fun confirmAgentRunRetry() {
             confirmCount += 1

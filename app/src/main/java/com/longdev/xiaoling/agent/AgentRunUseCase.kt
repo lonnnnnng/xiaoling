@@ -24,6 +24,7 @@ import kotlinx.coroutines.job
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.CoroutineStart
+import kotlinx.coroutines.ensureActive
 
 class AgentRunUseCase(
     context: Context,
@@ -246,6 +247,80 @@ class AgentRunUseCase(
         try { block() } finally { watcher.cancel() }
     }
 
+    suspend fun runReadOnlyChildBatch(
+        conversationId: String,
+        userMessageId: String,
+        goals: List<String>,
+        config: ProviderRequestConfig,
+        summarySystemPrompt: String,
+        agentProfile: AgentProfileSnapshot,
+        selection: AgentChildBatchSelection,
+        onParentCreated: suspend (String) -> Unit = {},
+        onSnapshot: suspend (AgentRunSnapshot) -> Unit = {},
+    ): AgentRunSnapshot {
+        val normalized = AgentChildBatchPolicy.goals(goals)
+        AgentProfilePolicy.validateRunnable(agentProfile)
+        require(config.providerId == agentProfile.providerId && config.model == agentProfile.model && config.apiMode == agentProfile.apiMode)
+        require(readOnlyChildToolNames(agentProfile).isNotEmpty()) { "当前 Agent 没有只读子任务能力" }
+        selection.claim(pluginForegroundState)
+        var parent: AgentRunRecord? = null
+        try {
+            return selection.guard {
+                withContext(NonCancellable) {
+                    parent = baseLedger.createReadOnlyChildParent(conversationId, userMessageId, normalized,
+                        agentProfile, selection.foregroundRevision)
+                    // long: 取消可在事务提交后、首次快照前到达；不可取消的身份通知让 UI 仍能回读并停止已提交父任务。
+                    onParentCreated(requireNotNull(parent).id)
+                }
+                val id = requireNotNull(parent).id
+                currentCoroutineContext().ensureActive()
+                onSnapshot(baseLedger.snapshot(id))
+                val budget = AgentExecutionBudget(AgentChildBatchPolicy.PARENT_TIMEOUT_MS)
+                try {
+                    // long: 新父批次增加单调时间上界；它约束整批等待，不把并发 child 耗时冒充精确共享扣账。
+                    budget.run("只读父批次等待", AgentChildBatchPolicy.PARENT_TIMEOUT_MS) {
+                        runReadOnlyChildAgents(id, conversationId, userMessageId, normalized, config, summarySystemPrompt, agentProfile)
+                    }
+                } catch (timeout: AgentTimeoutException) {
+                    currentCoroutineContext().ensureActive()
+                    withContext(NonCancellable) {
+                        val elapsed = budget.snapshot()
+                        baseLedger.appendEvent(id, AgentEventTypes.EXECUTION_BUDGET_UPDATED, "父批次超时预算",
+                            RunEventMetadata.ExecutionBudget(elapsed.totalTimeoutMs, elapsed.consumedMs))
+                        baseLedger.appendEvent(id, AgentEventTypes.RUN_TIMEOUT, "只读多 Agent 父批次等待超时")
+                        baseLedger.updateRunStatus(id, AgentRunStatus.BUDGET_EXHAUSTED, errorMessage = "父批次超过 60 秒")
+                    }
+                    return@guard baseLedger.snapshot(id).also { onSnapshot(it) }
+                } finally {
+                    val elapsed = budget.snapshot()
+                    withContext(NonCancellable) {
+                        baseLedger.appendEvent(id, AgentEventTypes.EXECUTION_BUDGET_UPDATED, "父批次等待预算",
+                            RunEventMetadata.ExecutionBudget(elapsed.totalTimeoutMs, elapsed.consumedMs))
+                    }
+                }
+                currentCoroutineContext().ensureActive()
+                val callerJob = currentCoroutineContext().job
+                val completed = withContext(NonCancellable) {
+                    baseLedger.settleReadOnlyChildParent(id) { callerJob.isActive && pluginForegroundState.isCurrent(selection.foregroundRevision) }
+                }
+                onSnapshot(completed)
+                completed
+            }
+        } catch (error: Throwable) {
+            parent?.let { run -> withContext(NonCancellable) {
+                if (error is CancellationException) baseLedger.cancelActiveRun(run.id, "只读多 Agent 已取消或离开前台")
+                else baseLedger.updateRunStatus(run.id, AgentRunStatus.FAILED, errorMessage = "只读多 Agent 创建或汇总失败")
+            } }
+            throw error
+        }
+    }
+
+    private fun readOnlyChildToolNames(profile: AgentProfileSnapshot): List<String> = profile.allowedToolNames
+        .filter { it in AgentChildLifecyclePolicy.toolNames }
+        .filter { toolRegistry.registeredDefinition(it)?.risk == ToolRisk.SAFE }
+        .filter { toolRegistry.registeredDefinition(it)?.approvalPolicy == ToolApprovalPolicy.NONE }
+        .distinct()
+
     suspend fun runReadOnlyChildAgents(
         parentRunId: String,
         conversationId: String,
@@ -255,11 +330,7 @@ class AgentRunUseCase(
         summarySystemPrompt: String,
         agentProfile: AgentProfileSnapshot,
     ): List<ReadOnlyChildAgentResult> {
-        val allowedChildTools = agentProfile.allowedToolNames
-            .filter { it in AgentChildLifecyclePolicy.toolNames }
-            .filter { toolRegistry.registeredDefinition(it)?.risk == ToolRisk.SAFE }
-            .filter { toolRegistry.registeredDefinition(it)?.approvalPolicy == ToolApprovalPolicy.NONE }
-            .distinct()
+        val allowedChildTools = readOnlyChildToolNames(agentProfile)
         require(allowedChildTools.isNotEmpty()) {
             "当前 Agent Profile 没有可供只读子 Agent 使用的 SAFE 工具"
         }

@@ -79,7 +79,7 @@ class AgentChildLifecycleTest {
     }
     @Test fun corruptChildAndParentMarkersStillBlockEveryNativeRecoveryAndRetry() {
         val d = detail()
-        listOf(AgentChildLifecyclePolicy.CHILD_EVENT, AgentChildLifecyclePolicy.BATCH_EVENT).forEach { type ->
+        listOf(AgentChildLifecyclePolicy.CHILD_EVENT, AgentChildLifecyclePolicy.BATCH_EVENT, AgentChildBatchPolicy.SELECTION_EVENT).forEach { type ->
             val marked = d.copy(snapshot = d.snapshot.copy(events = d.snapshot.events + RunEventRecord("bad", "parent", type, "", 5, null)))
             assertFalse(AgentRunResumePolicy.assess(marked).canResumeInPlace)
             assertEquals(AgentTaskRetryEligibility.NotRetryable, AgentTaskRetryPolicy.evaluate(marked))
@@ -89,7 +89,8 @@ class AgentChildLifecycleTest {
     }
     @Test fun checkpointAndInvocationMetadataSurviveRoomCodec() {
         listOf(AgentChildLifecyclePolicy.INVOCATION_EVENT, AgentChildLifecyclePolicy.BATCH_EVENT,
-            AgentChildLifecyclePolicy.CHILD_EVENT, AgentChildLifecyclePolicy.CLAIM_EVENT).forEach { type ->
+            AgentChildLifecyclePolicy.CHILD_EVENT, AgentChildLifecyclePolicy.CLAIM_EVENT,
+            AgentChildBatchPolicy.SELECTION_EVENT, AgentChildBatchPolicy.CONSUMED_EVENT).forEach { type ->
             val reason = RunEventMetadata.Reason(AgentChildLifecyclePolicy.encode(checkpoint()))
             assertEquals(reason, RunEventMetadataCodec.decode(type, RunEventMetadataCodec.encode(reason)))
         }

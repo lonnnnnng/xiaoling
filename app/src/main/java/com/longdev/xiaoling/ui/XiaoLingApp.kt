@@ -909,6 +909,10 @@ private fun XiaoLingUiState.toAgentTaskCenterUiState(): AgentTaskCenterUiState {
         selectedRunId = selectedAgentRunId,
         retryingRunId = retryingAgentRunId,
         pendingRetryConfirmation = pendingAgentRetryConfirmation,
+        childBatchDraftOpen = childBatchDraftOpen,
+        childBatchRunning = childBatchRunning,
+        childBatchParentRunId = childBatchParentRunId,
+        childBatchAgentLabel = agentProfiles.firstOrNull { it.id == selectedAgentProfileId }?.let { "${it.name} · ${it.model}" }.orEmpty(),
     )
 }
 

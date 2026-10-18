@@ -2,9 +2,21 @@
 
 验证日期：2026-10-18（北京时间）
 
+# 2026-10-18 第 289 阶段第二片：显式父任务、结果消费与真实模型
+
+- 主线：第 5 点两片前台只读多 Agent 实现基线收口。任务中心显式目标、独立会话/父 ID、真实 resumed 一次性选择与结构化父结果消费已完成；下一主线为第 6 点 Workspace/Browser/GenUI。Room v44/发布版本 `0.1.22 (23)` 不变，详见[child 契约](agent-child-lifecycle.md)和[路线图](personal-agent-roadmap.md)。
+- 实现：父创建/来源/选择/Profile/预算同事务，用户目标绑定 slots，父等待单调上限 60 秒/持久等待预算；子仍是固定 SAFE/NONE 交集、最多两个、3 calls/60 秒、模型 20 秒/工具 10 秒。消费事务核对全部 child 身份/lineage/终态/完成时间/结果与 PASSED 数量，唯一 `multi_agent.results.consumed` schema v1 与父终态共事务，重复结算返回原快照。全成功父 COMPLETED，部分或全部失败父 FAILED 且保留逐项结果；父取消与消费竞争只提交一个结局。
+- 复核修正：结果查询前后检查前台代次及原调用 Job，最后检查为结算决策边界；父提交后不可取消的独立身份通知覆盖首 snapshot 前取消；停止持久写入期间捕获旧 Job，不误停随后新任务；会话结果用 suspend 保存而非 Job.join 推断成功；终态回读按父 ID 且使旧列表刷新失效。已完成父终态不因随后暂停或迟到取消改写。
+- JVM/构建：wrapper 定向 child 生命周期/新批次/协调器、任务中心投影/launch policy、会话身份/单写者持久化，共 `43 tests / 0 failures / 0 errors / 0 skipped`、8 类。Debug/AndroidTest 构建 `BUILD SUCCESSFUL in 30s`。初次组合命令把 `--tests` 放在 assemble 任务之后，报 `Unknown command-line option '--tests'`，修正参数顺序后通过，失败日志保留。
+- Redmi：仅 `wsvwypiz7xwslvl7 / begonia / SDK 36`，两 APK `install -r`。新父批次 13、既有 child 生命周期 12、任务中心 Page 5/Dialog 4 合计 `OK (34 tests)`、40.368s，逐项 0 failed/skipped。覆盖 1/2 目标、原生时间与真实生产 Runtime、单 child 失败、并发取消/消费 8 轮、消费故障回滚/重开幂等、结果读取期间许可失效、父身份通知前后取消、首批次前恢复关闭、真实 MainActivity 暂停恢复取消、旧选择拒绝及页面动作/按钮状态。隔离 UUID Run/Skill/MCP 账本，能力仅时间，不读取正式 notes/memory/knowledge。
+- 真实模型：单独显式选择真实方法，USB 单次 socket 将根测试配置读入内存；正式 Provider/MCP 不写入、不使用 Intent/文件携带密钥，HTTP debug 关闭。真实 MainActivity 前台 gate、生产 UseCase/OpenAI client/两个 child 原生时间和 typed Room 结果联合 `OK (1 test)`、23.502s；`gpt-6-luna`，父 COMPLETED、children=2、calls=2、各 PASSED、唯一消费=1、实际前台=true；child context transcript 无密钥，重复父结算快照相同。证据为 `live.log`，不是 loopback 模型响应。
+- 验证边界：Compose 用 Fake actions 验页面/弹窗；真实模型用实际 Activity 生命周期探针和生产 UseCase，尚未完成产品点击 → 正式 ViewModel 会话持久化 → 模型的整体专项。探针只跳过正式 VM，Application 既有启动对账不被禁用。新父 selection 恢复为磁盘重开，第一片三独立 PID 证据仍按原报告保存，本轮没有重跑或冒充新多进程验收。
+- 独立待办：父/child 精确共享扣账、费用/令牌与持久 deadline；自然 LMK/Doze/系统重启、完整产品点击联合、大规模耗时、后台/可写/递归 child、硬进程隔离及正式 Release。未跑完整 JVM、Lint、全量 instrumentation 或 Release；未 push/tag/发版，`refs/` 保留。最终 corpus、正式偏好/undo、文档链接和凭据/APK 审计收尾证据存于忽略目录 `outputs/verification/stage289-child-batch/`。
+- 收尾：最终六份文档重打包后 corpus 与保护摘要合并 `OK (2 tests)`、3.395s，无失败/跳过；6 个正式偏好文件前后哈希相同，Memory undo 仍不存在。修改文档的 131 个本地链接有效，24 个任务文件、证据与两 APK 全解压内容对实际两份凭据匹配 0 命中；本条写回后的最终 APK 再打包复验，制品摘要存 `artifact-audit.json`。Redmi 恢复正常 MainActivity；中文本地提交，不推送、发版或清理 `refs/`。
+
 # 2026-10-18 第 289 阶段第一片：child checkpoint 与有界生命周期
 
-- 主线：已进入第 5 点多 Agent，第一片完成核心持久生命周期；第 5 点尚未收口。下一片为显式派生产品入口、父结构化结果摘要/消费与完成策略，再做真实提供方联合验收。Room v44/发布版本 `0.1.22 (23)` 不变，见[child 契约](agent-child-lifecycle.md)和[路线图](personal-agent-roadmap.md)。
+- 主线：第一片完成第 5 点多 Agent 的核心持久生命周期，当时尚未收口；显式派生入口、父结构化结果摘要/消费与完成策略、真实提供方联合已由上方第二片补齐。Room v44/发布版本 `0.1.22 (23)` 不变，见[child 契约](agent-child-lifecycle.md)和[路线图](personal-agent-roadmap.md)。
 - 实现：唯一来源/父与批次进程代次/冻结 Profile/父最新可信预算，前台 Direct 根 Run/非外部输入/非插件；固定 13 项宿主只读能力与父 Profile、注册 SAFE/NONE 交集，Skill 清空、自动记忆召回关闭、知识无 Embedding。最多两个 child、独立 3 calls/60 秒、模型 20 秒/工具 10 秒，不超过父最新持久预算余额。批次 schema v1 JSON 限 32768 字符，目标保存于各 Run，槽位/Profile/预算及所有 Run/期望数/双向关系共事务，唯一领取，重复批次拒绝。
 - 取消/恢复：父取消、终态与恢复关闭同事务取消标记 child，普通 retry/已完成 child 不受影响。创建/回调阶段补结算，批次 finally 清理活动槽位，批次和公开 child 入口监听父状态，包括模型 socket 等待；返回取 Room 终态，超时维持 BUDGET_EXHAUSTED，结果/错误摘要限 20000/500 字符。旧批次/child 标记即使损坏也阻止单 Run 原地恢复、重试与受控重放，不重领旧 slot、不重放旧工具。
 - JVM/构建：JDK 21 wrapper 定向生命周期、协调器、任务中心投影、恢复/重试、event codec 与插件 Runtime，共 `139 tests / 0 failures / 0 errors / 0 skipped`，7 个实际测试类；受控重放门禁覆盖于恢复与新生命周期类，没有同名单独测试类。进程代次补强后的最终构建与测试结果另存 `owner-current-build.log`，Debug/AndroidTest 构建成功。未跑全量 JVM、Lint 或 Release。
