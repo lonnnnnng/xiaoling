@@ -56,16 +56,23 @@ class AndroidWorkflowLiveInstrumentedTest {
         runAcceptance(297, "device-scroll")
     }
 
+    @Test fun actualWorkflowDirectionalScrollUsesRealModelAndPreservesFailure() = runBlocking {
+        runAcceptance(298, requireNotNull(InstrumentationRegistry.getArguments().getString("stage298Case")))
+    }
+
     private suspend fun runAcceptance(stage: Int, case: String) {
         acceptanceStage = stage
         val config = androidLiveProvider(stage)
         require(when (stage) {
             295 -> case == "device-search"
             297 -> case == "device-scroll"
+            298 -> case in setOf("device-scroll-return", "device-scroll-boundary")
             else -> stage == 294 && case in setOf("create-readonly", "device-approve", "device-deny")
         })
         val search = case == "device-search"
-        val scroll = case == "device-scroll"
+        val scroll = case.startsWith("device-scroll")
+        val roundTrip = case == "device-scroll-return"
+        val boundary = case == "device-scroll-boundary"
         val contracted = search || scroll
         val device = case != "create-readonly"
         val context = ApplicationProvider.getApplicationContext<Context>()
@@ -125,9 +132,16 @@ class AndroidWorkflowLiveInstrumentedTest {
             else listOf("app.current_time", "app.get_info")
         val marker = UUID.randomUUID().toString().replace("-", "").take(8).map { ('a'.code + it.digitToInt(16)).toChar() }.joinToString("")
         // long: 每步最多三调用，保留默认预算；节点引用只能来自本步新快照，不能把前步或历史 ref 带入下一个 Agent Run。
-        val actions = if (scroll) listOf("device.open_app", "device.swipe") else listOf("device.open_app", "device.tap_ref", "device.type_text")
+        val actions = if (roundTrip) listOf("device.open_app", "device.swipe", "device.swipe")
+            else if (scroll) listOf("device.open_app", "device.swipe") else listOf("device.open_app", "device.tap_ref", "device.type_text")
         val requiredTools = actions.flatMap { listOf("device.snapshot", it, "device.snapshot") }
-        val contract = if (contracted) WorkflowGoalVerificationContract(if (scroll) "打开系统设置并向上滚动设置列表一次" else "在系统设置搜索框输入本轮公开测试文本",
+        val contractGoal = when {
+            roundTrip -> "打开系统设置并向上、向下各滚动一次返回顶部"
+            boundary -> "打开系统设置并尝试在顶部向下滚动，不能将无移动判为完成"
+            scroll -> "打开系统设置并向上滚动设置列表一次"
+            else -> "在系统设置搜索框输入本轮公开测试文本"
+        }
+        val contract = if (contracted) WorkflowGoalVerificationContract(contractGoal,
             WorkflowGoalVerificationSpec(requiredTools, "com.android.settings", actions.map { listOf("device.snapshot", it, "device.snapshot") })) else null
         val goals = if (search) listOf(
             "本步严格按顺序调用 device.snapshot、device.open_app(package_name=com.android.settings)、device.snapshot，各一次。只打开系统设置首页并确认后结束，不点击、不输入、不调用其他工具。",
@@ -140,8 +154,12 @@ class AndroidWorkflowLiveInstrumentedTest {
         ) else if (scroll) listOf(
             "本步严格按顺序调用 device.snapshot、device.open_app(package_name=com.android.settings)、device.snapshot，各一次。只打开系统设置首页并确认后结束，不点击、不滚动、不调用其他工具。",
             // long: 正式系统列表必须由模型选择本步真实 SWIPE ref；不使用半屏 Probe 或坐标注入来绕过共同锚点的生产验证。
-            "本步必须按顺序调用 device.snapshot、device.swipe、device.snapshot，各一次。根据本步快照选择 actions 包含 swipe 的设置主列表节点，snapshot_id 和 ref 必须来自本步快照，direction 必须为 up。只向上滚动一次以查看列表下方设置项目，未实际滚动并完成后置观察之前禁止 complete；不点击、不输入、不打开应用、不调用其他工具。",
-        ) else if (device) listOf("先调用 device.snapshot，再仅调用一次 device.open_app，package_name 必须为 com.android.settings。目标是打开系统设置首页。依据工具后置验证完成后直接结束，不调用其他工具。")
+            "本步必须按顺序调用 device.snapshot、device.swipe、device.snapshot，各一次。根据本步快照选择 actions 包含 swipe 的设置主列表节点，snapshot_id 和 ref 必须来自本步快照，direction 必须为 ${if (boundary) "down" else "up"}。只滚动一次，未实际滚动并完成后置观察之前禁止 complete；不点击、不输入、不打开应用、不调用其他工具。" +
+                if (boundary) "本轮明确请求尝试向下滚动；即使当前已在列表顶端，也提出一次 device.swipe(direction=down)，由真实执行器判定不可滚动，不得把没有移动报告为完成。" else "",
+        ) + (if (roundTrip) listOf(
+            // long: 返回步骤必须自己重新观察；上一步旧 ref 不能因同名 swipe 而跨 Agent Run 继续使用。
+            "本步严格按顺序调用 device.snapshot、device.swipe、device.snapshot，各一次。选择本步快照中 actions 含 swipe 的设置主列表，使用本步 snapshot_id/ref，direction 必须为 down。只向下滚动一次返回先前的顶部内容，未通过后置验证前禁止 complete；不点击、不输入、不打开应用，不执行其他动作。",
+        ) else emptyList()) else if (device) listOf("先调用 device.snapshot，再仅调用一次 device.open_app，package_name 必须为 com.android.settings。目标是打开系统设置首页。依据工具后置验证完成后直接结束，不调用其他工具。")
             else listOf("只调用一次 app.current_time 获取当前时间，使用实际结果总结后结束。", "只调用一次 app.get_info 获取应用版本，使用本步实际结果总结后结束。")
         var ownedWorkflowId: String? = null
         var ownedDefinitionSnapshot: Pair<WorkflowEntity, List<WorkflowStepDefinitionEntity>>? = null
@@ -205,7 +223,7 @@ class AndroidWorkflowLiveInstrumentedTest {
             throw error
         } finally {
             // long: 恢复失败附加到最初的验收异常，避免 finally 覆盖真实模型、页面或停止阶段的失败证据。
-            runCatching {
+            runRecoveryGuarded {
                 // long: 停止超时不能假定执行者已退出；保留临时配置/定义及当前选择，防止仍运行的协程读到被清理或恢复后的另一份配置。
                 check(actorStopped) { "未确认 Workflow 执行者已停止，临时配置与定义保留，拒绝继续清理" }
                 val errors = mutableListOf<Throwable>()
@@ -277,6 +295,14 @@ class AndroidWorkflowLiveInstrumentedTest {
         }
     }
 
+    // long: 原生崩溃会跳过 finally；将有界恢复块移出巨型入口的内联字节码，仍把恢复异常附加到原始失败而不覆盖它。
+    private suspend fun runRecoveryGuarded(block: suspend () -> Unit): Result<Unit> = try {
+        block()
+        Result.success(Unit)
+    } catch (error: Throwable) {
+        Result.failure(error)
+    }
+
     // long: 页面执行与配置恢复分别生成较小协程状态机；原生崩溃和提供方异常都必须保留独立恢复证据，不能依赖巨型内联 use 的跳转。
     private suspend fun runWorkflowPage(stage: Int, case: String, context: Context, automation: UiAutomation,
         config: ProviderRequestConfig, workflowRepo: RoomWorkflowRepository, agentRepo: RoomAgentRunRepository,
@@ -285,7 +311,9 @@ class AndroidWorkflowLiveInstrumentedTest {
         captureDefinition: suspend (String) -> Unit, recordRun: (String) -> Unit,
         markActorRunning: () -> Unit, markActorStopped: () -> Unit) {
         val search = case == "device-search"
-        val scroll = case == "device-scroll"
+        val scroll = case.startsWith("device-scroll")
+        val roundTrip = case == "device-scroll-return"
+        val boundary = case == "device-scroll-boundary"
         val contracted = search || scroll
         val device = case != "create-readonly"
         ActivityScenario.launch<MainActivity>(Intent(context, MainActivity::class.java)).use { scenario ->
@@ -344,9 +372,10 @@ class AndroidWorkflowLiveInstrumentedTest {
                 scenario.awaitState(120_000) { !it.sendingMessage && it.runningWorkflowId == null &&
                     it.workflowRuns.any { detail -> detail.run.id == workflowRunId && detail.run.status in setOf(WorkflowRunStatus.COMPLETED, WorkflowRunStatus.FAILED) } }
                 val detail = requireNotNull(workflowRepo.runDetail(workflowRunId))
-                val expected = if (case == "device-deny") WorkflowRunStatus.FAILED else WorkflowRunStatus.COMPLETED
+                val expected = if (case == "device-deny" || boundary) WorkflowRunStatus.FAILED else WorkflowRunStatus.COMPLETED
                 assertEquals(expected, detail.run.status)
-                assertTrue(detail.steps.all { it.status == if (case == "device-deny") WorkflowStepStatus.FAILED else WorkflowStepStatus.COMPLETED })
+                if (boundary) assertEquals(listOf(WorkflowStepStatus.COMPLETED, WorkflowStepStatus.FAILED), detail.steps.map { it.status })
+                else assertTrue(detail.steps.all { it.status == if (case == "device-deny") WorkflowStepStatus.FAILED else WorkflowStepStatus.COMPLETED })
                 val agents = mutableListOf<AgentRunDetailRecord>()
                 for (step in detail.steps) agents.add(requireNotNull(agentRepo.runDetail(requireNotNull(step.agentRunId))))
                 agents.forEach { agent ->
@@ -364,6 +393,8 @@ class AndroidWorkflowLiveInstrumentedTest {
                     }
                     assertEquals(listOf(requireNotNull(WorkflowStepSnapshotCodec.outputText(detail.steps[0].outputSnapshot))),
                         WorkflowStepSnapshotCodec.decodeInput(detail.steps[1].inputSnapshot).previousOutputs)
+                } else if (boundary) {
+                    assertScrollBoundary(detail, agents, context, automation, contract)
                 } else if (contracted) {
                     assertEquals(actions.size, agents.size)
                     agents.forEachIndexed { index, agent ->
@@ -375,7 +406,7 @@ class AndroidWorkflowLiveInstrumentedTest {
                         if (actions[index] == "device.swipe") {
                             // long: SAFE 滚动不能被夹具人工审批替代；要求本步零审批并消费生产同窗方向验证结果。
                             assertTrue(agent.approvals.isEmpty())
-                            assertScrollEvidence(agent)
+                            assertScrollEvidence(agent, if (roundTrip && index == 2) "down" else "up")
                         } else {
                             val approval = agent.approvals.single()
                             assertEquals(call.id, approval.toolCallId)
@@ -410,6 +441,12 @@ class AndroidWorkflowLiveInstrumentedTest {
                     if (search) {
                         assertTrue("搜索框未精确回读公开测试文本", snapshot.nodes.any { it.text == marker && DeviceNodeAction.TYPE_TEXT in it.actions })
                         androidLiveStatus("STAGE${stage}_EVIDENCE WORKFLOW_SEARCH goalStatus=${decision.status} goalReason=${decision.reason} steps=3 toolCalls=9 approvals=3 exactReadBack=true privacyPassed=true workflowRunId=$workflowRunId textSha256=${hash(marker.toByteArray())} textLength=${marker.length} actualPackage=${snapshot.packageName} contractSeeded=true")
+                    } else if (roundTrip) {
+                        assertTrue("最终设置窗口没有可滚动列表", snapshot.nodes.any { DeviceNodeAction.SWIPE in it.actions })
+                        val first = JSONObject(agents.first().toolLedger.results.last().content)
+                        val last = JSONObject(agents.last().toolLedger.results.last().content)
+                        assertTrue("往返后顶部内容不同", visibleSnapshotContent(first) == visibleSnapshotContent(last))
+                        androidLiveStatus("STAGE${stage}_EVIDENCE WORKFLOW_SCROLL_RETURN goalStatus=${decision.status} goalReason=${decision.reason} steps=3 toolCalls=9 approvals=1 directions=up,down executorVerified=true noSwipeApproval=true returnedContentEqual=true workflowRunId=$workflowRunId")
                     } else {
                         assertTrue("最终设置窗口没有可滚动列表", snapshot.nodes.any { DeviceNodeAction.SWIPE in it.actions })
                         androidLiveStatus("STAGE${stage}_EVIDENCE WORKFLOW_SCROLL goalStatus=${decision.status} goalReason=${decision.reason} steps=2 toolCalls=6 approvals=1 direction=up executorVerified=true noSwipeApproval=true snapshotContentChanged=true actionSummaryOnly=true workflowRunId=$workflowRunId actualPackage=${snapshot.packageName} contractSeeded=true")
@@ -442,15 +479,16 @@ class AndroidWorkflowLiveInstrumentedTest {
                 rule.onNodeWithTag("workflow-run-result-$workflowRunId", useUnmergedTree = true).performScrollTo().assertIsDisplayed()
                 if (case == "device-approve") rule.onNodeWithTag("workflow-device-action-$workflowRunId-1-0", useUnmergedTree = true).performScrollTo().assertIsDisplayed()
                 if (contracted) {
-                    (1..actions.size).forEach { sequence -> rule.onNodeWithTag("workflow-device-action-$workflowRunId-$sequence-0", useUnmergedTree = true).performScrollTo().assertIsDisplayed() }
+                    (1..if (boundary) 1 else actions.size).forEach { sequence -> rule.onNodeWithTag("workflow-device-action-$workflowRunId-$sequence-0", useUnmergedTree = true).performScrollTo().assertIsDisplayed() }
                     scenario.recreate()
                     scenario.awaitState { !it.loadingWorkflows && it.workflows.any { workflow -> workflow.id == definition.id } }
                     openWorkflowPage()
                     rule.onNodeWithTag("workflow-item-${definition.id}").performScrollTo().performClick()
                     rule.onNodeWithTag("workflow-run-result-$workflowRunId", useUnmergedTree = true).performScrollTo().assertIsDisplayed()
-                    rule.onNodeWithTag("workflow-device-action-$workflowRunId-${actions.size}-0", useUnmergedTree = true).performScrollTo().assertIsDisplayed()
+                    if (boundary) assertTrue(rule.onAllNodesWithTag("workflow-device-action-$workflowRunId-2-0", useUnmergedTree = true).fetchSemanticsNodes().isEmpty())
+                    else rule.onNodeWithTag("workflow-device-action-$workflowRunId-${actions.size}-0", useUnmergedTree = true).performScrollTo().assertIsDisplayed()
                     assertEquals(detail, workflowRepo.runDetail(workflowRunId))
-                    androidLiveStatus("STAGE${stage}_EVIDENCE WORKFLOW_RECREATE visibleResult=true ${if (scroll) "visibleSwipeAction" else "visibleTypeAction"}=true roomGoalEqual=true workflowRunId=$workflowRunId")
+                    androidLiveStatus("STAGE${stage}_EVIDENCE WORKFLOW_RECREATE visibleResult=true ${if (boundary) "visibleFailure" else if (scroll) "visibleSwipeAction" else "visibleTypeAction"}=true roomGoalEqual=true workflowRunId=$workflowRunId")
                 }
                 if (case == "device-deny") {
                     val denied = rule.onAllNodes(hasText("工具未获批准", substring = true) and
@@ -577,10 +615,10 @@ class AndroidWorkflowLiveInstrumentedTest {
         assertTrue(agent.snapshot.events.filter { it.type in setOf("tool.result", "tool.call.proposed", "tool.call.validated") }.none { it.toString().contains(marker) })
     }
 
-    private fun assertScrollEvidence(agent: AgentRunDetailRecord) {
+    private fun assertScrollEvidence(agent: AgentRunDetailRecord, direction: String) {
         val call = agent.toolLedger.calls.single { it.toolName == "device.swipe" }
         assertEquals(setOf("snapshot_id", "ref", "direction"), call.arguments.keys)
-        assertEquals("up", call.arguments["direction"])
+        assertEquals(direction, call.arguments["direction"])
         val observations = agent.toolLedger.results.filter { it.toolName == "device.snapshot" }.map { JSONObject(it.content) }
         assertEquals(2, observations.size)
         val before = observations.first()
@@ -594,19 +632,69 @@ class AndroidWorkflowLiveInstrumentedTest {
         val target = (0 until beforeNodes.length()).map(beforeNodes::getJSONObject).single { it.optString("ref") == call.arguments["ref"] }
         val targetActions = target.getJSONArray("actions")
         assertTrue((0 until targetActions.length()).any { targetActions.getString(it) == "swipe" })
-        fun visibleContent(json: JSONObject): Set<String> {
-            val nodes = json.getJSONArray("nodes")
-            return (0 until nodes.length()).map(nodes::getJSONObject).flatMap { node ->
-                listOf("text", "description", "hint").map { node.optString(it) }.filter(String::isNotBlank)
-            }.toSet()
-        }
         // long: 同一 Agent 的真实前后快照须出现内容变化；仅 generation 更新或模型声称已滚动不足以形成独立验收证据。
-        assertNotEquals(visibleContent(before), visibleContent(after))
+        assertTrue("滚动后可见内容未变化", visibleSnapshotContent(before) != visibleSnapshotContent(after))
         val result = agent.toolLedger.results.single { it.toolCallId == call.id }
         assertNotNull(WorkflowDeviceActionResultCodec.decode(result.content))
         listOf("viewport", "anchors", "fingerprint", "snapshot_id", "ref", "nodes").forEach { field ->
             assertFalse("滚动结果包含执行期证据：$field", result.content.contains("\"$field\""))
         }
+    }
+
+    private fun visibleSnapshotContent(json: JSONObject): Set<String> {
+        val nodes = json.getJSONArray("nodes")
+        return (0 until nodes.length()).map(nodes::getJSONObject).flatMap { node ->
+            listOf("text", "description", "hint").map { node.optString(it) }.filter(String::isNotBlank)
+        }.toSet()
+    }
+
+    private fun visibleSnapshotPositions(json: JSONObject): Set<List<String>> {
+        val nodes = json.getJSONArray("nodes")
+        return (0 until nodes.length()).map(nodes::getJSONObject).mapNotNull { node ->
+            val content = listOf("text", "description", "hint").map { node.optString(it) }
+            if (content.all(String::isBlank)) null else content + node.getJSONArray("bounds").toString()
+        }.toSet()
+    }
+
+    private suspend fun assertScrollBoundary(detail: WorkflowRunDetail, agents: List<AgentRunDetailRecord>,
+        context: Context, automation: UiAutomation, contract: WorkflowGoalVerificationContract?) {
+        assertEquals(2, agents.size)
+        val opened = agents.first()
+        assertEquals(AgentRunStatus.COMPLETED, opened.snapshot.run.status)
+        assertEquals(listOf("device.snapshot", "device.open_app", "device.snapshot"), opened.toolLedger.calls.map { it.toolName })
+        assertTrue(opened.toolLedger.results.all { it.success && it.verificationStatus == ToolVerificationStatus.PASSED })
+        assertEquals(ApprovalRequestStatus.APPROVED, opened.approvals.single().status)
+        val failed = agents.last()
+        assertEquals(AgentRunStatus.FAILED, failed.snapshot.run.status)
+        assertTrue(failed.approvals.isEmpty())
+        assertEquals(listOf("device.snapshot", "device.swipe"), failed.toolLedger.calls.map { it.toolName })
+        val call = failed.toolLedger.calls.last()
+        assertEquals(setOf("snapshot_id", "ref", "direction"), call.arguments.keys)
+        assertEquals("down", call.arguments["direction"])
+        val before = JSONObject(failed.toolLedger.results.first().content)
+        assertEquals(2, failed.toolLedger.results.size)
+        assertTrue(failed.toolLedger.results.first().success && failed.toolLedger.results.first().verificationStatus == ToolVerificationStatus.PASSED)
+        assertEquals("com.android.settings", before.getString("package"))
+        assertEquals(call.arguments["snapshot_id"], before.getString("snapshot_id"))
+        val nodes = before.getJSONArray("nodes")
+        val target = (0 until nodes.length()).map(nodes::getJSONObject).single { it.optString("ref") == call.arguments["ref"] }
+        val targetActions = target.getJSONArray("actions")
+        assertTrue((0 until targetActions.length()).any { targetActions.getString(it) == "swipe" })
+        val result = failed.toolLedger.results.single { it.toolCallId == call.id }
+        // long: 顶部没有移动只能保留失败；既接受原生不支持/返回 false，也接受动作已发送但 Executor 拒绝 no-op，其他失败不算边界通过。
+        assertTrue((!result.success && (result.content.contains("ACTION_NOT_SUPPORTED") || result.content.contains("ACTION_FAILED"))) ||
+            (result.success && result.executorVerified == false && result.verificationStatus == ToolVerificationStatus.FAILED))
+        assertTrue(detail.run.goalVerificationDecision?.status != WorkflowGoalVerificationStatus.VERIFIED)
+        assertEquals(contract, WorkflowStepSnapshotCodec.decodeInput(detail.steps.last().inputSnapshot).goalVerificationContract)
+        assertTrue(WorkflowStepSnapshotCodec.decodeOutput(detail.steps.last().outputSnapshot)?.deviceActionDecisions.orEmpty().isEmpty())
+        awaitSettingsWindow(automation)
+        val after = requireNotNull(DeviceObservationComponents.controller(context).capture() as? DeviceSnapshotCapture.Success).snapshot
+        assertEquals("com.android.settings", after.packageName)
+        assertEquals(before.getInt("window_id"), after.windowId)
+        val afterJson = JSONObject(DeviceSnapshotCodec.encode(after))
+        // long: 未移动必须同时满足内容与其屏幕位置相同；诊断只输出布尔结果，不能让 JUnit 将窗口正文打印出来。
+        assertTrue("边界失败后内容或位置发生变化", visibleSnapshotPositions(before) == visibleSnapshotPositions(afterJson))
+        androidLiveStatus("STAGE${acceptanceStage}_EVIDENCE WORKFLOW_SCROLL_BOUNDARY status=FAILED direction=down noMovement=true noSwipeApproval=true goalVerified=false postSnapshotNotExecuted=true failureAuditRetained=true workflowRunId=${detail.run.id}")
     }
     private suspend fun awaitSettingsWindow(automation: UiAutomation) = withTimeout(10_000) {
         while (true) {

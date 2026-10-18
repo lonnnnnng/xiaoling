@@ -5,6 +5,7 @@ enum class DeviceGlobalAction {
     HOME,
 }
 
+// long: 方向统一表示可见内容在屏幕上的移动，避免横向 Android 滚动位置与手势方向的相反语义进入工具协议。
 enum class DeviceScrollDirection {
     UP,
     DOWN,

@@ -112,6 +112,25 @@ class McpLiveAcceptanceAuditTest(unittest.TestCase):
         self.assertFalse(live.instrumentation_verdict(0, True, search_records, spec)["passed"])
         self.assertFalse(live.instrumentation_verdict(0, False, records, spec)["passed"])
 
+    def test_directional_scroll_rejects_wrong_direction_noop_success_and_missing_restore(self):
+        for name in ("workflow-settings-scroll-return", "workflow-settings-scroll-boundary", "device-horizontal-left", "device-horizontal-right"):
+            spec = PHASES[name]
+            records = [marker + "verified=true\n" for marker in spec["requiredEvidence"]] + ["OK (1 test)\n"]
+            with self.subTest(phase=name):
+                self.assertTrue(live.instrumentation_verdict(0, True, records, spec)["passed"])
+                for index in range(len(spec["requiredEvidence"])):
+                    self.assertFalse(live.instrumentation_verdict(0, True, records[:index] + records[index + 1:], spec)["passed"])
+                for original, changed in (("STAGE298", "STAGE297"), ("direction=down", "direction=up"),
+                                          ("noMovement=true", "noMovement=false"), ("goalVerified=false", "goalVerified=true"),
+                                          ("directions=up,down", "directions=up,up"), ("returnedContentEqual=true", "returnedContentEqual=false"),
+                                          ("direction=left", "direction=right"), ("direction=right", "direction=left"),
+                                          ("approvals=0", "approvals=1"), ("nativeCalls=1", "nativeCalls=2"),
+                                          ("executorVerified=true", "executorVerified=false"), ("isolatedRoom=true", "isolatedRoom=false")):
+                    altered = [line.replace(original, changed) for line in records]
+                    if altered != records:
+                        self.assertFalse(live.instrumentation_verdict(0, True, altered, spec)["passed"])
+                self.assertFalse(live.instrumentation_verdict(0, False, records, spec)["passed"])
+
     def test_startup_and_cleanup_failures_keep_both_causes(self):
         with tempfile.TemporaryDirectory() as folder, \
                 patch.object(live, "adb", side_effect=["34567", RuntimeError("device offline")]), \

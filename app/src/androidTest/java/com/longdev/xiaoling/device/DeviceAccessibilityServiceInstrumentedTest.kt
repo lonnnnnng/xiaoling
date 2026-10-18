@@ -6,6 +6,7 @@ import android.content.ComponentName
 import android.content.Context
 import android.content.pm.PackageManager
 import android.view.accessibility.AccessibilityManager
+import android.view.accessibility.AccessibilityNodeInfo.AccessibilityAction
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import org.junit.Assert.assertEquals
@@ -17,6 +18,14 @@ import java.io.FileInputStream
 
 @RunWith(AndroidJUnit4::class)
 class DeviceAccessibilityServiceInstrumentedTest {
+    @Test
+    fun scrollActionsMatchVisibleContentDirection() {
+        // long: 使用设备上的真实 Android action 常量核对生产映射；fake gateway 的位移测试无法发现左右 action 反转。
+        assertEquals(AccessibilityAction.ACTION_SCROLL_FORWARD.id, DeviceScrollDirection.UP.accessibilityScrollActionId())
+        assertEquals(AccessibilityAction.ACTION_SCROLL_BACKWARD.id, DeviceScrollDirection.DOWN.accessibilityScrollActionId())
+        assertEquals(AccessibilityAction.ACTION_SCROLL_RIGHT.id, DeviceScrollDirection.LEFT.accessibilityScrollActionId())
+        assertEquals(AccessibilityAction.ACTION_SCROLL_LEFT.id, DeviceScrollDirection.RIGHT.accessibilityScrollActionId())
+    }
     @Test
     fun manifestDeclaresNodeActionsWithoutGestureOrScreenshotCapability() {
         val context = ApplicationProvider.getApplicationContext<Context>()

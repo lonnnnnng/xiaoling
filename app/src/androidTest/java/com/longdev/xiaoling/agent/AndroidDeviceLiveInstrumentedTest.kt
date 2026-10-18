@@ -21,11 +21,14 @@ import java.util.UUID
 class AndroidDeviceLiveInstrumentedTest {
     @Test fun realPlannerObservesAndActsOnlyOnPublicNativeProbe() = runBlocking {
         // long: instrumentation 会重启宿主进程；先保留系统服务，再等用户已授权的服务重新绑定，不能把瞬时空列表当成撤权。
-        requireAndroidLiveScope()
+        val horizontal = InstrumentationRegistry.getArguments().getString("stage298Direction")
+        val stage = if (horizontal == null) 292 else 298
+        require(horizontal == null || horizontal in setOf("left", "right"))
+        requireAndroidLiveScope(stage)
         val automation = requireNotNull(InstrumentationRegistry.getInstrumentation().getUiAutomation(android.app.UiAutomation.FLAG_DONT_SUPPRESS_ACCESSIBILITY_SERVICES))
-        val config = androidLiveProvider()
+        val config = androidLiveProvider(stage)
         val context = ApplicationProvider.getApplicationContext<Context>()
-        val mode = requireNotNull(InstrumentationRegistry.getArguments().getString("stage292DeviceAction"))
+        val mode = if (horizontal != null) "scroll" else requireNotNull(InstrumentationRegistry.getArguments().getString("stage292DeviceAction"))
         require(mode in setOf("tap", "type", "scroll"))
         val preferences = context.getSharedPreferences("xiaoling_ui", Context.MODE_PRIVATE)
         val original = preferences.all.toMap()
@@ -35,6 +38,8 @@ class AndroidDeviceLiveInstrumentedTest {
         check(preferences.edit().putBoolean(keys[0], true).putBoolean(keys[1], false).commit())
         val native = AndroidDeviceAccessibilityGateway(context)
         val nonce = UUID.randomUUID().toString()
+        val requestedDirection = horizontal ?: "up"
+        var nativeSwipeCalls = 0
         suspend fun ownsProbe() = withContext(Dispatchers.Main.immediate) { DevicePrivacyProbeActivity.ownsResumedPublicProbe(nonce) }
         val gateway = object : DeviceAccessibilityGateway by native {
             override suspend fun captureRawWindow(): RawDeviceWindow? {
@@ -50,23 +55,31 @@ class AndroidDeviceLiveInstrumentedTest {
                 check(when (action) {
                     DeviceNodeAction.TAP -> mode == "tap" && node.text == "测试按钮"
                     DeviceNodeAction.TYPE_TEXT -> mode == "type" && node.editable
-                    DeviceNodeAction.SWIPE -> mode == "scroll" && node.scrollable
+                    DeviceNodeAction.SWIPE -> mode == "scroll" && node.scrollable && direction?.name?.lowercase() == requestedDirection
                 }) { "设备动作目标不是本轮公开验收节点" }
+                if (action == DeviceNodeAction.SWIPE) nativeSwipeCalls++
                 return native.performNodeAction(expectedWindowGeneration, nodePath, expectedFingerprint, action, text, direction)
             }
         }
         val controller = DeviceObservationController({ preferences.getBoolean(keys[0], false) }, gateway,
             actionPolicy = DeviceActionPolicy(setOf("com.longdev.xiaoling")))
         try {
-            rebindPreviouslyAuthorizedService(context, automation, native)
+            rebindPreviouslyAuthorizedService(context, automation, native, stage)
             val intent = Intent(context, DevicePrivacyProbeActivity::class.java).putExtra(DevicePrivacyProbeActivity.EXTRA_LIVE_NONCE, nonce)
             if (mode == "type") intent.putExtra(DevicePrivacyProbeActivity.EXTRA_MODE, DevicePrivacyProbeActivity.MODE_TYPE_TEXT)
             if (mode == "scroll") intent.putExtra(DevicePrivacyProbeActivity.EXTRA_MODE, DevicePrivacyProbeActivity.MODE_SCROLL)
+            if (horizontal != null) intent.putExtra(DevicePrivacyProbeActivity.EXTRA_MODE, DevicePrivacyProbeActivity.MODE_HORIZONTAL_SCROLL)
             ActivityScenario.launch<DevicePrivacyProbeActivity>(intent).use { scenario ->
                 withTimeout(15_000) { while (!native.isServiceAuthorized() || !native.isServiceConnected()) delay(100) }
                 assertTrue("用户已授权的系统无障碍服务未恢复连接", native.isServiceAuthorized())
                 withTimeout(10_000) {
                     while (controller.capture() !is DeviceSnapshotCapture.Success) delay(100)
+                }
+                var initialX = 0
+                if (horizontal != null) scenario.onActivity { activity ->
+                    val scroll = activity.findViewById<android.view.ViewGroup>(android.R.id.content).getChildAt(0) as android.widget.HorizontalScrollView
+                    initialX = scroll.scrollX
+                    assertEquals("公开横向夹具尚未定位", scroll.width, initialX)
                 }
                 AndroidLiveFixture(controller).use { f ->
                     // long: 数字 UUID 会命中手机号/身份串保护；公开 marker 改用随机汉字，保持生产敏感文本拒绝规则。
@@ -76,7 +89,7 @@ class AndroidDeviceLiveInstrumentedTest {
                     val target = when (mode) {
                         "tap" -> "点击当前快照中名为测试按钮的 TAP ref"
                         "type" -> "向当前快照的普通编辑框 TYPE_TEXT ref 输入公开文字；参数 text 必须逐字等于 JSON 字符串 ${org.json.JSONObject.quote(marker)}，不增加或省略字符"
-                        else -> "对当前快照的可滚动 SWIPE ref 使用 direction=up 上滑一次以读取下面的条目"
+                        else -> "对当前快照的可滚动 SWIPE ref 使用 direction=$requestedDirection 滚动一次，让可见内容向该方向移动"
                     }
                     val result = f.run(config, listOf("device.snapshot", action),
                         "先调用 device.snapshot 观察公开验收页，再用 $action $target，使用本轮真实 snapshot_id/ref，然后 complete。两个工具各调用一次，不打开应用、不点击其他节点、不执行额外动作。") { call ->
@@ -101,11 +114,23 @@ class AndroidDeviceLiveInstrumentedTest {
                         assertTrue(f.repo.contextTranscript(result.runId).filter { actionId in it.input.verifiedToolCallIds }
                             .all { !it.input.toString().contains(marker) })
                     }
-                    if (mode == "scroll") scenario.onActivity { activity ->
+                    if (mode == "scroll" && horizontal == null) scenario.onActivity { activity ->
                         val scroll = activity.findViewById<android.view.ViewGroup>(android.R.id.content).getChildAt(0) as android.widget.ScrollView
                         assertTrue("公开滚动页实际位置没有变化", scroll.scrollY > 0)
                     }
-                    androidLiveStatus("STAGE292_EVIDENCE DEVICE action=$mode runId=${result.runId} realAccessibility=true realModel=true publicProbeOnly=true approvals=${f.approvals} executorVerified=true roomPassed=true")
+                    if (horizontal != null) {
+                        assertEquals(1, nativeSwipeCalls)
+                        assertEquals(horizontal, ledger.calls.last().arguments["direction"])
+                        scenario.onActivity { activity ->
+                            val scroll = activity.findViewById<android.view.ViewGroup>(android.R.id.content).getChildAt(0) as android.widget.HorizontalScrollView
+                            val expectedX = initialX + if (horizontal == "left") scroll.width / 2 else -scroll.width / 2
+                            assertEquals("真实横向位置与内容方向不符", expectedX, scroll.scrollX)
+                        }
+                        f.reopen()
+                        f.assertTools(result.runId, listOf("device.snapshot", action))
+                        assertEquals(ledger, f.repo.toolLedger(result.runId))
+                        androidLiveStatus("STAGE298_EVIDENCE HORIZONTAL direction=$horizontal realAccessibility=true realModel=true publicProbeOnly=true isolatedRoom=true approvals=0 nativeCalls=1 executorVerified=true exactScrollPosition=true roomReopened=true runId=${result.runId}")
+                    } else androidLiveStatus("STAGE292_EVIDENCE DEVICE action=$mode runId=${result.runId} realAccessibility=true realModel=true publicProbeOnly=true approvals=${f.approvals} executorVerified=true roomPassed=true")
                 }
             }
         } finally {
@@ -116,11 +141,12 @@ class AndroidDeviceLiveInstrumentedTest {
             assertEquals(original, preferences.all)
             // long: 只撤销本轮两个开关；原文件不直接写回，避免覆盖同期其他偏好或绕开 SharedPreferences 内存状态。
             if (originalBytes == null && preferences.all.isEmpty()) check(context.deleteSharedPreferences("xiaoling_ui"))
+            if (horizontal != null) androidLiveStatus("STAGE298_EVIDENCE HORIZONTAL_RESTORE preferencesEqual=true direction=$horizontal")
         }
     }
 
     private suspend fun rebindPreviouslyAuthorizedService(context: Context, automation: android.app.UiAutomation,
-        native: AndroidDeviceAccessibilityGateway) {
+        native: AndroidDeviceAccessibilityGateway, stage: Int) {
         val key = Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES
         val original = requireNotNull(Settings.Secure.getString(context.contentResolver, key)) { "系统未授权，拒绝自动开启" }
         val expected = ComponentName(context, XiaoLingAccessibilityService::class.java)
@@ -138,7 +164,7 @@ class AndroidDeviceLiveInstrumentedTest {
                     check(Settings.Secure.putString(context.contentResolver, key, original))
                 }
             } finally { automation.dropShellPermissionIdentity() }
-            androidLiveStatus("STAGE292_EVIDENCE DEVICE_REBIND previouslyAuthorized=true otherServicesPreserved=true originalSelectionRestored=true controlledInstrumentation=true")
+            androidLiveStatus("STAGE${stage}_EVIDENCE DEVICE_REBIND previouslyAuthorized=true otherServicesPreserved=true originalSelectionRestored=true controlledInstrumentation=true")
         }
         withTimeout(15_000) { while (!native.isServiceAuthorized() || !native.isServiceConnected()) delay(100) }
         check(Settings.Secure.getString(context.contentResolver, key) == original)

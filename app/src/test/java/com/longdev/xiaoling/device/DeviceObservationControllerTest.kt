@@ -8,6 +8,45 @@ import org.junit.Test
 
 class DeviceObservationControllerTest {
     @Test
+    fun openAppWaitsWithinCaptureBudgetForTargetWithoutLaunchingAgain() = runTest {
+        val gateway = FakeGateway(authorized = true, connected = true,
+            window = simpleWindow(packageName = "com.longdev.xiaoling", generation = 10L), launchResult = true,
+            windowAfterLaunch = simpleWindow(packageName = "com.longdev.xiaoling", generation = 11L))
+        gateway.captureWindows.addAll(listOf(requireNotNull(gateway.windowAfterLaunch),
+            simpleWindow(packageName = "com.android.settings", generation = 12L)))
+        val result = DeviceObservationController({ true }, gateway).openApp("com.android.settings") as DeviceActionCapture.Success
+        assertTrue(result.outcome.verified)
+        assertEquals("com.android.settings", result.outcome.afterSnapshot.packageName)
+        assertEquals(2, gateway.captureCount)
+        assertEquals(listOf("com.android.settings"), gateway.launchedPackages)
+    }
+
+    @Test
+    fun openAppKeepsUnverifiedResultWhenOldWindowPersistsForEntireBudget() = runTest {
+        val gateway = FakeGateway(authorized = true, connected = true,
+            window = simpleWindow(packageName = "com.longdev.xiaoling", generation = 10L), launchResult = true,
+            windowAfterLaunch = simpleWindow(packageName = "com.longdev.xiaoling", generation = 11L))
+        val result = DeviceObservationController({ true }, gateway).openApp("com.android.settings") as DeviceActionCapture.Success
+        assertFalse(result.outcome.verified)
+        assertEquals(6, gateway.captureCount)
+        assertEquals(listOf("com.android.settings"), gateway.launchedPackages)
+    }
+
+    @Test
+    fun openAppStopsObservationImmediatelyWhenAuthorizationIsRevokedWhileWaiting() = runTest {
+        val native = FakeGateway(authorized = true, connected = true,
+            window = simpleWindow(packageName = "com.longdev.xiaoling", generation = 10L), launchResult = true,
+            windowAfterLaunch = simpleWindow(packageName = "com.longdev.xiaoling", generation = 11L))
+        val gateway = object : DeviceAccessibilityGateway by native {
+            override suspend fun captureRawWindow(): RawDeviceWindow? = native.captureRawWindow().also { native.authorized = false }
+        }
+        val result = DeviceObservationController({ true }, gateway).openApp("com.android.settings") as DeviceActionCapture.Failed
+        assertEquals(DeviceActionFailure.POST_ACTION_OBSERVATION_FAILED, result.reason)
+        assertEquals(1, native.captureCount)
+        assertEquals(listOf("com.android.settings"), native.launchedPackages)
+    }
+
+    @Test
     fun openAppAcceptsObservedPackageFromSameOemAppFamily() = runTest {
         val gateway = FakeGateway(
             authorized = true,
@@ -665,6 +704,8 @@ class DeviceObservationControllerTest {
         var windowAfterLaunch: RawDeviceWindow? = null,
     ) : DeviceAccessibilityGateway {
         var captureCalled: Boolean = false
+        var captureCount: Int = 0
+        val captureWindows = mutableListOf<RawDeviceWindow>()
         val reportedWindowGenerations = mutableListOf<Long>()
         val launchedPackages = mutableListOf<String>()
 
@@ -680,6 +721,8 @@ class DeviceObservationControllerTest {
 
         override suspend fun captureRawWindow(): RawDeviceWindow? {
             captureCalled = true
+            captureCount++
+            if (captureWindows.isNotEmpty()) window = captureWindows.removeAt(0)
             return window
         }
 

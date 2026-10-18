@@ -80,6 +80,23 @@ PHASES["workflow-settings-scroll"] = descriptor("agent.AndroidWorkflowLiveInstru
         "EVIDENCE WORKFLOW_SCROLL goalStatus=VERIFIED goalReason=ALL_CRITERIA_VERIFIED steps=2 toolCalls=6 approvals=1 direction=up executorVerified=true noSwipeApproval=true snapshotContentChanged=true actionSummaryOnly=true ",
         "EVIDENCE WORKFLOW_RECREATE visibleResult=true visibleSwipeAction=true roomGoalEqual=true ",
         "EVIDENCE WORKFLOW case=device-scroll ", "EVIDENCE WORKFLOW_KEY aliasStateRestored=true ", "EVIDENCE WORKFLOW_RESTORE "))
+# long: 往返成功与顶部失败采用不同强制回执；失败边界通过必须证明未移动与审计保留，不能把模型失败本身计为通过。
+for case, receipt, visible in (
+        ("device-scroll-return", "WORKFLOW_SCROLL_RETURN goalStatus=VERIFIED goalReason=ALL_CRITERIA_VERIFIED steps=3 toolCalls=9 approvals=1 directions=up,down executorVerified=true noSwipeApproval=true returnedContentEqual=true ", "visibleSwipeAction"),
+        ("device-scroll-boundary", "WORKFLOW_SCROLL_BOUNDARY status=FAILED direction=down noMovement=true noSwipeApproval=true goalVerified=false postSnapshotNotExecuted=true failureAuditRetained=true ", "visibleFailure")):
+    PHASES["workflow-settings-" + case.removeprefix("device-")] = descriptor("agent.AndroidWorkflowLiveInstrumentedTest",
+        "actualWorkflowDirectionalScrollUsesRealModelAndPreservesFailure", stage=298, evidence="EVIDENCE WORKFLOW",
+        required_evidence=("EVIDENCE WORKFLOW_SCOPE ", "EVIDENCE " + receipt,
+            f"EVIDENCE WORKFLOW_RECREATE visibleResult=true {visible}=true roomGoalEqual=true ",
+            f"EVIDENCE WORKFLOW case={case} ", "EVIDENCE WORKFLOW_KEY aliasStateRestored=true ", "EVIDENCE WORKFLOW_RESTORE "),
+        arguments={"stage298Case": case})
+
+for direction in ("left", "right"):
+    PHASES["device-horizontal-" + direction] = descriptor("agent.AndroidDeviceLiveInstrumentedTest",
+        "realPlannerObservesAndActsOnlyOnPublicNativeProbe", stage=298, evidence="EVIDENCE HORIZONTAL",
+        required_evidence=(f"EVIDENCE HORIZONTAL direction={direction} realAccessibility=true realModel=true publicProbeOnly=true isolatedRoom=true approvals=0 nativeCalls=1 executorVerified=true exactScrollPosition=true roomReopened=true ",
+            f"EVIDENCE HORIZONTAL_RESTORE preferencesEqual=true direction={direction}"),
+        arguments={"stage298Direction": direction})
 
 
 def main():

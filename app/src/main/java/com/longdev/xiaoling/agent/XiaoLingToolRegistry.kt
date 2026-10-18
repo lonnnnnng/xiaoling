@@ -1451,7 +1451,7 @@ class XiaoLingToolRegistry(
             risk = ToolRisk.SAFE,
             inputSchema = referenceInputSchema() + ToolInputField(
                 name = "direction",
-                description = "滚动方向：up、down、left 或 right。",
+                description = "可见内容在屏幕上的移动方向：up、down、left 或 right；例如 left 使内容向左移动。",
                 required = true,
                 enumValues = setOf("up", "down", "left", "right"),
             ),

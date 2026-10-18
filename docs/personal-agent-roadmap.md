@@ -2,6 +2,8 @@
 
 ## 2026-10-18：Android 产品验收优先
 
+第 298 阶段已补[滚动方向与边界](android-directional-scroll-acceptance.md)：修正左右 Android action 映射，open_app 在原回读预算内等待目标包；最新 Debug 上正式 up/down 往返、顶部 down 的失败边界、隔离公开页 left/right 四项同轮通过。正式往返九调用/一审批、目标 VERIFIED；顶部未移动保持 FAILED，零滚动审批。原生崩溃及前置打开失败均保留，普通编辑器、持续隐私、新完成约束自然恢复、复杂任务和长期系统/Release 继续独立。
+
 第 297 阶段已补[正式 Workflow 滚动](android-workflow-scroll-acceptance.md)：打开设置与单次向上滚动同轮六调用、一审批，SAFE 滚动零审批，目标 VERIFIED、真实前后内容变化、Activity 重建和独立新进程回读通过。其他方向/边界、复杂任务、普通编辑器限定应用、持续隐私和自然恢复继续单列。
 
 第 296 阶段已补[Workflow 分步完成与输入隐私](android-workflow-completion-acceptance.md)，正式设置搜索同轮九调用/三审批、目标 VERIFIED、精确回读、隐私与 Activity 重建通过。新鲜前台完成约束及下一次 snapshot 投影已回归；持续隐私、自然恢复、编辑器限定应用和复杂任务仍独立，单次设置滚动由第 297 阶段补验。

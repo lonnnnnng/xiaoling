@@ -2,6 +2,16 @@
 
 验证日期：2026-10-18（北京时间）
 
+# 2026-10-18 第 298 阶段：滚动方向与边界（四项同轮通过）
+
+指定 Redmi、真实 `gpt-6-luna`、同签名 Debug `0.1.22 (23)`。`live-target-observation` 四项同轮通过：正式设置 up/down 往返、顶部 down 的失败边界、隔离公开页 left/right；目标包回读仍在原预算内、启动仅一次，左右 action 修正为内容位移语义。
+
+- 往返 Run `workflow-run-7f93b181-bfc6-48fb-8bff-97bade5d7969`：三步九调用/一审批，目标 VERIFIED，内容返回、Activity 重建、配置与 2,992 条旧审计保护；顶部 Run `workflow-run-bafde884-e3e5-41e2-ac9a-43425a0432c7`：COMPLETED/FAILED，两步五调用/一审批，内容和位置未移动，目标判定 absent、无 VERIFIED，保护 3,319 条旧审计。滚动全部零审批。
+- 公开左右各两调用/一次 native 动作，真实半屏 scrollX、Executor/PASSED 与隔离 Room 同进程重开相等；不能记为正式 Workflow 左右或任意 App。正式两项独立进程只读核对持久账本，往返比较首尾 snapshot；顶部物理未移动来自执行当轮，不重放验证。
+- `live-initial` ART `unused-3f / SIGABRT` 与残留正文拒绝、`live-recovery-split` 首步 open_app 的 Executor 回读失败全部保留。定向恢复匹配冻结 seed/UUID/来源消息与完整本轮偏好摘要，不重放；恢复块独立协程后本轮未再原生崩溃，未定位 ART/D8 底层根因。
+- JVM 53/53、主机门禁 11/11、Debug/AndroidTest/Lint 通过。源码/证据/APK 的实际凭据、文档字节、独立回读、最终偏好保护与原授权收尾分别记录在 `outputs/verification/stage298-directional-scroll/verification-summary.json`；前阶段原证据不改写。往返未纠错，顶部首步使用一次既有完成纠错，预算与上限保持。
+- 当前 Room 基线与第 297 阶段历史摘要不同，安装前未独立捕获完整值；本轮精确恢复首轮记录的实际基线，不宣称历史选择或新安装 alias 状态恢复。普通编辑器限定应用、持续/拼接输入隐私、新完成约束自然恢复、复杂任务、Remote 稳定服务、自然 Doze/LMK/重启及签名 Release 仍独立。详见[方向与边界专项](android-directional-scroll-acceptance.md)。
+
 # 2026-10-18 第 297 阶段：正式 Workflow 设置滚动（同轮通过）
 
 指定 Redmi、用户提供真实 `gpt-6-luna`、Debug `0.1.22 (23)`。`live-navigation` 同轮打开设置与单次向上滚动，六调用/一审批，滚动 SAFE 零审批、同包同窗及真实 snapshot 内容变化，Room `VERIFIED / ALL_CRITERIA_VERIFIED`、结果展示和 Activity 重建通过；Run 为 `workflow-run-eb9bbf5a-a183-4ed9-a74e-f8f42055816d`，主机耗时 88.10s。首步使用既有一次完成纠错补齐后置观察，未扩大预算或修改生产行为。

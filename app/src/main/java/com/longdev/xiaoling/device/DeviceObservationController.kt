@@ -165,6 +165,7 @@ class DeviceObservationController(
                 )
             },
             successMessage = "已打开允许列表中的应用，并重新观察到目标前台窗口",
+            expectedPackageName = packageName,
         )
     }
 
@@ -352,9 +353,10 @@ class DeviceObservationController(
         beforeGeneration: Long,
         verify: (DeviceSnapshotCapture.Success) -> PostActionVerification,
         successMessage: String,
+        expectedPackageName: String? = null,
     ): DeviceActionCapture {
         waitForWindowSettled(beforeGeneration)
-        val after = when (val capture = captureAfterWindowTransition()) {
+        val after = when (val capture = captureAfterWindowTransition(expectedPackageName)) {
             is DeviceSnapshotCapture.Success -> capture
             is DeviceSnapshotCapture.Failed -> {
                 return actionFailed(
@@ -377,15 +379,19 @@ class DeviceObservationController(
         )
     }
 
-    private suspend fun captureAfterWindowTransition(): DeviceSnapshotCapture {
+    private suspend fun captureAfterWindowTransition(expectedPackageName: String? = null): DeviceSnapshotCapture {
         repeat(POST_ACTION_CAPTURE_ATTEMPTS) { attempt ->
             val capture = capture()
-            val retryable = capture is DeviceSnapshotCapture.Failed && capture.reason in setOf(
-                DeviceSnapshotFailure.NO_ACTIVE_WINDOW,
-                DeviceSnapshotFailure.WINDOW_CHANGED,
-            )
+            val retryable = when (capture) {
+                is DeviceSnapshotCapture.Failed -> capture.reason in setOf(
+                    DeviceSnapshotFailure.NO_ACTIVE_WINDOW,
+                    DeviceSnapshotFailure.WINDOW_CHANGED,
+                )
+                is DeviceSnapshotCapture.Success -> expectedPackageName != null &&
+                    !DeviceActionPolicy.areEquivalentAppPackages(expectedPackageName, capture.snapshot.packageName)
+            }
             if (!retryable || attempt == POST_ACTION_CAPTURE_ATTEMPTS - 1) return capture
-            // long: 应用首次启动或系统权限页切换时会短暂没有 rootInActiveWindow；只重试瞬时窗口状态，隐私拒绝和授权失效仍立即失败。
+            // long: 启动目标时旧应用窗口可能先稳定；同一已发送动作只在原预算内继续回读目标包，授权/隐私失败立即拒绝，耗尽也不能伪造成功。
             delay(POST_ACTION_CAPTURE_RETRY_DELAY_MS)
         }
         error("后置观察重试次数必须大于零")

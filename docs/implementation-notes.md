@@ -1,5 +1,11 @@
 # 当前实现说明
 
+## 2026-10-18 第 298 阶段：方向映射与目标包回读
+
+- `DeviceScrollDirection.accessibilityScrollActionId()` 把内容 LEFT/RIGHT 映射到 Android SCROLL_RIGHT/SCROLL_LEFT，服务实际消费该函数；上下仍使用 FORWARD/BACKWARD，工具描述明确内容位移。AOSP 正文和 Redmi action 常量回归已核对，未添加手势或坐标能力。
+- `DeviceObservationController.openApp` 对既有后置观察传入目标包；首次有效窗口仍非目标时，仅在原六次/100ms 预算内继续 capture。启动不重发，其他动作不增加针对目标包的等待，健康/隐私失败立即结束，预算耗尽保持未验证。三项新 JVM 覆盖目标延后、旧窗持续和等待中撤权。
+- 第 298 阶段 USB/ACK 入口分别要求正式往返/顶部失败与 nonce 公开页左右证据。恢复块拆出巨型内联入口；原生崩溃恢复按冻结 seed/UUID/来源消息/完整偏好摘要确认归属，未知变化拒绝清理，失败账本保留。验收范围和原失败见[方向与边界专项](android-directional-scroll-acceptance.md)。
+
 ## 2026-10-18 第 297 阶段：正式 Workflow 滚动验收入口
 
 - 新增独立 STAGE297 USB/ACK 入口，复用正式 MainActivity 可见手动运行、分步冻结契约和原数据保护；系统设置两步六调用，仅批准 open_app，swipe 使用生产 SAFE 同窗方向门禁，未改 main/schema/版本。

@@ -466,12 +466,7 @@ class XiaoLingAccessibilityService : AccessibilityService() {
             }
             DeviceNodeAction.SWIPE -> {
                 if (direction == null) return RawDeviceActionResult.ActionNotSupported
-                val scrollAction = when (direction) {
-                    DeviceScrollDirection.UP -> AccessibilityNodeInfo.AccessibilityAction.ACTION_SCROLL_FORWARD.id
-                    DeviceScrollDirection.DOWN -> AccessibilityNodeInfo.AccessibilityAction.ACTION_SCROLL_BACKWARD.id
-                    DeviceScrollDirection.LEFT -> AccessibilityNodeInfo.AccessibilityAction.ACTION_SCROLL_LEFT.id
-                    DeviceScrollDirection.RIGHT -> AccessibilityNodeInfo.AccessibilityAction.ACTION_SCROLL_RIGHT.id
-                }
+                val scrollAction = direction.accessibilityScrollActionId()
                 if (!node.supportsAction(scrollAction)) return RawDeviceActionResult.ActionNotSupported
                 node.performAction(scrollAction)
             }

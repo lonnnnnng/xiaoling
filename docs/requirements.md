@@ -1,5 +1,11 @@
 # 产品需求
 
+## 2026-10-18：设备滚动方向与目标窗口回读
+
+- `device.swipe` 的 up/down/left/right 统一表示可见内容的屏幕位移；横向 Android action 必须与该语义一致。仍仅执行当前 snapshot/ref 的原生节点动作，不增加坐标回退。
+- `open_app` 发送一次启动后，在既有有界后置观察预算内等待目标应用家族；旧窗口、无窗口或窗口切换不能直接当作目标完成。权限/隐私失效立即拒绝，耗尽保留失败或未验证结果。
+- 顶部无法下滚必须保留 FAILED 与审计，目标不能 VERIFIED。正式 Workflow 与隔离公开页证据分别记录，普通编辑器限定应用、持续隐私、复杂任务、自然系统恢复及正式 Release 不由本专项代替。见[方向与边界专项](android-directional-scroll-acceptance.md)。
+
 ## 2026-10-18 第 291 阶段第九片：真实 iOS 前台 loop
 
 - 新增静态 framework 和单窗口 UIKit Simulator 验收宿主，普通非流式 Chat Completions/严格 JSON 规划，仅四个只读 workspace/browser 工具；每 Run 独立真实结果历史和调用身份，8 步/90 秒及输入/响应容量门禁。认证仅宿主内存/请求头，两层 JSON 解码反射拒绝与事件字段脱敏，不保存配置。

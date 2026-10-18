@@ -12,6 +12,8 @@ import android.widget.EditText
 import android.widget.LinearLayout
 import android.widget.TextView
 import android.widget.ScrollView
+import android.widget.HorizontalScrollView
+import android.view.accessibility.AccessibilityNodeInfo
 
 class DevicePrivacyProbeActivity : Activity() {
     private var publicClickCount = 0
@@ -42,6 +44,10 @@ class DevicePrivacyProbeActivity : Activity() {
         publicClickCount = 0
         publicMutationTrace = "none"
         window.setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_STATE_ALWAYS_HIDDEN)
+        if (intent.getStringExtra(EXTRA_MODE) == MODE_HORIZONTAL_SCROLL) {
+            renderPublicHorizontalScroll()
+            return
+        }
         val layout = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             layoutParams = ViewGroup.LayoutParams(
@@ -109,6 +115,42 @@ class DevicePrivacyProbeActivity : Activity() {
         else setContentView(layout)
     }
 
+    private fun renderPublicHorizontalScroll() {
+        val row = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            layoutParams = ViewGroup.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.MATCH_PARENT)
+            repeat(30) { index -> addView(TextView(context).apply {
+                text = "公开横向条目 ${index + 1}"
+                layoutParams = LinearLayout.LayoutParams(180, ViewGroup.LayoutParams.MATCH_PARENT)
+                gravity = android.view.Gravity.CENTER
+            }) }
+        }
+        setContentView(object : HorizontalScrollView(this) {
+            override fun onInitializeAccessibilityNodeInfo(info: AccessibilityNodeInfo) {
+                super.onInitializeAccessibilityNodeInfo(info)
+                // long: 明确声明真实能移动的左右动作，边界不伪造支持；原生视图实际位置和生产 Executor 的方向判断必须同时通过。
+                info.isScrollable = true
+                if (scrollX > 0) info.addAction(AccessibilityNodeInfo.AccessibilityAction.ACTION_SCROLL_LEFT)
+                if (scrollX + width < getChildAt(0).width) info.addAction(AccessibilityNodeInfo.AccessibilityAction.ACTION_SCROLL_RIGHT)
+            }
+
+            override fun performAccessibilityAction(action: Int, arguments: Bundle?): Boolean {
+                if (action == AccessibilityNodeInfo.AccessibilityAction.ACTION_SCROLL_LEFT.id ||
+                    action == AccessibilityNodeInfo.AccessibilityAction.ACTION_SCROLL_RIGHT.id) {
+                    // long: 半屏位移保留共同公开锚点供方向验证；仍由真实 View 滚动并以 scrollX 变化返回，不构造伪窗口或结果。
+                    val before = scrollX
+                    scrollBy(if (action == AccessibilityNodeInfo.AccessibilityAction.ACTION_SCROLL_LEFT.id) -width / 2 else width / 2, 0)
+                    return scrollX != before
+                }
+                return super.performAccessibilityAction(action, arguments)
+            }
+        }.apply {
+            addView(row)
+            // long: 起点位于公开列表中段，让 left 和 right 各自拥有可移动空间；起始定位属于页面夹具，不计作模型动作成功。
+            post { scrollTo(width, 0) }
+        })
+    }
+
     fun publicClickAudit(nonce: String): String {
         check(intent.getStringExtra(EXTRA_LIVE_NONCE) == nonce)
         return "clicks=$publicClickCount mutationTrace=$publicMutationTrace"
@@ -125,5 +167,6 @@ class DevicePrivacyProbeActivity : Activity() {
         const val EXTRA_MODE = "mode"
         const val MODE_TYPE_TEXT = "type_text"
         const val MODE_SCROLL = "scroll"
+        const val MODE_HORIZONTAL_SCROLL = "horizontal_scroll"
     }
 }
