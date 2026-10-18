@@ -4,7 +4,7 @@ package com.longdev.xiaoling.shared.agent
  * long: 共享层只描述 Agent 的稳定输入输出和平台能力端口，避免把 Android Context、Room、Keystore、Accessibility 或 Compose 带进跨平台核心。
  */
 object AgentRuntimeContract {
-    const val VERSION = 4
+    const val VERSION = 5
 }
 
 data class SharedToolCall(
@@ -166,10 +166,12 @@ data class SharedToolExecutionReceipt(
     val toolCallId: String,
     val operationId: String,
     val status: SharedToolReceiptStatus,
+    val idempotencyKey: String? = null,
 ) {
     init {
         require(toolCallId.isNotBlank()) { "共享执行回执的工具调用 ID 不能为空" }
         require(operationId.isNotBlank()) { "共享执行回执的操作 ID 不能为空" }
+        require(idempotencyKey == null || idempotencyKey.isNotBlank()) { "共享执行回执的幂等键不能为空白" }
     }
 }
 
@@ -196,6 +198,9 @@ data class SharedToolExecutionResult(
     val executionReceipt: SharedToolExecutionReceipt? = null,
     val verification: SharedToolVerificationEvidence? = null,
     val readableEvidence: SharedToolReadableEvidence? = null,
+    val memoryIdsUsed: List<String> = emptyList(),
+    val knowledgeReferences: List<SharedKnowledgeReference> = emptyList(),
+    val recoveryFailure: SharedToolRecoveryFailure? = null,
 )
 
 data class SharedAgentExecution(

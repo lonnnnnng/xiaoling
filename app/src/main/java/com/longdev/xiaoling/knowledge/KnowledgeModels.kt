@@ -147,26 +147,8 @@ data class KnowledgeSearchResult(
     val retrieval: KnowledgeRetrievalRecord,
 )
 
-data class KnowledgeReference(
-    val retrievalId: String,
-    val documentId: String,
-    val documentName: String,
-    val documentRevision: Int,
-    val chunkId: String,
-    val chunkSequence: Int,
-    val startOffset: Int,
-    val endOffset: Int,
-) {
-    init {
-        require(retrievalId.isNotBlank()) { "知识检索引用缺少 retrieval ID" }
-        require(documentId.isNotBlank()) { "知识检索引用缺少 document ID" }
-        require(documentName.isNotBlank()) { "知识检索引用缺少文档名称" }
-        require(documentRevision > 0) { "知识检索引用的文档 revision 必须大于 0" }
-        require(chunkId.isNotBlank()) { "知识检索引用缺少 chunk ID" }
-        require(chunkSequence >= 0) { "知识检索引用的 chunk sequence 不能小于 0" }
-        require(startOffset >= 0 && endOffset > startOffset) { "知识检索引用的 offset 范围无效" }
-    }
-}
+// long: 引用的全部版本/片段字段共用跨平台校验，Android 历史持久格式仍由原 codec 负责。
+typealias KnowledgeReference = com.longdev.xiaoling.shared.agent.SharedKnowledgeReference
 
 data class KnowledgeDocumentNavigationTarget(
     val documentId: String,

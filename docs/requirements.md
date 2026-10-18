@@ -1,5 +1,11 @@
 # 产品需求
 
+## 2026-10-18 第 291 阶段第五片：KMP 完整 Tool result
+
+- 固化单次执行结果九字段、完整知识引用、恢复失败和私有回执幂等键；新增调用绑定的 v1 完整帧及 Android 双向入口。可空字段显式 null，memory/knowledge 每类最多 256 项，整帧严格 UTF-8 1 MiB；坏嵌套证据和调用错配拒绝整帧。
+- 完整私有帧不直接进入模型/可信上下文；运行时 shared 投影保留实际引用/恢复失败并去除幂等键。状态独立保存，不推导 PASSED/COMMITTED 或恢复权限；原 RunEvent/VerifiedContext/Room 历史格式、兼容和审批/恢复门禁保持。
+- shared contract 升为 v5，Room v44/发布版本保持。common 三端、JVM/Redmi 共用 adapter、Runtime/恢复/Room 专项复验；下一片进入 iOS actual。完整字段与验证边界见[结果契约](kmp-tool-result.md)和[报告](verification-report.md)。
+
 ## 2026-10-18 第 291 阶段第四片：KMP Remote Channel wire
 
 - 固化 message/batch/ACK/receiver request/proof/公开 manifest DTO、严格 raw JSON 和原五类 canonical 格式（request 含 pull/ACK 两分支），合法 v1 wire 保持兼容。身份顺序、UTF-8 长度前缀、null 哨兵、正文归一化和历史游标差异不得漂移。

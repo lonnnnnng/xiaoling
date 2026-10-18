@@ -2,6 +2,27 @@
 
 验证日期：2026-10-18（北京时间）
 
+# 2026-10-18 第 291 阶段第五片：完整 Tool result v1 codec
+
+- 当前主线仍为第 7 点；前五片协议/codec 已具备，第五片将结果引用、恢复失败和私有 receipt 幂等键补为完整数据闭包，shared contract 升为 v5，完整结果 schema v1。Android 双向入口复用 shared codec，原模型投影显式去除幂等键并保留非秘密元数据。Room v44、发布版本 `0.1.22 (23)` 不变。
+- v1 固定外层调用身份和结果九字段；可空项显式 null，严格 UTF-8 1 MiB、memory/knowledge 各 256 条、未知/缺失字段、坏类型/整数词法、重复键、Unicode、坏嵌套及调用错配拒绝整帧。success/verified/typed/receipt 状态独立保存，不生成验证、提交、审批或恢复许可。
+
+| 验证层 | 本轮结果 | 证据范围 |
+| --- | --- | --- |
+| App 聚焦 JVM | **147/147** | 完整结果/脱敏、旧 RunEvent/可信上下文、Runtime、恢复/复用策略及知识引用 |
+| shared Android Debug / Release | **各 75/75** | common 固定 literal、全部状态组合、身份/损坏/Unicode、256 条及精确 ASCII/中文 1 MiB |
+| shared iOS Simulator arm64 | **75/75** | 同一 common suite，包含完整結果 codec，不代表 iOS actual |
+| iOS arm64 common 编译 | **通过** | common klib，不是 iOS App 或设备运行 |
+| Debug / AndroidTest / Debug Lint | **通过** | 原审批/恢复/Provider 实现保持；没有正式 Release |
+| Redmi 专项 | **21/21** | 9 条共用 adapter 契约、12 条 Room Ledger/绑定/引用/回执/恢复回归 |
+
+- JVM/Redmi 共用独立 literal 及 JSONObject oracle，覆盖完整私有帧的幂等键/全部枚举双向映射，direct/Workflow/child shared execution 和 Executor 脱敏，错配后引用/恢复失败/receipt/readable 不泄漏。可读页面/动作跨新帧和原 RunEvent 往返，不产生业务 COMMITTED 回执；历史 typed 无调用 ID 保留 null，不补造绑定。
+- 原 RunEvent tool.result 外层和独立 typed/recovery 事件、VerifiedContext 可信 receipt、Room 分列及历史兼容保持。旧 memory 字符串数组、坏知识引用逐项丢弃、缺 replaySafety 时 RESTART_REQUIRED 复验；新严格完整帧不接收旧外层 wire，也不限制原投影列表容量。
+- Redmi 仅使用 `wsvwypiz7xwslvl7 / begonia / Redmi Note 8 Pro / SDK 36`。Room 专项主要为内存 DB；可读证据与第二次审批方法真正关闭并重开隔离磁盘测试 DB。`toolLedgerDualWritesCallResultAndVerificationAcrossRepositoryRecreation` 只重建 Repository，共用 DB 对象，不能单独称磁盘恢复。本轮未卸载或清正式数据，七项正式偏好/Memory undo 摘要在功能验收后保持一致。
+- 最终文档语料/保护门禁、APK assets 字节一致、仓库本地链接及两项实际凭据审计记录于同目录；真实 key 只在进程内匹配，日志和报告不保存其值。源码 typealias 保持原校验和 JSON 字段，不承诺旧 JVM 类名 ABI。
+- 下一片进入 iOS actual：本地 workspace、HTTP、只读浏览器和前台 loop。本片不提供真实模型/公网、iOS 产品运行时、自然 LMK/Doze/系统重启或正式 Release 证据；前六点长期独立待办继续单独追踪，第 7 点尚未整体收口。中文本地提交，无 push/tag/Release，原 `refs/` 保留。
+- 契约及矩阵：[完整结果](kmp-tool-result.md)、[共享可读证据](kmp-readable-evidence.md)、[路线图](personal-agent-roadmap.md)。证据目录 `outputs/verification/stage291-kmp-tool-result/` 保存 initial/final 测试 XML 汇总、`final-source-build.log`、Redmi selection/原日志/结果、最终文档构建与语料/保护/链接/凭据/产物审计及 `verification-summary.json`。
+
 # 2026-10-18 第 291 阶段第四片：shared Remote Channel wire/canonical bytes
 
 - 当前推进第 7 点 KMP 协议/codec。commonMain 固化 message、signed batch、ACK binding/request/reply、receiver pull/ACK request、proof、signed request 与公开 manifest 的 DTO/严格 raw codec；Android 三个原 DTO 为 typealias，生产 raw 回复及 canonical 方法委托 shared。shared Agent contract v4、Room v44、发布版本 `0.1.22 (23)` 保持。

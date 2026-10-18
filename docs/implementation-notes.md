@@ -1,5 +1,11 @@
 # 当前实现说明
 
+## 2026-10-18 第 291 阶段第五片：共享完整结果帧
+
+- shared `SharedToolExecutionResult` 增加引用/恢复失败，receipt 增加可空私有幂等键；Android KnowledgeReference/ToolRecoveryFailure 共用原校验。`SharedToolResultFrame / SharedToolExecutionResultCodec` 固化 v1 九字段、调用身份、严格 UTF-8 1 MiB、各类 256 项及损坏拒绝。
+- Android `ToolExecutionResultCodec` 完整双向映射；`toSharedAgentResult` 显式去除幂等键并保留引用/恢复失败，错配仍不携带旧事实。原 RunEvent、VerifiedContext、Room wire/schema 与 Runtime/恢复权限未改；新 codec 尚未接入原持久路径。
+- 固定 literal/common 状态和容量向量、JVM/Redmi 独立 JSONObject oracle 与历史兼容门禁复验。shared contract v5，下一片进入 iOS actual；完整协议及验证范围见[结果契约](kmp-tool-result.md)和[报告](verification-report.md)。
+
 ## 2026-10-18 第 291 阶段第四片：共享 Remote wire
 
 - `shared/remote/SharedRemoteChannelWire.kt` 与 `SharedRemoteChannelWireCodec` 固化 DTO、exact raw JSON、64 KiB UTF-8 与 common 大端签名字节；Android 三个原 DTO 为 typealias，message/batch/ACK decoder 和 canonical 方法委托 shared。

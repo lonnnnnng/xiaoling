@@ -6,10 +6,8 @@ import com.longdev.xiaoling.shared.agent.SharedApprovalGate
 import com.longdev.xiaoling.shared.agent.SharedAgentLlm
 import com.longdev.xiaoling.shared.agent.SharedToolCall
 import com.longdev.xiaoling.shared.agent.SharedToolDefinition
-import com.longdev.xiaoling.shared.agent.SharedToolExecutionReceipt
 import com.longdev.xiaoling.shared.agent.SharedToolExecutionResult
 import com.longdev.xiaoling.shared.agent.SharedToolExecutor
-import com.longdev.xiaoling.shared.agent.SharedToolReceiptStatus
 import com.longdev.xiaoling.shared.agent.SharedToolVerificationEvidence
 import com.longdev.xiaoling.shared.agent.SharedToolVerificationStatus
 
@@ -74,32 +72,10 @@ fun ToolExecutionResult.toSharedAgentResult(
             ),
         )
     }
-    return SharedToolExecutionResult(
-        success = success,
-        content = content,
-        verified = verified,
-        executionReceipt = receipt?.let { receipt ->
-            SharedToolExecutionReceipt(
-                toolCallId = receipt.toolCallId,
-                operationId = receipt.operationId,
-                status = when (receipt.status) {
-                    ToolExecutionReceiptStatus.COMMITTED -> SharedToolReceiptStatus.COMMITTED
-                    ToolExecutionReceiptStatus.NOT_COMMITTED -> SharedToolReceiptStatus.NOT_COMMITTED
-                    ToolExecutionReceiptStatus.UNKNOWN -> SharedToolReceiptStatus.UNKNOWN
-                },
-            )
-        },
-        verification = evidence?.let {
-            SharedToolVerificationEvidence(
-                status = when (it.status) {
-                    ToolVerificationStatus.PASSED -> SharedToolVerificationStatus.PASSED
-                    ToolVerificationStatus.FAILED -> SharedToolVerificationStatus.FAILED
-                },
-                toolCallId = it.toolCallId,
-                reasonCode = it.reasonCode,
-            )
-        },
-        readableEvidence = readableEvidence,
+    // long: 完整私有结果保留控制面幂等键，但运行时/模型投影仍必须去除它；引用和恢复失败属于实际结果，不再丢弃。
+    val privateResult = toPrivateSharedResult()
+    return privateResult.copy(
+        executionReceipt = privateResult.executionReceipt?.copy(idempotencyKey = null),
     )
 }
 

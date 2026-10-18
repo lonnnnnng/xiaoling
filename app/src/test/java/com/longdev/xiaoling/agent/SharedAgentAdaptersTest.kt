@@ -79,6 +79,7 @@ class SharedAgentAdaptersTest {
         assertTrue(result.success)
         assertEquals(true, result.verified)
         assertEquals("operation-1", result.executionReceipt?.operationId)
+        assertEquals(null, result.executionReceipt?.idempotencyKey)
         assertEquals(SharedToolReceiptStatus.COMMITTED, result.executionReceipt?.status)
         assertEquals(SharedToolVerificationStatus.PASSED, result.verification?.status)
         assertEquals("READ_BACK_MATCHED", result.verification?.reasonCode)

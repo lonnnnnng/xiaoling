@@ -45,4 +45,4 @@ Android 原 peer/receiver/cursor/时效、逐消息验签、去重、加密入�
 
 Redmi 三进程门禁只使用 UUID preferences、真实 Keystore 和仓库外合成发送队列，离线交换生产 pull/batch/ACK/proof；验证重试、恢复、吊销和重新授权，恢复成功后清本轮夹具并断言缺钥拒绝。没有 DNS/HTTP/TLS、真实 Provider、自然 Doze/LMK/系统重启或正式 Release 验证。实际计数、构建及保护审计见[验证报告](verification-report.md)，证据目录 `outputs/verification/stage291-kmp-remote-wire/`。
 
-下一片为完整 Tool result codec，随后 iOS actual。Remote Channel 稳定部署与长期验收仍是独立待办，第 7 点尚未整体收口。
+第五片已补齐[完整 Tool result codec](kmp-tool-result.md)，shared contract 升为 v5；下一片进入 iOS actual。Remote Channel 稳定部署与长期验收仍是独立待办，第 7 点尚未整体收口。

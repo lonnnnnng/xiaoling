@@ -704,17 +704,8 @@ data class ToolExecutionResult(
 )
 
 
-data class ToolRecoveryFailure(
-    val code: String,
-    val reason: String,
-    val suggestedAction: String,
-) {
-    init {
-        require(code.isNotBlank()) { "恢复失败码不能为空" }
-        require(reason.isNotBlank()) { "恢复失败原因不能为空" }
-        require(suggestedAction.isNotBlank()) { "恢复失败建议不能为空" }
-    }
-}
+// long: 恢复失败使用共享值对象，确保两端不会遗漏原因或把恢复建议当成成功事实。
+typealias ToolRecoveryFailure = com.longdev.xiaoling.shared.agent.SharedToolRecoveryFailure
 
 /**
  * long: 设备动作在真正进入 Executor 前如果发现观察证据已失效，必须把“重新观察/新 Run”作为结构化控制面事实交给 Runtime，不能让上层只看到易变异常文案。
