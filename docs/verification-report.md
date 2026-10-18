@@ -2,6 +2,27 @@
 
 验证日期：2026-10-18（北京时间）
 
+# 2026-10-18 第 291 阶段第三片：shared MCP inputSchema 与参数校验
+
+- 当前继续第 7 点 KMP 协议/codec。SharedMcpToolDescriptor 保留原五字段、hints 默认值与完整 equality；原有界 validator 下沉 commonMain，经 JSON 读取端口复用。Android JSONObject/JSONArray adapter 保留原 parser/coercion/getString、Number/NULL、键与对象/数组 enum 序列化，不把迁移改成完整 JSON Schema。shared Agent contract v4、Room v44、发布版本 `0.1.22 (23)` 保持。
+- tools/list page、schema 原文本、同名覆盖/顺序、分页、McpSessionRegistry、HTTP/SSE、Run 发现/白名单/审批/前台与取消权限不变。schema 通过仅是参数检查，不生成本地执行权或远端验证/提交结论。
+- SharedMcpSchemaCodec 独立 raw 入口为标准 JSON object、schema 512 KiB/arguments 32 KiB UTF-8、严格唯一键/Unicode/完整原文、语法深度32，格式错误固定且无 cause。Android 已解析兼容入口不自动获得这些原文门禁；原 Direct Registry 参数32 KiB及transport回复限额保持。实际访问的 validator 深度8、属性100、数组100继续沿原实现。
+
+| 已执行门禁 | 结果 | 证据边界 |
+| --- | --- | --- |
+| shared Android Debug / Release / iOS Simulator | **各47/47**，0 failure/error/skip | 原33项与新schema14项：严格raw/golden、UTF-8/转义精确容量、类型/数值/组合/限额/enum；不等于 iOS MCP 产品或 actual |
+| iOS arm64 / Simulator arm64 common 编译 | 通过 | 没有 iOS Session/HTTP/SSE/配置/审批 actual 或 iOS App |
+| App JVM 聚焦回归 | **55/55**、6 suites，0 failure/error/skip | 新兼容8、Extended23、SSE9、Transport11、Resources/Prompts3、Run Registry停用过滤/owner保留1；未运行全量 JVM |
+| Debug / AndroidTest APK、Debug Lint | 最终构建/Lint通过；Redmi覆盖安装通过 | 内部 Debug；没有正式 Release 构建/发版 |
+| 指定 Redmi `wsvwypiz7xwslvl7 / begonia / SDK 36` | **20/20**，`6.025s` | 新共享兼容8、SSE/Registry9、HTTP/Resources/Prompts3；内存配置和真实loopback socket，无真实Provider/公网MCP |
+
+- 新契约保留历史 anyOf 优先/命中后返回、无 properties 时 additionalProperties 不执行、UTF-16 长度、containsMatchIn、Double 数字/enum及复合 wire enum。未知关键字不执行，未实现 $ref/format/type数组等完整标准。portable 复合 enum 保留对象顺序和数字词法；Android serializer 可能规范化或重排，因此跨 parser 接受结果可不同。已用对象/数组/嵌套/指数向量及独立平台序列化参考明确边界，不能从 common 向量推导任意 schema 全面一致。typealias 也不承诺外部二进制/反射 API 兼容。
+- 隔离 socket 验收中缺必填或错误类型为远端 tools/call 零次，合法参数一次；原 schema 文本空白、说明或 hints 漂移均在 dispatch 前拒绝。既有回归保留 owner 隔离、READY 发布、取消/断流重建、旧 descriptor、配置撤销、目录通知、HTTP404、503不重放与六API。没有用 parser 迁移扩大白名单、自动重连/重放或授权。
+- 首轮 App55/55、三端各47/47通过；独立源码核验未发现确定Android回归，并指出转义/多字节精确容量和嵌套数组enum覆盖不足。已补这些向量后重跑，最终计数不叠加首轮。移除旧validator后文件尾空行导致一次 git diff --check 失败，已修正并复验；没有构建/测试失败被计为通过。
+- 最终文档语料、已报告偏好/Memory undo摘要、APK文档字节、链接与两份本机实际凭据/两APK审计另存本轮证据目录。固定模型socket响应、JVM与iOS contract测试不代表真实模型质量、外部MCP或自然系统恢复。
+- 第 7 点下一片为 Remote Channel wire，随后完整 Tool result codec，再补 iOS actual；第7点尚未整体收口。完整输入/端口/parser边界与矩阵见[MCP schema 契约](kmp-mcp-schema.md)、[注册表与 SSE](mcp-session-registry.md)及[路线图](personal-agent-roadmap.md)。本轮仅本地提交，没有push/tag/Release。
+- 证据：`outputs/verification/stage291-kmp-mcp-schema/` 的 `build-jvm-native.log`、`initial-test-results.json`、`final-build-jvm-native.log`、`final-test-results.json`、`redmi.log`、`redmi-results.json`、`install-app.log`、`install-tests.log`；最终文档/语料/保护/链接/产物审计与 `verification-summary.json` 位于同目录。MCP Tools与JsonPrimitive官方正文也保存于该目录，损坏排版的官方样例未作为golden。
+
 # 2026-10-18 第 291 阶段第二片：shared context snapshot 协议与 codec
 
 - 当前继续第 7 点 KMP 协议/codec。commonMain 固化 context 输入 DTO、十字段 wire、严格 UTF-8、容量常量与摘要规范字节，Android 原类型经 typealias 接入。shared contract v4、context schema v1、Room v44 与发布版本 `0.1.22 (23)` 保持。

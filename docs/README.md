@@ -7,7 +7,8 @@
 ## 当前主线：第 291 阶段 KMP 协议/codec（第 7 点）
 
 - [共享可读证据 codec](kmp-readable-evidence.md)：第一片固化 commonMain 模型、动作 receipt、严格 JSON、旧 wire 兼容及 Android adapter；shared contract v4。
-- [context snapshot codec](kmp-context-snapshot.md)：第二片固化 DTO、严格 UTF-8、十字段 wire、1 MiB 边界和原文摘要规范字节；Android 保留旧 JSONObject encoder/原文幂等。MCP/Remote Channel/完整结果协议和 iOS actual 后续推进，平台能力矩阵与验证边界见契约及报告。
+- [context snapshot codec](kmp-context-snapshot.md)：第二片固化 DTO、严格 UTF-8、十字段 wire、1 MiB 边界和原文摘要规范字节；Android 保留旧 JSONObject encoder/原文幂等。平台能力矩阵与验证边界见契约及报告。
+- [MCP schema codec](kmp-mcp-schema.md)：第三片共享 descriptor、原有界 validator 和严格 raw JSON；Android 保留 JSONObject coercion/enum/目录原文，session/transport/权限保持。Remote Channel/完整结果协议与 iOS actual 继续后置。
 - Workspace 第一片已落地独立原子会话账本、有界 transcript 与中断收敛，见[Workspace 契约](workspace-session-transcript.md)。Browser 第二片补服务端语义 DOM、逐次审批 click/本机草稿 type、引用消费与类型化动作证据，见[Browser 契约](browser-dom-actions.md)和[验证报告](verification-report.md)。GenUI 第三片也已完成，三片实现基线收口；Room v44/发布版本不变。
 
 ## 第 289 阶段多 Agent（两片只读实现基线收口）

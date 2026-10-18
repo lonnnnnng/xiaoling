@@ -1,5 +1,11 @@
 # 当前实现说明
 
+## 2026-10-18 第 291 阶段第三片：共享 MCP validator 与 JSON 端口
+
+- SharedMcpToolDescriptor 保留原五字段/default/equality，Android 原名通过 typealias 接入。SharedMcpJsonSchemaValidator 经两个 JSON 读取端口复用原算法；Android adapter 委托 JSONObject/JSONArray，保留 NULL、Number、coercion、getString、复合 enum wire 与异常分支。
+- SharedMcpSchemaCodec 提供严格有界 raw 入口与紧凑编码，固定无 cause 的格式错误；Android tools/list 与 Registry/HTTP/SSE/Run 权限不迁移。原 anyOf 优先/返回、additionalProperties 条件、UTF-16/pattern/Double 子集有意保留，不升级完整 JSON Schema。
+- 下一片为 Remote Channel wire，随后完整 Tool result codec 和 iOS actual。Room v44、shared contract v4 与发布版本保持，parser 差异、平台矩阵和门禁见[MCP schema 契约](kmp-mcp-schema.md)与[验证报告](verification-report.md)。
+
 ## 2026-10-18 第 291 阶段第二片：共享 context codec 与原文摘要
 
 - SharedAgentLlmPhase/ContextInput/Message/Projection 由 commonMain 持有，Android 原类型通过 typealias 引用。SharedAgentContextSnapshotCodec 固化字段、整数词法、严格 Unicode/JSON 和规范字节；扫描预算显式使用 1,048,576，避免误拒绝合法 ASCII 大帧。

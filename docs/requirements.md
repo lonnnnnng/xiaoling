@@ -1,5 +1,10 @@
 # 产品需求
 
+## 2026-10-18 第 291 阶段第三片：KMP MCP schema
+
+- commonMain 固化 descriptor、原有界参数 validator 与严格 raw JSON codec；Android 保留 JSONObject 解析/coercion、复合 enum 原序列化比较、tools/list schema 原文和完整 descriptor 漂移门禁。算法通过不产生审批、白名单或本地执行权。
+- raw codec 为 schema 512 KiB/arguments 32 KiB、严格 UTF-8 与唯一键；它不追溯已解析的 Android 外层原文，也不代表完整 JSON Schema、完整跨 parser 语义或 iOS MCP 客户端。Room v44、shared contract v4 与发布版本不变，下一片为 Remote Channel wire。详见[MCP schema 契约](kmp-mcp-schema.md)和[验证报告](verification-report.md)。
+
 ## 2026-10-18 第 291 阶段第二片：KMP context snapshot 协议
 
 - commonMain 固化原 context DTO、十字段 JSON、严格 UTF-8、1 MiB 字节边界和原文摘要规范字节。Android 保留原 JSONObject encoder、同 Step 原文幂等及 SHA-256；正常旧 wire 可读取，重复键/JSON 方言/整数强转不属于兼容格式。

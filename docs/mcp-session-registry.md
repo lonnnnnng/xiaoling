@@ -2,6 +2,8 @@
 
 本片对应路线图第 286 阶段。第 285 阶段按原定 Remote Channel 功能收口，稳定部署、容量回收、自然周期/Doze/LMK/系统重启、真实通知及 Release 验收独立追踪，不阻塞 MCP。
 
+第 291 阶段第三片已将 descriptor 和有界参数 validator 固化为[MCP 共享 schema](kmp-mcp-schema.md)，Android 继续使用原 JSON 兼容端口。注册表、tools/list page、HTTP/SSE、白名单/审批与原 schema 文本不迁移；严格 raw codec 与平台 parser 的差异见新契约。
+
 ## 会话归属与发布
 
 - `XiaoLingApplication.mcpSessionRegistry` 是进程内生产入口。Application 启动不连接服务器；设置页和每个 `AgentRunUseCase` 使用不同 UUID owner，注册表按 `(owner, serverId)` 保存传输实例，最多 64 个。

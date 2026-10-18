@@ -57,6 +57,6 @@ shared decode 格式错误统一返回不含正文或 cause 的 `IllegalArgument
 
 common suite 覆盖 golden、固定形状、整数词法、重复键、Unicode、精确 1 MiB、摘要 domain/长度前缀与原文绑定。共享 JVM/Redmi adapter 夹具比较旧 JSONObject 输出、独立摘要及转义容量。UUID Room 直接植入旧格式帧，验证读取、同 Step 幂等、空白不重写，以及有效原文 hash 下重复键为 INVALID、恢复 action 为零。
 
-既有快照/压缩/恢复与迁移专项复验存储门禁；新旧帧测试及计数以[验证报告](verification-report.md)为准。闭库重开、loopback 模型响应和迁移夹具不代表自然 LMK 或真实模型恢复质量；iOS codec 测试不代表 iOS 产品运行时。下一片继续 MCP schema，随后 Remote Channel wire、完整 Tool result codec，再补 iOS actual。
+既有快照/压缩/恢复与迁移专项复验存储门禁；新旧帧测试及计数以[验证报告](verification-report.md)为准。闭库重开、loopback 模型响应和迁移夹具不代表自然 LMK 或真实模型恢复质量；iOS codec 测试不代表 iOS 产品运行时。第三片已继续固化[MCP schema](kmp-mcp-schema.md)，下一片为 Remote Channel wire，随后完整 Tool result codec，再补 iOS actual。
 
 UTF-8 官方依据：[Kotlin encodeToByteArray](https://kotlinlang.org/api/core/kotlin-stdlib/kotlin.text/encode-to-byte-array.html) 的 `throwOnInvalidSequence` 严格模式；JSON tree 沿第一片已核实的 kotlinx-serialization-json 1.9.0。
