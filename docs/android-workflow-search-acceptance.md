@@ -2,6 +2,8 @@
 
 第 295 阶段，2026-10-18。仅使用 Redmi `wsvwypiz7xwslvl7 / begonia / SDK 36`、本机授权的真实 `gpt-6-luna` 与同签名 Debug `0.1.22 (23)`；iOS 产品继续暂停。
 
+后续第 296 阶段已修复分步完成与后置 snapshot 输入隐私，并获得完整同轮通过，见[分步完成专项](android-workflow-completion-acceptance.md)。下文保留第 295 阶段原失败结论和证据。
+
 ## 当前状态：未通过
 
 初次构建/Lint 与主机 9 项门禁测试通过。安装核查发现主包不存在，按用户要求安装同签名 Debug 主包并冷启动（3346ms），确认服务登记。用户已手动开启无障碍，执行基线 authorized=true、bound=true、crashed=false。

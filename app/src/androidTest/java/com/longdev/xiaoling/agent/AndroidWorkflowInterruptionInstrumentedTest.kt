@@ -27,6 +27,43 @@ class AndroidWorkflowInterruptionInstrumentedTest {
         inspectInterruption(recover = true)
     }
 
+    @Test fun restoreVerifiedDefaultProfileSelectionAfterPublicWorkflow() = runBlocking {
+        check(android.os.Build.DEVICE == "begonia" && android.os.Build.VERSION.SDK_INT == 36)
+        val args = InstrumentationRegistry.getArguments()
+        check(args.getString("stage296RestoreDefaultProfileSelection") == "true")
+        val expected = requireNotNull(args.getString("stage296ExpectedRoomDigest")).also { check(it.matches(Regex("[0-9a-f]{64}"))) }
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val db = XiaoLingDatabase.getInstance(context)
+        val workflows = RoomWorkflowRepository(context)
+        val run = requireNotNull(workflows.runDetail(requireNotNull(args.getString("stage295InterruptedRunId"))))
+        val seed = requireNotNull(workflows.runDetail(requireNotNull(args.getString("stage295SeedRunId"))))
+        check(run.run.status == WorkflowRunStatus.COMPLETED && run.run.goalVerificationDecision?.status?.name == "VERIFIED")
+        check(seed.run.workflowId == run.run.workflowId && seed.run.conversationId == run.run.conversationId &&
+            seed.run.status == WorkflowRunStatus.CANCELLED && seed.steps.all { it.agentRunId == null })
+        check(run.run.conversationId.startsWith("conversation-stage295-") && db.workflowDao().getWorkflow(run.run.workflowId) == null)
+        val agents = RoomAgentRunRepository(context)
+        check(run.steps.size == 3 && run.steps.all { step ->
+            val agent = requireNotNull(agents.runDetail(requireNotNull(step.agentRunId)))
+            agent.snapshot.run.status == AgentRunStatus.COMPLETED && agent.approvals.single().status == ApprovalRequestStatus.APPROVED
+        })
+        for (table in listOf("messages", "agent_memories", "agent_notes", "agent_memory_candidates", "knowledge_documents", "workflows", "scheduled_tasks", "workflow_schedules")) {
+            db.openHelper.readableDatabase.query("SELECT COUNT(*) FROM $table").use { check(it.moveToFirst() && it.getLong(0) == 0L) }
+        }
+        db.openHelper.readableDatabase.query("SELECT COUNT(*) FROM approval_requests WHERE status = 'PENDING'").use {
+            check(it.moveToFirst() && it.getLong(0) == 0L)
+        }
+        val defaultProfile = db.agentProfileDao().list().single()
+        check(defaultProfile.id == "agent-profile-default" && defaultProfile.name == "默认 Agent")
+        val prefs = context.getSharedPreferences("xiaoling_room_state", Context.MODE_PRIVATE)
+        val before = prefs.all
+        val key = "selected_agent_profile_id"
+        // long: 仅恢复本轮已记录的“无选择键”基线：新增值必须是唯一原默认 Profile，删除此键后的全部稳定值摘要必须精确匹配；未知变化一律保留。
+        check(before[key] == defaultProfile.id && androidLivePreferenceDigest(before - key) == expected)
+        check(prefs.all == before && prefs.edit().remove(key).commit())
+        check(androidLivePreferenceDigest(prefs.all) == expected)
+        androidLiveStatus("STAGE296_DEFAULT_SELECTION_RESTORE defaultProfileMatched=true singleKeyOnly=true baselineEqual=true toolsReplayed=false")
+    }
+
     private suspend fun inspectInterruption(recover: Boolean) {
         check(android.os.Build.DEVICE == "begonia" && android.os.Build.VERSION.SDK_INT == 36)
         val args = InstrumentationRegistry.getArguments()
@@ -43,6 +80,16 @@ class AndroidWorkflowInterruptionInstrumentedTest {
         check(detail.run.conversationId.startsWith("conversation-stage295-"))
         definition?.let { check(it.name.startsWith("公开工作流验收-")) }
         val frozenGoals = seed.steps.map { WorkflowStepSnapshotCodec.decodeInput(it.inputSnapshot).goal }
+        // long: 隐私诊断只能使用 seed 中唯一冻结的公开 JSON 参数；不从失败工具正文反推输入，也不把输入本身写入日志。
+        val inputPrefix = "本次已确认的输入参数数据："
+        val inputGoal = seed.steps.sortedBy { it.sequence }.getOrNull(2)
+            ?.let { WorkflowStepSnapshotCodec.decodeInput(it.inputSnapshot).goal }
+        val publicInput = inputGoal?.takeIf { it.contains(inputPrefix) }?.let { goal ->
+            check(goal.split(inputPrefix).size == 2)
+            JSONObject(goal.substringAfter(inputPrefix)).getString("text").also {
+                check(it.matches(Regex("[a-p]{8}")))
+            }
+        }
         val currentGoals = definition?.let { db.workflowDao().getWorkflowStepDefinitions(it.id).sortedBy { step -> step.sequence }.map { step -> step.goal } }
         val agentDetails = JSONArray()
         for (step in detail.steps) {
@@ -52,6 +99,20 @@ class AndroidWorkflowInterruptionInstrumentedTest {
             check(profile.id.startsWith("stage295-profile-") && profile.providerId.startsWith("stage295-provider-"))
             val observations = JSONArray()
             val typeCall = agent.toolLedger.calls.singleOrNull { it.toolName == "device.type_text" }
+            val privacyEvents = JSONArray()
+            publicInput?.let { marker ->
+                for (event in agent.snapshot.events.filter {
+                    it.type in setOf("tool.result", "tool.call.proposed", "tool.call.validated")
+                }) {
+                    val result = event.metadata as? RunEventMetadata.ToolResult
+                    val call = event.metadata as? RunEventMetadata.ToolCall
+                    privacyEvents.put(JSONObject().put("eventType", event.type)
+                        .put("toolName", result?.toolName ?: call?.toolName)
+                        .put("eventHit", event.toString().contains(marker))
+                        .put("contentHit", result?.content?.contains(marker) == true)
+                        .put("readableEvidenceHit", result?.readableEvidence?.toString()?.contains(marker) == true))
+                }
+            }
             // long: 只输出公开搜索控件标签与动作摘要，诊断首页/搜索页混淆；其他节点正文、引用和窗口标题不进入日志。
             for (result in agent.toolLedger.results.filter { it.toolName == "device.snapshot" }) {
                 val json = JSONObject(result.content)
@@ -81,15 +142,34 @@ class AndroidWorkflowInterruptionInstrumentedTest {
                     .put("editableNodes", editableNodes).put("searchNodes", searchNodes))
             }
             agentDetails.put(JSONObject().put("runId", agentId).put("status", agent.snapshot.run.status.name)
+                // long: 只输出纠错次数以核对真实模型是否使用同一有界门禁，不输出模型输入、结果正文或未知节点标签。
+                .put("prematureCompletionCorrections", agent.snapshot.events.count { it.type == AgentEventTypes.LLM_PREMATURE_COMPLETE_RETRIED })
                 .put("profileId", profile.id).put("providerId", profile.providerId)
                 .put("tools", JSONArray(agent.toolLedger.calls.map { it.toolName }))
                 .put("results", JSONArray(agent.toolLedger.results.map { "${it.toolName}:${it.success}:${it.verificationStatus}" }))
-                .put("approvals", JSONArray(agent.approvals.map { "${it.id}:${it.status}" })).put("observations", observations))
+                .put("approvals", JSONArray(agent.approvals.map { "${it.id}:${it.status}" })).put("observations", observations)
+                .put("privacyEvents", privacyEvents))
         }
         val values = JSONObject()
+        val expectedRoomDigest = args.getString("stage296ExpectedRoomDigest")?.also { check(it.matches(Regex("[0-9a-f]{64}"))) }
         for (name in listOf("xiaoling_room_state", "xiaoling_ui", "xiaoling", "xiaoling_mcp")) {
             val prefs = context.getSharedPreferences(name, Context.MODE_PRIVATE).all
-            values.put(name, JSONObject().put("keys", JSONArray(prefs.keys.sorted())).put("digest", androidLivePreferenceDigest(prefs)))
+            val summary = JSONObject().put("keys", JSONArray(prefs.keys.sorted())).put("digest", androidLivePreferenceDigest(prefs))
+            if (name == "xiaoling_room_state" && expectedRoomDigest != null) {
+                val fixtureId = detail.run.conversationId.removePrefix("conversation-stage295-")
+                check(java.util.UUID.fromString(fixtureId).toString() == fixtureId)
+                val owned = mapOf("selected_provider_id" to "stage295-provider-$fixtureId",
+                    "selected_agent_profile_id" to "stage295-profile-$fixtureId", "selected_conversation_id" to detail.run.conversationId)
+                // long: 诊断延迟落盘只报告本轮归属匹配和删除单键能否恢复已记录摘要，不输出偏好正文，也不据此直接修改未知原值。
+                summary.put("expectedDigestMatches", androidLivePreferenceDigest(prefs) == expectedRoomDigest)
+                    .put("selectionMatchesSoleDefaultProfile", prefs["selected_agent_profile_id"] ==
+                        db.agentProfileDao().list().singleOrNull()?.takeIf { it.name == "默认 Agent" }?.id)
+                    .put("selectionMatchesOwnedFixtures", JSONObject(owned.mapValues { (key, value) -> prefs[key] == value }))
+                    .put("singleKeyRemovalRestoresExpectedDigest", JSONArray(prefs.keys.filter {
+                        androidLivePreferenceDigest(prefs - it) == expectedRoomDigest
+                    }.sorted()))
+            }
+            values.put(name, summary)
         }
         androidLiveStatus("STAGE295_INTERRUPTION " + JSONObject().put("workflowRunId", runId)
             .put("workflowId", detail.run.workflowId).put("workflowStatus", detail.run.status.name)
@@ -98,6 +178,7 @@ class AndroidWorkflowInterruptionInstrumentedTest {
             .put("seedStatus", seed.run.status.name).put("definitionPresent", definition != null)
             .put("definitionGoalsEqualFrozenSeed", currentGoals?.let { it == frozenGoals } ?: JSONObject.NULL)
             .put("conversationId", detail.run.conversationId).put("agents", agentDetails).put("preferences", values)
+            .put("publicInputParsed", publicInput != null)
             .put("providerCount", db.providerDao().getAll().size).put("profileCount", db.agentProfileDao().list().size)
             .put("aliasPresent", KeyStore.getInstance("AndroidKeyStore").apply { load(null) }.containsAlias("xiaoling_api_key")))
         if (recover) {

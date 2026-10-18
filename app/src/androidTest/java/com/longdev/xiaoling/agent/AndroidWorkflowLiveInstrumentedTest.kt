@@ -29,6 +29,7 @@ import com.longdev.xiaoling.storage.RoomWorkflowRepository
 import com.longdev.xiaoling.ui.XiaoLingUiState
 import com.longdev.xiaoling.ui.XiaoLingViewModel
 import kotlinx.coroutines.*
+import org.json.JSONObject
 import org.junit.Assert.*
 import org.junit.Rule
 import org.junit.Test
@@ -69,7 +70,9 @@ class AndroidWorkflowLiveInstrumentedTest {
             assertZero(db, "SELECT COUNT(*) FROM $table", "业务内容非空：$table")
         }
         assertZero(db, "SELECT COUNT(*) FROM conversations WHERE title NOT IN ('新会话', '') OR summary != '' OR summaryUntilMessageId IS NOT NULL", "已有用户会话内容")
-        assertZero(db, "SELECT COUNT(*) FROM agent_runs WHERE status NOT IN ('COMPLETED', 'FAILED', 'CANCELLED')", "已有未结束 Agent Run")
+        // long: 失败专项会保留预算耗尽或阻断终态；与生产终态定义一致判断执行是否结束，不能要求删掉失败审计才能复验。
+        val terminalAgentStates = AgentRunStatus.entries.filter { it.isTerminal }.joinToString(",") { "'${it.name}'" }
+        assertZero(db, "SELECT COUNT(*) FROM agent_runs WHERE status NOT IN ($terminalAgentStates)", "已有未结束 Agent Run")
         assertZero(db, "SELECT COUNT(*) FROM workflow_runs WHERE status NOT IN ('COMPLETED', 'FAILED', 'CANCELLED', 'BLOCKED')", "已有未结束 Workflow Run")
         assertZero(db, "SELECT COUNT(*) FROM approval_requests WHERE status = 'PENDING'", "已有待审批记录")
         val keyAlias = "xiaoling_api_key"
@@ -115,11 +118,15 @@ class AndroidWorkflowLiveInstrumentedTest {
         val actions = listOf("device.open_app", "device.tap_ref", "device.type_text")
         val requiredTools = actions.flatMap { listOf("device.snapshot", it, "device.snapshot") }
         val contract = if (search) WorkflowGoalVerificationContract("在系统设置搜索框输入本轮公开测试文本",
-            WorkflowGoalVerificationSpec(requiredTools, "com.android.settings")) else null
+            WorkflowGoalVerificationSpec(requiredTools, "com.android.settings", actions.map { listOf("device.snapshot", it, "device.snapshot") })) else null
         val goals = if (search) listOf(
             "本步严格按顺序调用 device.snapshot、device.open_app(package_name=com.android.settings)、device.snapshot，各一次。只打开系统设置首页并确认后结束，不点击、不输入、不调用其他工具。",
             "本步必须按顺序调用 device.snapshot、device.tap_ref、device.snapshot，各一次。根据本步快照点击设置首页的搜索设置入口。文字写着搜索设置的节点可能 actions 为空，此时沿 parent_index 找到最近 actions 包含 tap 的父节点，使用该父节点在本步快照中的 ref；其子树只能包含搜索标签，不选择包含其他设置项目的宽容器。未实际执行 device.tap_ref 前禁止 complete。确认搜索页后结束，不输入、不调用其他工具。",
-            "本步的输入动作尚未执行，前序步骤只负责打开搜索页。必须先调用 device.snapshot，然后 device.type_text(text=$marker)，最后 device.snapshot，各一次。必须向本步快照中的可编辑搜索框实际输入公开随机字母文本 $marker，snapshot_id 和 ref 均来自本步快照。未执行 device.type_text 并精确回读之前禁止 complete；只读快照不满足目标，不选择搜索结果、不调用其他工具。",
+            // long: 随机公开文本是输入数据而非让模型创作的内容；用唯一 JSON 参数块避免改写字母，仍逐字核对模型实际提出的 text 哈希。
+            "本步的输入动作尚未执行，前序步骤只负责打开搜索页。必须先调用 device.snapshot，然后 device.type_text，最后 device.snapshot，各一次。" +
+                "向本步快照中的可编辑搜索框输入下面 JSON 的 text 值，原样复制每个字母，不翻译、不重新生成、不加空格或引号。" +
+                "snapshot_id 和 ref 均来自本步快照。未实际输入并精确回读之前禁止 complete；只读快照不满足目标，不选择搜索结果、不调用其他工具。\n" +
+                "本次已确认的输入参数数据：${JSONObject().put("text", marker)}",
         ) else if (device) listOf("先调用 device.snapshot，再仅调用一次 device.open_app，package_name 必须为 com.android.settings。目标是打开系统设置首页。依据工具后置验证完成后直接结束，不调用其他工具。")
             else listOf("只调用一次 app.current_time 获取当前时间，使用实际结果总结后结束。", "只调用一次 app.get_info 获取应用版本，使用本步实际结果总结后结束。")
         var ownedWorkflowId: String? = null
@@ -353,8 +360,8 @@ class AndroidWorkflowLiveInstrumentedTest {
                         assertEquals(listOf("device.snapshot", actions[index], "device.snapshot"), output.verifiedToolNames)
                         val action = output.deviceActionDecisions.single()
                         assertEquals(WorkflowDeviceActionDecisionStatus.VERIFIED, action.status)
-                        // long: tap_ref 是消费节点引用的工具名，持久动作协议使用 tap；不能把协议命名差异误判为执行失败。
-                        assertEquals(listOf("open_app", "tap", "type_text")[index], action.action)
+                        // long: Workflow 的持久动作协议保留工具后缀 tap_ref；底层节点 Executor 的 tap 收据不能替代该协议名。
+                        assertEquals(actions[index].removePrefix("device."), action.action)
                         assertTrue(DeviceActionPolicy.areAllowedInAppFlow("com.android.settings", action.afterPackageName))
                     }
                     assertSearchPrivacy(agents.last(), marker)
@@ -548,8 +555,16 @@ class AndroidWorkflowLiveInstrumentedTest {
     }
     private fun openWorkflowPage() {
         rule.onNodeWithTag("bottom_tab_settings").performClick()
+        // long: 底栏点击与设置内容重组不共享同步完成点；只等待已知正式入口，避免在页面尚未切换时把缺节点误判为搜索流程失败。
+        rule.waitUntil(timeoutMillis = 10_000) {
+            rule.onAllNodesWithContentDescription("新建工作流").fetchSemanticsNodes().size == 1 ||
+                rule.onAllNodesWithText("工作流").fetchSemanticsNodes().size == 1
+        }
         if (rule.onAllNodesWithContentDescription("新建工作流").fetchSemanticsNodes().isEmpty())
             rule.onNodeWithText("工作流").performScrollTo().performClick()
+        rule.waitUntil(timeoutMillis = 10_000) {
+            rule.onAllNodesWithContentDescription("新建工作流").fetchSemanticsNodes().size == 1
+        }
         rule.onNodeWithContentDescription("新建工作流").assertIsDisplayed()
     }
     private fun ActivityScenario<MainActivity>.awaitState(timeoutMs: Long = 20_000, predicate: (XiaoLingUiState) -> Boolean): XiaoLingUiState {

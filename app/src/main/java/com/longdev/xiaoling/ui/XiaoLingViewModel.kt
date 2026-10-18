@@ -2925,6 +2925,11 @@ class XiaoLingViewModel @JvmOverloads constructor(
                 workflowRepository.prepareWorkflowStep(detail.run.id, step.id)
             }
             val input = WorkflowStepSnapshotCodec.decodeInput(preparedStep.inputSnapshot)
+            val requiredToolsByStep = input.goalVerificationContract?.spec?.requiredToolNamesByStep.orEmpty()
+            // long: 只读取当前步骤冻结契约中的明确工具顺序；映射缺步时停止，不能从目标文字或前序总结猜测下一动作。
+            require(requiredToolsByStep.isEmpty() || requiredToolsByStep.size == detail.steps.size) {
+                "每步工具完成标准与工作流步骤数量不一致"
+            }
             // long: Workflow 每一步都冻结自己的用户意图；tap_ref/type_text 走系统浮层，SAFE back/home 由 Runtime 记录跳过审批，其他工具继续沿用既有风险门禁。
             val approvalGate = WorkflowDeviceActionApprovalGate(
                 conversationId = conversationId,
@@ -2969,6 +2974,8 @@ class XiaoLingViewModel @JvmOverloads constructor(
                     workflowStepId = preparedStep.id,
                     userIntent = preparedStep.detail,
                     targetAppPackage = input.targetAppPackage,
+                    completionRequiredToolNames = if (requiredToolsByStep.isEmpty()) emptyList()
+                        else requiredToolsByStep[preparedStep.sequence - 1],
                 ),
                 approvalGate = approvalGate,
                 onSnapshot = { snapshot ->

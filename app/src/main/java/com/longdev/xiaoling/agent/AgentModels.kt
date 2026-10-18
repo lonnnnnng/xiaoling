@@ -1161,11 +1161,13 @@ data class WorkflowDeviceActionRunContext(
     val workflowStepId: String,
     val userIntent: String,
     val targetAppPackage: String?,
+    val completionRequiredToolNames: List<String> = emptyList(),
 ) {
     init {
         require(workflowRunId.isNotBlank()) { "Workflow Run ID 不能为空" }
         require(workflowStepId.isNotBlank()) { "Workflow Step ID 不能为空" }
         require(userIntent.isNotBlank()) { "Workflow 设备动作意图不能为空" }
+        require(completionRequiredToolNames.none(String::isBlank)) { "Workflow 步骤完成工具不能为空" }
         require(targetAppPackage == null || targetAppPackage in DeviceActionPolicy.DEFAULT_ALLOWED_PACKAGES) {
             "Workflow 目标应用不在允许列表"
         }

@@ -2600,6 +2600,57 @@ class XiaoLingToolRegistryTest {
     }
 
     @Test
+    fun directAndWorkflowTypeTextKeepPostObservationPrivateAcrossRuntimeEvidence() = runTest {
+        for (source in listOf(AgentInvocationSource.DIRECT, AgentInvocationSource.WORKFLOW)) {
+            val text = "private-public-fixture"
+            val provider = FakeDeviceController(enabled = true,
+                referenceTarget = DeviceReferenceTargetInspection(true, true, false, setOf(DeviceNodeAction.TYPE_TEXT)),
+                typedTextSnapshotFactory = { input -> listOf(DeviceSnapshotNode(
+                    index = 0, parentIndex = null, depth = 0, role = "text_field", text = input,
+                    description = input, hint = input, bounds = DeviceBounds(0, 0, 400, 80), enabled = true,
+                    checked = null, selected = false, redacted = false, ref = "r1", actions = setOf(DeviceNodeAction.TYPE_TEXT),
+                )) })
+            val registry = testRegistry(deviceController = provider, workflowDeviceActionToolNames = setOf("device.type_text"))
+            val ledger = InMemoryAgentRunLedger()
+            var approvals = 0
+            val model = object : AgentLlm {
+                override suspend fun proposeToolCall(goal: String, tools: List<ToolDefinition>): ToolCall = error("使用顺序规划")
+                override suspend fun proposeNextAction(goal: String, tools: List<ToolDefinition>, completedTools: List<AgentToolExecution>): AgentPlanDecision =
+                    when (completedTools.size) {
+                        0, 2 -> AgentPlanDecision.CallTool(ToolCall(name = "device.snapshot", arguments = emptyMap(), risk = ToolRisk.SAFE))
+                        1 -> AgentPlanDecision.CallTool(ToolCall(name = "device.type_text", risk = ToolRisk.REQUIRES_APPROVAL,
+                            arguments = mapOf("snapshot_id" to "snapshot-direct", "ref" to "r1", "text" to text)))
+                        else -> AgentPlanDecision.Complete
+                    }
+                override suspend fun summarize(goal: String, toolCall: ToolCall, toolResult: ToolExecutionResult) = """{"style":"compact","tone":"neutral"}"""
+            }
+            val gate = object : ApprovalGate {
+                override suspend fun requestApproval(runId: String, toolCall: ToolCall, definition: ToolDefinition): ApprovalDecision {
+                    approvals++
+                    assertEquals(text, toolCall.arguments["text"])
+                    return ApprovalDecision(true, "逐次确认公开输入")
+                }
+            }
+            val summary = MinimalAgentRuntime(ledger, registry, model, gate, wallClock = { 1_500L }, processSessionId = "process-workflow")
+                .run("privacy-chat", "privacy-message", "在搜索框输入普通文本", invocationSource = source, memoryRecallEnabled = false,
+                    workflowDeviceActionContext = workflowDeviceContext("在搜索框输入普通文本").workflowDeviceActionContext
+                        .takeIf { source == AgentInvocationSource.WORKFLOW })
+            assertEquals(AgentRunStatus.COMPLETED, summary.status)
+            assertEquals(1, approvals)
+            val snapshot = ledger.snapshot(summary.runId)
+            assertFalse(snapshot.toString().contains(text))
+            assertFalse(summary.verifiedContext.toString().contains(text))
+            val results = snapshot.events.filter { it.type == "tool.result" }.map { it.metadata as RunEventMetadata.ToolResult }
+            assertEquals(listOf("device.snapshot", "device.type_text", "device.snapshot"), results.map { it.toolName })
+            assertTrue(results.all { it.success && !it.content.contains(text) && !it.readableEvidence.toString().contains(text) })
+            val call = snapshot.events.mapNotNull { it.metadata as? RunEventMetadata.ToolCall }.first { it.toolName == "device.type_text" }
+            assertEquals(DeviceTypeTextAuditPolicy.fingerprint(text), call.arguments["text_sha256"])
+            assertFalse(call.arguments.containsKey("text"))
+            assertEquals(text, provider.lastCapturedSnapshot?.nodes?.single()?.text)
+        }
+    }
+
+    @Test
     fun expiredWorkflowSnapshotProducesStructuredRecoveryAndDoesNotExecuteAction() = runTest {
         val provider = FakeDeviceController(enabled = true)
         val registry = testRegistry(
@@ -2649,6 +2700,11 @@ class XiaoLingToolRegistryTest {
                 redacted = false,
                 actions = setOf(DeviceNodeAction.TYPE_TEXT),
             ),
+            typedTextSnapshotFactory = { input -> listOf(DeviceSnapshotNode(
+                index = 0, parentIndex = null, depth = 0, role = "text_field", text = input,
+                description = null, hint = "搜索", bounds = DeviceBounds(0, 0, 400, 80), enabled = true,
+                checked = null, selected = false, redacted = false, ref = "r1", actions = setOf(DeviceNodeAction.TYPE_TEXT),
+            )) },
         )
         val registry = testRegistry(
             deviceController = provider,
@@ -2700,6 +2756,14 @@ class XiaoLingToolRegistryTest {
         assertFalse(result.content.contains("\"ref\""))
         registry.afterToolVerification(typeTextCall, result)
         assertEquals(listOf("type_text:snapshot-direct:r1"), provider.actions)
+        val postCall = ToolCall(id = "post-type-snapshot", name = "device.snapshot", arguments = emptyMap(), risk = ToolRisk.SAFE)
+        val projected = registry.execute(postCall)
+        assertFalse(projected.content.contains(text))
+        assertEquals(text, provider.lastCapturedSnapshot?.nodes?.single()?.text)
+        // long: 原始内存快照不能冒充已返回的隐私投影结果；拒绝篡改后，真实输出仍可完成同一候选观察的验证。
+        val rawContent = com.longdev.xiaoling.device.DeviceSnapshotCodec.encode(requireNotNull(provider.lastCapturedSnapshot))
+        assertTrue(runCatching { registry.afterToolVerification(postCall, projected.copy(content = rawContent)) }.isFailure)
+        registry.afterToolVerification(postCall, projected)
     }
 
     @Test

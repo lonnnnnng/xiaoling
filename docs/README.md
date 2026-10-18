@@ -1,5 +1,9 @@
 # 文档索引
 
+## 第 296 阶段 Workflow 分步完成与输入隐私
+
+- [分步完成与设置搜索验收](android-workflow-completion-acceptance.md)：补 v2 冻结步骤工具契约、有界完成纠错和 Workflow 输入后 snapshot 投影；指定 Redmi 真实模型同轮九调用/三审批、VERIFIED、精确回读、隐私及 Activity 重建通过。独立进程回读与旧审计/配置保护通过，五轮原失败保留；普通编辑器限定应用和自然恢复继续单列。
+
 ## 第 295 阶段设置搜索专项（未通过）
 
 - [设置搜索验收](android-workflow-search-acceptance.md)：主应用已安装并授权；六份真实模型 live 报告均未通过。已定位并修正夹具的协程/恢复及搜索控件判断，最新模型仍只读 snapshot 后提前完成；792 条旧审计和新基线恢复通过，完整搜索输入/回读与 Activity 重建继续待验收。

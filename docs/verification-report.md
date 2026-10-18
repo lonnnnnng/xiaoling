@@ -2,6 +2,17 @@
 
 验证日期：2026-10-18（北京时间）
 
+# 2026-10-18 第 296 阶段：Workflow 分步完成与输入隐私（同轮通过）
+
+指定 Redmi、授权真实 `gpt-6-luna`、Debug `0.1.22 (23)`。`live-navigation` 同轮通过九次工具调用、三次生产浮层审批、Room `VERIFIED / ALL_CRITERIA_VERIFIED`、精确搜索文本回读、工具事件隐私及 Activity 重建；Run 为 `workflow-run-f4f1575d-b067-49b1-bf3b-ee909a433862`，主机耗时 124.24s。独立进程回读三条严格工具序列、三个 COMPLETED Agent 和 27 条无输入命中的工具事件，临时定义已移除。
+
+- 生产新增显式 v2 分步契约，v1 原样兼容；新鲜前台 Runtime 的 complete/重复只读共用一次纠错，缺动作/后置观察不能完成，原审批和预算保持。新完成约束的自然进程恢复未验收。
+- 已确认旧 Workflow 后置 snapshot 的 tool.result.content 泄漏输入，补下一次成功 capture 的完全匹配字段投影；授权与精确回读使用原 Controller 内存，candidate 验证绑定实际投影输出。规划 history 的 device/browser 输入参数统一摘要化；持续/拼接文本隐私仍单列。
+- 五轮原失败完整保留，最后一次失败尚未创建实际 Run；底栏导航补十秒有界入口等待。tap_ref 名称、唯一 JSON 输入数据块和终态夹具修正不放宽动作门禁。
+- JVM 1615/1615、主机门禁 9/9、Debug/AndroidTest/Lint 通过；成功轮保护 1,928 条旧审计，原配置/偏好/undo/授权选择恢复。保留第 295 阶段恢复后的基线和既有 alias，不声称恢复新安装无密钥状态或崩溃前全部偏好。
+- 证据根 `outputs/verification/stage296-workflow-completion/` 的机器复判、文档/偏好保护、制品凭据审计与原授权受控重绑分别记录；普通编辑器限定应用、Workflow 滚动/复杂任务、自然系统和正式 Release 仍独立。详见[分步完成专项](android-workflow-completion-acceptance.md)。
+- 首次最终保护 JUnit 通过，但稳定值摘要发现新增默认 Profile 选择键；保留原日志并用正确 seed/默认实体/完整基线摘要确认单键变化，隔离进程定向恢复后再做最终保护复判。具体初始化写入时序未独立捕获，不由早先 finally 的通过回执覆盖此次差异。
+
 # 2026-10-18 第 295 阶段：正式 Workflow 设置搜索专项（未通过）
 
 指定 Redmi、授权真实 `gpt-6-luna`、Debug `0.1.22 (23)`；主应用缺失后按用户要求安装，用户已手动开启无障碍。六份 live 原报告均为 false，不合并部分动作作为全链通过。生产 main、Room schema、版本与 iOS 产品范围未改。

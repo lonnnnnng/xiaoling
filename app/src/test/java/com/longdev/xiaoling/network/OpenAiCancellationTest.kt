@@ -6,6 +6,7 @@ import org.junit.Assert.*
 import org.junit.Test
 import java.net.InetAddress
 import java.net.ServerSocket
+import java.net.SocketException
 import kotlin.concurrent.thread
 
 /** long: 半开 socket 让取消等待真实响应，而不是只取消尚未进入网络的协程。 */
@@ -33,8 +34,12 @@ class OpenAiCancellationTest {
                         socket.getOutputStream().flush()
                     }
                     ready.complete(Unit)
-                    // long: 客户端取消必须使服务端读到 EOF，证明实际 socket 已关闭，而非仅 UI 停止等待。
-                    check(input.read() == -1); closed.complete(Unit)
+                    // long: 取消半读响应时对端可能收到 EOF 或 TCP reset；二者都证明实际连接断开，其他 SocketException 仍属于测试失败。
+                    val disconnected = try { input.read() == -1 } catch (reset: SocketException) {
+                        if (reset.message != "Connection reset") throw reset
+                        true
+                    }
+                    check(disconnected); closed.complete(Unit)
                 }
             } catch (e: Throwable) { ready.completeExceptionally(e); closed.completeExceptionally(e) }
         }

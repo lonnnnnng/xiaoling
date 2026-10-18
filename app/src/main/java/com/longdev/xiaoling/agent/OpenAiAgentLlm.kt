@@ -242,9 +242,8 @@ private data class AgentExecutionSummary(
 private fun List<AgentToolExecution>.toPlannerHistoryJson(): String {
     return JSONArray().apply {
         this@toPlannerHistoryJson.forEachIndexed { index, execution ->
-            // long: 浏览器输入只更新本机草稿，后续规划只需目标与摘要；不能把 Executor 的原文重新发给模型。
-            val historyCall = if (execution.toolCall.name == BrowserTypeTextAuditPolicy.TOOL_NAME)
-                DeviceTypeTextAuditPolicy.toolCallForPersistence(execution.toolCall) else execution.toolCall
+            // long: 设备输入与浏览器草稿的执行参数都只保留目标和指纹；后续规划不能从工具参数重新获得 Executor 原文。
+            val historyCall = DeviceTypeTextAuditPolicy.toolCallForPersistence(execution.toolCall)
             put(
                 JSONObject()
                     .put("step", index + 1)

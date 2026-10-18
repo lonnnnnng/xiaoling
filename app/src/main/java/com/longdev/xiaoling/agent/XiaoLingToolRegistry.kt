@@ -78,7 +78,7 @@ class XiaoLingToolRegistry(
     private var verifiedWorkflowSnapshot: WorkflowSnapshotCandidate? = null
     private var pendingWorkflowAction: WorkflowActionAuthorizationState? = null
     private var executedWorkflowAction: WorkflowExecutedActionState? = null
-    private var pendingDirectTypeTextPrivacy: DirectAgentDeviceSnapshotPrivacyProjection? = null
+    private var pendingTypeTextPrivacy: DeviceTypeTextSnapshotPrivacyProjection? = null
     private var searchedMemoryDeleteCandidateId: String? = null
     private var confirmedMemoryDeleteCandidateId: String? = null
     private var searchedMemoryDeleteCandidateVersion: Long? = null
@@ -1469,7 +1469,7 @@ class XiaoLingToolRegistry(
             runContext?.let { workspaceSandbox.finishRun(it.runId) }
             // long: Workflow 的短期 snapshot、逐动作审批和执行结果只属于当前 Agent Run；切换 Run 时必须全部作废，关联重试不能继承旧 ref。
             clearWorkflowDeviceActionState()
-            pendingDirectTypeTextPrivacy = null
+            pendingTypeTextPrivacy = null
             searchedMemoryDeleteCandidateId = null
             searchedMemoryDeleteCandidateVersion = null
             confirmedMemoryDeleteCandidateId = null
@@ -1504,7 +1504,7 @@ class XiaoLingToolRegistry(
         // long: Run 结束后立即撤销所有只存在当前进程的引用；MCP session/目录与 BrowserSession 都不能
         // 因为下一次恢复或新 Run 复用，Room 中已经落库的 readable evidence 不受影响。
         clearWorkflowDeviceActionState()
-        pendingDirectTypeTextPrivacy = null
+        pendingTypeTextPrivacy = null
         searchedMemoryDeleteCandidateId = null
         searchedMemoryDeleteCandidateVersion = null
         confirmedMemoryDeleteCandidateId = null
@@ -1698,7 +1698,7 @@ class XiaoLingToolRegistry(
                         it.agentRunId == context.runId &&
                             it.toolCallId == call.id &&
                             result.success &&
-                            result.content == DeviceSnapshotCodec.encode(it.snapshot)
+                            result.content == it.outputContent
                     }
                     ?: throw IllegalStateException("Workflow device.snapshot 验证结果与当前候选观察不一致")
                 verifiedWorkflowSnapshot = candidate
@@ -2671,29 +2671,27 @@ class XiaoLingToolRegistry(
         deviceSnapshotContextError()?.let { return it }
         return when (val capture = deviceController.capture()) {
             is DeviceSnapshotCapture.Success -> {
+                val privacyProjection = pendingTypeTextPrivacy?.takeIf {
+                    runContext?.invocationSource in DEVICE_SNAPSHOT_INVOCATION_SOURCES &&
+                        runContext?.executionOrigin == AgentExecutionOrigin.FOREGROUND
+                }
+                val outputContent = DeviceSnapshotCodec.encode(privacyProjection?.redact(capture.snapshot) ?: capture.snapshot)
+                if (privacyProjection != null) pendingTypeTextPrivacy = null
                 if (runContext?.invocationSource == AgentInvocationSource.WORKFLOW) {
                     pendingWorkflowSnapshot = WorkflowSnapshotCandidate(
                         agentRunId = requireNotNull(runContext).runId,
                         toolCallId = call.id,
                         snapshot = capture.snapshot,
+                        // long: 工具输出与授权快照分开冻结；验证必须匹配实际返回的隐私投影，不能为保持原始 JSON 一致而重新暴露输入。
+                        outputContent = outputContent,
                     )
                     verifiedWorkflowSnapshot = null
                     pendingWorkflowAction = null
                     executedWorkflowAction = null
                 }
-                val directPrivacyProjection = pendingDirectTypeTextPrivacy
-                    ?.takeIf {
-                        runContext?.invocationSource == AgentInvocationSource.DIRECT &&
-                            runContext?.executionOrigin == AgentExecutionOrigin.FOREGROUND
-                    }
-                if (directPrivacyProjection != null) {
-                    pendingDirectTypeTextPrivacy = null
-                }
                 ToolExecutionResult(
                     success = true,
-                    content = DeviceSnapshotCodec.encode(
-                        directPrivacyProjection?.redact(capture.snapshot) ?: capture.snapshot,
-                    ),
+                    content = outputContent,
                 )
             }
             is DeviceSnapshotCapture.Failed -> ToolExecutionResult(
@@ -2750,12 +2748,12 @@ class XiaoLingToolRegistry(
             is DeviceActionCapture.Success -> {
                 if (
                     call.name == DEVICE_TYPE_TEXT_TOOL_NAME &&
-                    runContext?.invocationSource == AgentInvocationSource.DIRECT &&
+                    runContext?.invocationSource in DEVICE_SNAPSHOT_INVOCATION_SOURCES &&
                     runContext?.executionOrigin == AgentExecutionOrigin.FOREGROUND
                 ) {
-                    // long: 原文只用于当前 Executor；成功发出 type_text 后仅留下哈希和长度，下一次 snapshot 序列化时一次性隐藏匹配文本。
+                    // long: DIRECT 与 Workflow 都会把下一次 snapshot 落到工具账本；成功输入后仅留下哈希和长度，输出时一次性隐藏匹配字段，原始回读仍只在执行链内存中使用。
                     call.arguments["text"]?.takeIf(String::isNotEmpty)?.let { text ->
-                        pendingDirectTypeTextPrivacy = DirectAgentDeviceSnapshotPrivacyProjection.fromText(text)
+                        pendingTypeTextPrivacy = DeviceTypeTextSnapshotPrivacyProjection.fromText(text)
                     }
                 }
                 if (workflowState != null) {
@@ -3003,6 +3001,7 @@ class XiaoLingToolRegistry(
         val agentRunId: String,
         val toolCallId: String,
         val snapshot: DeviceSnapshot,
+        val outputContent: String,
     )
 
     private data class WorkflowActionAuthorizationState(

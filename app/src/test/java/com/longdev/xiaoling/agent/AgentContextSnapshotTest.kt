@@ -133,6 +133,24 @@ class AgentContextSnapshotTest {
         }
     }
 
+    @Test fun deviceInputArgumentsReturnOnlyFingerprintToNextPlannerRequest() = runBlocking {
+        MockWebServer().use { server ->
+            server.enqueue(response("{\"action\":\"complete\"}")); server.start()
+            val text = "device-private-input"
+            val call = ToolCall(id = "device-call", name = "device.type_text", risk = ToolRisk.REQUIRES_APPROVAL,
+                arguments = mapOf("snapshot_id" to "s", "ref" to "r", "text" to text))
+            var snapshot: AgentContextInput? = null
+            model(server).proposeNextActionWithContext("继续任务", emptyList(),
+                listOf(AgentToolExecution(call, ToolExecutionResult(true, "输入已验证", true)))) { snapshot = it }
+            val wire = server.takeRequest().body.readUtf8()
+            assertFalse(wire.contains(text))
+            assertTrue(wire.contains(DeviceTypeTextAuditPolicy.fingerprint(text)))
+            assertTrue(wire.contains("text_length"))
+            assertFalse(AgentContextSnapshotCodec.encode(snapshot!!).contains(text))
+            Unit
+        }
+    }
+
     @Test fun captureFailurePreventsBothPlannerAndSummaryNetworkRequests() = runBlocking {
         val server = MockWebServer()
         server.start()

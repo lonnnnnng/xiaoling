@@ -7,6 +7,31 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class WorkflowGoalVerificationPolicyTest {
+    @Test fun stepScopedContractRoundTripsAndLegacyV1RemainsUnchanged() {
+        val groups = listOf(listOf("device.snapshot", "device.open_app", "device.snapshot"),
+            listOf("device.snapshot", "device.tap_ref", "device.snapshot"))
+        val contract = WorkflowGoalVerificationContract("打开设置并点击搜索",
+            WorkflowGoalVerificationSpec(groups.flatten(), "com.android.settings", groups))
+        val raw = WorkflowGoalVerificationContractCodec.encode(contract)
+        assertTrue(raw.contains("workflow-goal-verification-contract-v2"))
+        assertEquals(contract, WorkflowGoalVerificationContractCodec.decode(raw))
+        val legacy = contract.copy(spec = contract.spec.copy(requiredToolNamesByStep = emptyList()))
+        val legacyRaw = WorkflowGoalVerificationContractCodec.encode(legacy)
+        assertTrue(legacyRaw.contains("workflow-goal-verification-contract-v1"))
+        assertFalse(legacyRaw.contains("requiredToolNamesByStep"))
+        assertEquals(legacy, WorkflowGoalVerificationContractCodec.decode(legacyRaw))
+    }
+
+    @Test fun mismatchedEmptyAndUnknownStepContractFieldsFailClosed() {
+        val groups = listOf(listOf("device.snapshot", "device.open_app"))
+        val raw = WorkflowGoalVerificationContractCodec.encode(WorkflowGoalVerificationContract("打开设置",
+            WorkflowGoalVerificationSpec(groups.flatten(), "com.android.settings", groups)))
+        val changed = org.json.JSONObject(raw).put("requiredToolNamesByStep", org.json.JSONArray().put(org.json.JSONArray().put("device.snapshot")))
+        assertNull(WorkflowGoalVerificationContractCodec.decode(changed.toString()))
+        assertNull(WorkflowGoalVerificationContractCodec.decode(org.json.JSONObject(raw).put("requiredToolNamesByStep", org.json.JSONArray()).toString()))
+        assertNull(WorkflowGoalVerificationContractCodec.decode(org.json.JSONObject(raw).put("unconfirmed", true).toString()))
+    }
+
     @Test
     fun matchingVerifiedToolsAndFinalObservationVerifyTheUserGoal() {
         val decision = WorkflowGoalVerificationPolicy.evaluate(

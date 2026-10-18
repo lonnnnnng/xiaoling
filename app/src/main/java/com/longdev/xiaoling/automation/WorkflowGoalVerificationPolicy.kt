@@ -7,10 +7,16 @@ import org.json.JSONObject
 data class WorkflowGoalVerificationSpec(
     val requiredToolNames: List<String>,
     val expectedFinalPackageName: String? = null,
+    val requiredToolNamesByStep: List<List<String>> = emptyList(),
 ) {
     init {
         require(requiredToolNames.isNotEmpty()) { "任务完成标准至少需要一个工具事实" }
         require(requiredToolNames.none(String::isBlank)) { "任务完成标准不能包含空工具名" }
+        // long: 每步约束只能细分已确认的总契约，不能偷偷追加动作或用空步骤跳过该步骤的实际执行。
+        require(requiredToolNamesByStep.isEmpty() ||
+            (requiredToolNamesByStep.all { it.isNotEmpty() } && requiredToolNamesByStep.flatten() == requiredToolNames)) {
+            "每步必需工具必须完整且按顺序组成任务完成标准"
+        }
         require(
             expectedFinalPackageName == null || expectedFinalPackageName in DeviceActionPolicy.DEFAULT_ALLOWED_PACKAGES,
         ) { "任务完成标准的最终应用不在允许列表" }
@@ -28,20 +34,34 @@ data class WorkflowGoalVerificationContract(
 
 object WorkflowGoalVerificationContractCodec {
     const val SCHEMA = "workflow-goal-verification-contract-v1"
+    private const val STEP_SCHEMA = "workflow-goal-verification-contract-v2"
 
     fun encode(contract: WorkflowGoalVerificationContract): String = JSONObject()
-        .put("schema", SCHEMA)
+        .put("schema", if (contract.spec.requiredToolNamesByStep.isEmpty()) SCHEMA else STEP_SCHEMA)
         .put("sourceGoal", contract.sourceGoal.trim())
         .put("requiredToolNames", JSONArray(contract.spec.requiredToolNames))
         .put("expectedFinalPackageName", contract.spec.expectedFinalPackageName.orEmpty())
+        .apply {
+            // long: 老契约继续按 v1 原样保存；只有显式确认每步工具的契约使用 v2，旧数据不会从目标文本推导动作。
+            if (contract.spec.requiredToolNamesByStep.isNotEmpty()) {
+                put("requiredToolNamesByStep", JSONArray().apply {
+                    contract.spec.requiredToolNamesByStep.forEach { put(JSONArray(it)) }
+                })
+            }
+        }
         .toString()
 
     fun decode(raw: String?): WorkflowGoalVerificationContract? {
         if (raw.isNullOrBlank()) return null
         return runCatching {
             val json = JSONObject(raw)
-            require(json.keys().asSequence().toSet() == CONTRACT_KEYS) { "任务完成标准字段不符合约定" }
-            require(json.getString("schema") == SCHEMA) { "未知任务完成标准版本" }
+            val stepScoped = when (json.getString("schema")) {
+                SCHEMA -> false
+                STEP_SCHEMA -> true
+                else -> error("未知任务完成标准版本")
+            }
+            require(json.keys().asSequence().toSet() ==
+                if (stepScoped) CONTRACT_KEYS + "requiredToolNamesByStep" else CONTRACT_KEYS) { "任务完成标准字段不符合约定" }
             val toolsJson = json.getJSONArray("requiredToolNames")
             val requiredToolNames = buildList {
                 repeat(toolsJson.length()) { index -> add(toolsJson.getString(index).trim()) }
@@ -51,6 +71,16 @@ object WorkflowGoalVerificationContractCodec {
                 spec = WorkflowGoalVerificationSpec(
                     requiredToolNames = requiredToolNames,
                     expectedFinalPackageName = json.getString("expectedFinalPackageName").trim().ifBlank { null },
+                    requiredToolNamesByStep = if (stepScoped) {
+                        val groups = json.getJSONArray("requiredToolNamesByStep")
+                        require(groups.length() > 0) { "每步工具契约不能为空" }
+                        buildList {
+                            repeat(groups.length()) { index ->
+                                val names = groups.getJSONArray(index)
+                                add(buildList { repeat(names.length()) { add(names.getString(it).trim()) } })
+                            }
+                        }
+                    } else emptyList(),
                 ),
             )
         }.getOrNull()
