@@ -78,7 +78,7 @@ class XiaoLingToolRegistry(
     private var verifiedWorkflowSnapshot: WorkflowSnapshotCandidate? = null
     private var pendingWorkflowAction: WorkflowActionAuthorizationState? = null
     private var executedWorkflowAction: WorkflowExecutedActionState? = null
-    private var pendingTypeTextPrivacy: DeviceTypeTextSnapshotPrivacyProjection? = null
+    private var protectTypeTextDisplay = false
     private var searchedMemoryDeleteCandidateId: String? = null
     private var confirmedMemoryDeleteCandidateId: String? = null
     private var searchedMemoryDeleteCandidateVersion: Long? = null
@@ -1469,7 +1469,7 @@ class XiaoLingToolRegistry(
             runContext?.let { workspaceSandbox.finishRun(it.runId) }
             // long: Workflow 的短期 snapshot、逐动作审批和执行结果只属于当前 Agent Run；切换 Run 时必须全部作废，关联重试不能继承旧 ref。
             clearWorkflowDeviceActionState()
-            pendingTypeTextPrivacy = null
+            protectTypeTextDisplay = false
             searchedMemoryDeleteCandidateId = null
             searchedMemoryDeleteCandidateVersion = null
             confirmedMemoryDeleteCandidateId = null
@@ -1496,6 +1496,8 @@ class XiaoLingToolRegistry(
             browserPageReader.clearSessions()
         }
         runContext = context
+        // long: 同一 Run 的重复绑定不能撤销已启用的保护；恢复从原输入调用审计还原布尔状态，不需要把原文带回进程。
+        protectTypeTextDisplay = protectTypeTextDisplay || context.protectDeviceDisplayText
     }
 
     override fun onRunFinished(runId: String) {
@@ -1504,7 +1506,7 @@ class XiaoLingToolRegistry(
         // long: Run 结束后立即撤销所有只存在当前进程的引用；MCP session/目录与 BrowserSession 都不能
         // 因为下一次恢复或新 Run 复用，Room 中已经落库的 readable evidence 不受影响。
         clearWorkflowDeviceActionState()
-        pendingTypeTextPrivacy = null
+        protectTypeTextDisplay = false
         searchedMemoryDeleteCandidateId = null
         searchedMemoryDeleteCandidateVersion = null
         confirmedMemoryDeleteCandidateId = null
@@ -2671,12 +2673,11 @@ class XiaoLingToolRegistry(
         deviceSnapshotContextError()?.let { return it }
         return when (val capture = deviceController.capture()) {
             is DeviceSnapshotCapture.Success -> {
-                val privacyProjection = pendingTypeTextPrivacy?.takeIf {
+                val protectDisplay = protectTypeTextDisplay &&
                     runContext?.invocationSource in DEVICE_SNAPSHOT_INVOCATION_SOURCES &&
                         runContext?.executionOrigin == AgentExecutionOrigin.FOREGROUND
-                }
-                val outputContent = DeviceSnapshotCodec.encode(privacyProjection?.redact(capture.snapshot) ?: capture.snapshot)
-                if (privacyProjection != null) pendingTypeTextPrivacy = null
+                val outputContent = DeviceSnapshotCodec.encode(if (protectDisplay)
+                    DeviceTypeTextSnapshotPrivacyProjection.redact(capture.snapshot) else capture.snapshot)
                 if (runContext?.invocationSource == AgentInvocationSource.WORKFLOW) {
                     pendingWorkflowSnapshot = WorkflowSnapshotCandidate(
                         agentRunId = requireNotNull(runContext).runId,
@@ -2743,19 +2744,13 @@ class XiaoLingToolRegistry(
         }
         // long: 授权在越过 Executor 边界前即从待执行槽移除；失败、取消或重复调用都必须重新观察并重新审批。
         pendingWorkflowAction = null
+        if (call.name == DEVICE_TYPE_TEXT_TOOL_NAME) {
+            // long: native 输入可能已发生但回读失败或被取消；在越过执行边界前保护后续显示，不能只依赖 success 结果或下一次快照消费。
+            protectTypeTextDisplay = true
+        }
         val capture = block()
         return when (capture) {
             is DeviceActionCapture.Success -> {
-                if (
-                    call.name == DEVICE_TYPE_TEXT_TOOL_NAME &&
-                    runContext?.invocationSource in DEVICE_SNAPSHOT_INVOCATION_SOURCES &&
-                    runContext?.executionOrigin == AgentExecutionOrigin.FOREGROUND
-                ) {
-                    // long: DIRECT 与 Workflow 都会把下一次 snapshot 落到工具账本；成功输入后仅留下哈希和长度，输出时一次性隐藏匹配字段，原始回读仍只在执行链内存中使用。
-                    call.arguments["text"]?.takeIf(String::isNotEmpty)?.let { text ->
-                        pendingTypeTextPrivacy = DeviceTypeTextSnapshotPrivacyProjection.fromText(text)
-                    }
-                }
                 if (workflowState != null) {
                     executedWorkflowAction = WorkflowExecutedActionState(
                         call = call.copy(arguments = call.arguments.toMap()),
@@ -2777,7 +2772,10 @@ class XiaoLingToolRegistry(
                 } else {
                     ToolExecutionResult(
                         success = true,
-                        content = DeviceActionCodec.encode(capture.outcome),
+                        // long: Direct 后续动作也会把后置快照写入 ToolResult；必须复用输入后的显示保护，不能从 back/tap/swipe 的嵌套结果回显正文。
+                        content = DeviceActionCodec.encode(if (protectTypeTextDisplay) capture.outcome.copy(
+                            afterSnapshot = DeviceTypeTextSnapshotPrivacyProjection.redact(capture.outcome.afterSnapshot),
+                        ) else capture.outcome),
                         verified = capture.outcome.verified,
                     )
                 }

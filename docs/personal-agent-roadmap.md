@@ -2,6 +2,8 @@
 
 ## 2026-10-18：Android 产品验收优先
 
+第 299 阶段补[恢复完成约束与持续输入隐私](android-recovery-input-privacy-acceptance.md)：三类恢复从冻结 Workflow Step 还原完成要求，缺动作/后置观察不能本地收尾；输入尝试后同 Run 快照及 Direct 动作内嵌快照持续省略显示文字。生产恢复 UseCase/隔离 Room 专项与真实模型公开输入、拼接/连续观察及受控重开通过，完整 JVM 1628/1628。保护不跨 Run，输入后的文字导航受限；自然 LMK/Doze/重启、普通编辑器限定应用、复杂任务和长期/Release 仍独立。
+
 第 298 阶段已补[滚动方向与边界](android-directional-scroll-acceptance.md)：修正左右 Android action 映射，open_app 在原回读预算内等待目标包；最新 Debug 上正式 up/down 往返、顶部 down 的失败边界、隔离公开页 left/right 四项同轮通过。正式往返九调用/一审批、目标 VERIFIED；顶部未移动保持 FAILED，零滚动审批。原生崩溃及前置打开失败均保留，普通编辑器、持续隐私、新完成约束自然恢复、复杂任务和长期系统/Release 继续独立。
 
 第 297 阶段已补[正式 Workflow 滚动](android-workflow-scroll-acceptance.md)：打开设置与单次向上滚动同轮六调用、一审批，SAFE 滚动零审批，目标 VERIFIED、真实前后内容变化、Activity 重建和独立新进程回读通过。其他方向/边界、复杂任务、普通编辑器限定应用、持续隐私和自然恢复继续单列。

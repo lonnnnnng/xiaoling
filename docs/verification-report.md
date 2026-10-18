@@ -2,6 +2,17 @@
 
 验证日期：2026-10-18（北京时间）
 
+# 2026-10-18 第 299 阶段：恢复完成约束与持续输入隐私
+
+指定 Redmi、真实 `gpt-6-luna`、同签名 Debug `0.1.22 (23)`。生产三恢复入口从同 Room 的冻结 Workflow Step 读取目标/完成序列；关联或 codec 损坏在审批消费前拒绝并关闭 Run 与活动 Step。Runtime 核对持久来源、保留已用完成纠错额度，恢复本地总结必须满足原完成标准。
+
+- Room `OK (3 tests)`：缺动作、缺后置观察恢复均 FAILED，完整三调用链 COMPLETED；重复/孤立关联拒绝，坏上下文使活动审批 Step FAILED 且原审批未消费。隔离 Room 重开与账本不变通过，使用受控工具事实，不是自然 LMK 或真实设置动作恢复。
+- `live-initial` 真实公开输入同轮通过，41.43s，USB ACK/JUnit 满足；Run `run-76e09c8c-14b8-4c77-9eaa-36f39ad5037d`，三调用/一受控审批/一次 native 输入。原始精确回读与拼接回显同时存在，后置输出持续省略显示字段；另两次观察和两次 Room 重开后 Registry 观察均保护。补充观察未进入模型工具账本，恢复不冒充生产模型续跑。
+- 定向 JVM 221/221、完整 JVM 1628/1628、主机门禁 12/12，Debug/AndroidTest/Lint 通过；失败/取消后保护、Direct 内嵌快照旁路、恢复默认参数降级、committed 回读和纠错额度有正反回归。旧失败 JVM/编译/委托夹具及被终止构建日志保留，前四阶段 250 份 JSON/日志在本轮开始冻结。
+- 输入保护只覆盖本 Run 的显示字段与动作内嵌快照，Run 结束/切换清除；输入后模型无法按文字标签继续找目标。公开 marker 仍在目标正文，不声称全部 Room/上下文隐私。普通编辑器、跨 Run/所有派生工具隐私、复杂任务、自然系统恢复、Remote 稳定部署/通知和签名 Release 继续独立。
+
+详见[恢复与输入隐私专项](android-recovery-input-privacy-acceptance.md)，最终偏好/历史保护、制品审计与原授权收尾以 `outputs/verification/stage299-recovery-privacy/verification-summary.json` 为准。
+
 # 2026-10-18 第 298 阶段：滚动方向与边界（四项同轮通过）
 
 指定 Redmi、真实 `gpt-6-luna`、同签名 Debug `0.1.22 (23)`。`live-target-observation` 四项同轮通过：正式设置 up/down 往返、顶部 down 的失败边界、隔离公开页 left/right；目标包回读仍在原预算内、启动仅一次，左右 action 修正为内容位移语义。

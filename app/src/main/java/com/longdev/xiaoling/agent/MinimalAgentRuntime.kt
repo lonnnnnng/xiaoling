@@ -292,6 +292,7 @@ class MinimalAgentRuntime internal constructor(
         approvalDecision: ApprovalDecision,
         executionOrigin: AgentExecutionOrigin = AgentExecutionOrigin.FOREGROUND,
         invocationSource: AgentInvocationSource = AgentInvocationSource.DIRECT,
+        workflowDeviceActionContext: WorkflowDeviceActionRunContext? = null,
     ): AgentRunSummary {
         val assessment = AgentRunResumePolicy.assess(detail)
         require(assessment.kind == AgentRunResumeKind.APPROVAL_WAIT) { assessment.reason }
@@ -319,6 +320,8 @@ class MinimalAgentRuntime internal constructor(
                 executionOrigin = executionOrigin,
                 invocationSource = invocationSource,
                 processSessionId = processSessionId,
+                workflowDeviceActionContext = workflowDeviceActionContext,
+                protectDeviceDisplayText = DeviceTypeTextSnapshotPrivacyProjection.wasAttempted(detail),
             ),
         )
         val restoredBudget = restoredExecutionBudget(detail)
@@ -327,12 +330,15 @@ class MinimalAgentRuntime internal constructor(
             activeStepId = recovery.approvalStepId,
             monotonicClock = monotonicClock,
             initialConsumedMs = restoredBudget.snapshot.consumedMs,
+            completionRequiredToolNames = workflowDeviceActionContext?.completionRequiredToolNames?.toList().orEmpty(),
+            prematureCompletionAlreadyRetried = detail.snapshot.events.any { it.type == AgentEventTypes.LLM_PREMATURE_COMPLETE_RETRIED },
         )
         // long: 前序工具的结果、调用额度和循环指纹都属于原 Run；进程重建不能把这些约束清零，也不能重新执行已经验证的工具。
         state.completedTools += recovery.verifiedPrefix
         state.executedToolCalls = recovery.verifiedPrefix.size
         state.toolCallFingerprints += recovery.verifiedPrefix.map { toolCallFingerprint(it.toolCall) }
         return try {
+            requireRecoveryCompletionContext(state, invocationSource, workflowDeviceActionContext, detail)
             persistLegacyExecutionBudgetStart(run.id, restoredBudget, state.executionBudget)
             // long: 审批请求已经持久化，恢复入口只补写批准审计并从原审批步骤继续，不重新规划工具，避免重复模型决策。
             ledger.appendEvent(
@@ -398,6 +404,8 @@ class MinimalAgentRuntime internal constructor(
 
     suspend fun resumeCommittedToolRun(
         detail: AgentRunDetailRecord,
+        invocationSource: AgentInvocationSource = AgentInvocationSource.DIRECT,
+        workflowDeviceActionContext: WorkflowDeviceActionRunContext? = null,
     ): AgentRunSummary {
         val assessment = AgentRunResumePolicy.assess(
             detail,
@@ -423,6 +431,9 @@ class MinimalAgentRuntime internal constructor(
                 goal = run.goal,
                 memoryRecallEnabled = memoryRecallEnabled,
                 processSessionId = processSessionId,
+                invocationSource = invocationSource,
+                workflowDeviceActionContext = workflowDeviceActionContext,
+                protectDeviceDisplayText = DeviceTypeTextSnapshotPrivacyProjection.wasAttempted(detail),
             ),
         )
         val restoredBudget = restoredExecutionBudget(detail)
@@ -431,10 +442,12 @@ class MinimalAgentRuntime internal constructor(
             activeStepId = recovery.verificationStepId ?: recovery.executionStepId,
             monotonicClock = monotonicClock,
             initialConsumedMs = restoredBudget.snapshot.consumedMs,
+            completionRequiredToolNames = workflowDeviceActionContext?.completionRequiredToolNames?.toList().orEmpty(),
         )
         // long: 多工具 Run 的前序步骤已由历史 tool.verify 证明完成；恢复总结必须保留这些事实，不能只向用户展示最后一条笔记结果。
         state.completedTools += recovery.verifiedPrefix
         return try {
+            requireRecoveryCompletionContext(state, invocationSource, workflowDeviceActionContext, detail)
             persistLegacyExecutionBudgetStart(run.id, restoredBudget, state.executionBudget)
             val executionStep = detail.snapshot.steps.single { it.id == recovery.executionStepId }
             if (executionStep.status == AgentStepStatus.RUNNING) {
@@ -530,6 +543,8 @@ class MinimalAgentRuntime internal constructor(
 
     suspend fun resumeVerifiedToolRun(
         detail: AgentRunDetailRecord,
+        invocationSource: AgentInvocationSource = AgentInvocationSource.DIRECT,
+        workflowDeviceActionContext: WorkflowDeviceActionRunContext? = null,
     ): AgentRunSummary {
         val assessment = AgentRunResumePolicy.assess(detail)
         require(assessment.kind == AgentRunResumeKind.VERIFIED_TOOL_COMPLETION) { assessment.reason }
@@ -541,11 +556,13 @@ class MinimalAgentRuntime internal constructor(
             activeStepId = recovery.lastVerificationStepId,
             monotonicClock = monotonicClock,
             initialConsumedMs = restoredBudget.snapshot.consumedMs,
+            completionRequiredToolNames = workflowDeviceActionContext?.completionRequiredToolNames?.toList().orEmpty(),
         )
         state.completedTools += recovery.verifiedTools
         state.executedToolCalls = recovery.verifiedTools.size
         state.toolCallFingerprints += recovery.verifiedTools.map { toolCallFingerprint(it.toolCall) }
         return try {
+            requireRecoveryCompletionContext(state, invocationSource, workflowDeviceActionContext, detail)
             persistLegacyExecutionBudgetStart(run.id, restoredBudget, state.executionBudget)
             val verificationStep = detail.snapshot.steps.single { it.id == recovery.lastVerificationStepId }
             if (verificationStep.status == AgentStepStatus.RUNNING) {
@@ -600,7 +617,7 @@ class MinimalAgentRuntime internal constructor(
         executionOrigin: AgentExecutionOrigin,
         state: AgentRuntimeExecutionState,
     ) {
-        var retriedPrematureCompletion = false
+        var retriedPrematureCompletion = state.prematureCompletionAlreadyRetried
         while (true) {
             ledger.updateRunStatus(run.id, AgentRunStatus.THINKING)
             val thinking = ledger.appendStep(
@@ -998,7 +1015,8 @@ class MinimalAgentRuntime internal constructor(
         state: AgentRuntimeExecutionState,
         recoverySummaryStepId: String? = null,
     ): AgentRunSummary {
-        require(state.completedTools.isNotEmpty()) { "验证阶段恢复缺少已验证工具结果" }
+        // long: 本地恢复总结只补控制面终态；同一 Run 缺动作或后置观察时必须失败，不能借已验证前缀绕过冻结的完成标准。
+        require(completionFailure(state) == null) { "恢复未满足步骤完成标准：${completionFailure(state)}" }
         val currentSnapshot = ledger.snapshot(run.id)
         val summaryStep = recoverySummaryStepId
             ?.let { stepId -> currentSnapshot.steps.single { it.id == stepId } }
@@ -1499,6 +1517,19 @@ class MinimalAgentRuntime internal constructor(
             else "当前 Run 缺少按顺序验证的必需工具：${required.drop(matched).joinToString(" -> ")}"
     }
 
+    private fun requireRecoveryCompletionContext(state: AgentRuntimeExecutionState, source: AgentInvocationSource,
+        context: WorkflowDeviceActionRunContext?, detail: AgentRunDetailRecord) {
+        val invocations = detail.snapshot.events.filter { it.type == AgentChildLifecyclePolicy.INVOCATION_EVENT }
+        require(invocations.size <= 1) { "恢复来源审计重复" }
+        invocations.singleOrNull()?.let { event ->
+            val json = JSONObject((event.metadata as? RunEventMetadata.Reason)?.reason ?: error("恢复来源审计损坏"))
+            // long: Runtime 也核对持久来源，防止内部调用使用 Direct 默认参数绕过 Workflow 冻结标准；旧无来源审计仍按原兼容路径处理。
+            require(json.getInt("schemaVersion") == 1 && json.getString("source") == source.name) { "恢复来源与原 Run 审计不一致" }
+        }
+        require((source == AgentInvocationSource.WORKFLOW) == (context != null)) { "Workflow 恢复缺少冻结上下文或来源不一致" }
+        require(state.completionRequiredToolNames.size <= options.maxToolCalls) { "冻结步骤完成标准超出原调用预算" }
+    }
+
     private fun toolCallFingerprint(toolCall: ToolCall): String =
         "${toolCall.name}:${toolCall.arguments.toSortedMap()}"
 
@@ -1534,6 +1565,7 @@ private class AgentRuntimeExecutionState(
     monotonicClock: MonotonicClock,
     initialConsumedMs: Long = 0,
     val completionRequiredToolNames: List<String> = emptyList(),
+    val prematureCompletionAlreadyRetried: Boolean = false,
 ) {
     var activeStepId: String? = activeStepId
     var executedToolCalls: Int = 0

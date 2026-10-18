@@ -1184,6 +1184,8 @@ data class AgentToolExecutionContext(
     val invocationSource: AgentInvocationSource = AgentInvocationSource.DIRECT,
     val processSessionId: String = "",
     val workflowDeviceActionContext: WorkflowDeviceActionRunContext? = null,
+    // long: 恢复只需记住原 Run 曾尝试输入，不恢复原文或短期 ref；后续显示文字继续保守省略到本 Run 结束。
+    val protectDeviceDisplayText: Boolean = false,
     // long: Profile 状态只在当前进程的执行上下文中短暂传递；不把系统提示词、Provider 凭据或工具白名单复制到工具结果/持久化账本。
     val agentProfileInfo: AgentExecutionProfileInfo? = null,
 )

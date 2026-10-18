@@ -10,7 +10,7 @@ internal data class DeviceTypeTextAuditProjection(
 internal object DeviceTypeTextAuditPolicy {
     const val TOOL_NAME = "device.type_text"
 
-    // long: 输入原文只在当前执行链短暂存在；统一复用持久审计使用的 UTF-8 SHA-256，供下一次 snapshot 做内存级隐私投影。
+    // long: 输入原文只在当前执行链短暂存在；UTF-8 SHA-256 用于冻结参数和持久审计核对，显示隐私不依赖哈希匹配。
     fun fingerprint(text: String): String = text.sha256()
 
     fun project(toolCall: ToolCall): DeviceTypeTextAuditProjection? {

@@ -145,7 +145,7 @@ class AndroidDeviceLiveInstrumentedTest {
         }
     }
 
-    private suspend fun rebindPreviouslyAuthorizedService(context: Context, automation: android.app.UiAutomation,
+    internal suspend fun rebindPreviouslyAuthorizedService(context: Context, automation: android.app.UiAutomation,
         native: AndroidDeviceAccessibilityGateway, stage: Int) {
         val key = Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES
         val original = requireNotNull(Settings.Secure.getString(context.contentResolver, key)) { "系统未授权，拒绝自动开启" }

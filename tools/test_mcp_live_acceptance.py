@@ -13,6 +13,17 @@ from verify_android_live_acceptance import PHASES
 
 
 class McpLiveAcceptanceAuditTest(unittest.TestCase):
+    def test_input_privacy_requires_continuous_recovered_business_and_restore_evidence(self):
+        spec = PHASES["device-input-privacy"]
+        records = [marker + "\n" for marker in spec["requiredEvidence"]] + ["OK (1 test)\n"]
+        self.assertTrue(live.instrumentation_verdict(0, True, records, spec)["passed"])
+        for index in range(len(spec["requiredEvidence"])):
+            self.assertFalse(live.instrumentation_verdict(0, True, records[:index] + records[index + 1:], spec)["passed"])
+        for changed in ("recoveredSnapshots=0", "auditPrivate=false", "roomReopened=false"):
+            original = changed.split("=", 1)[0] + ("=2" if changed.startswith("recoveredSnapshots") else "=true")
+            self.assertFalse(live.instrumentation_verdict(0, True, [line.replace(original, changed) for line in records], spec)["passed"])
+        self.assertFalse(live.instrumentation_verdict(0, False, records, spec)["passed"])
+
     def test_generic_descriptor_keeps_usb_protocol_and_requires_its_own_evidence(self):
         spec = {"test": "public.Test", "method": "actual", "realArg": "stage292RealRun",
                 "portArg": "stage292ConfigPort", "ready": "STAGE292_CONFIG_READY",

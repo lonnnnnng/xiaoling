@@ -944,6 +944,7 @@ class MinimalAgentRuntimeTest {
             approval = detail.approvals.single(),
             approvalDecision = ApprovalDecision(approved = true, reason = "用户确认继续"),
             invocationSource = AgentInvocationSource.WORKFLOW,
+            workflowDeviceActionContext = WorkflowDeviceActionRunContext("workflow-resume", "step-resume", created.goal, null),
         )
 
         val snapshot = ledger.snapshot(created.id)

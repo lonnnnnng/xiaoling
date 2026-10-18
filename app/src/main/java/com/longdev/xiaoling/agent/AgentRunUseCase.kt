@@ -494,7 +494,7 @@ class AgentRunUseCase(
         summarySystemPrompt: String,
         userAttachments: MessageAttachmentSelection = MessageAttachmentSelection(),
         approvalReason: String,
-        invocationSource: AgentInvocationSource = AgentInvocationSource.DIRECT,
+        invocationSource: AgentInvocationSource? = null,
         approvalGate: ApprovalGate = AutoApprovalGate(),
         onSnapshot: suspend (AgentRunSnapshot) -> Unit = {},
     ): AgentRunSummary = baseLedger.withRecoveryExecution(detail.snapshot.run.id.also {
@@ -505,6 +505,9 @@ class AgentRunUseCase(
         AgentPluginExecutionPolicy.requireFreshSelection(detail)
         GenUiExecutionPolicy.requireFreshSelection(detail)
         AgentChildLifecyclePolicy.requireFreshInvocation(detail)
+        val workflowContext = frozenWorkflowRecoveryContext(detail)
+        val recoveredSource = if (workflowContext == null) AgentInvocationSource.DIRECT else AgentInvocationSource.WORKFLOW
+        require(invocationSource == null || invocationSource == recoveredSource) { "调用方恢复来源与冻结关联不一致" }
         val selectionEvent = detail.snapshot.events.lastOrNull { it.type == "skill.selected" }
         val agentProfile = when (val assessment = detail.inspectAgentProfileAudit()) {
             AgentProfileAuditAssessment.Legacy -> null
@@ -558,14 +561,15 @@ class AgentRunUseCase(
             ),
             approvalGate = approvalGate,
             permissionChecker = permissionChecker,
-            options = agentProfile?.let { runtimeOptionsFor(it, invocationSource) } ?: AgentRuntimeOptions(),
+            options = agentProfile?.let { runtimeOptionsFor(it, recoveredSource) } ?: AgentRuntimeOptions(),
         )
         runtime.resumeApprovedRun(
             detail = approvedDetail,
             approval = approval,
             approvalDecision = ApprovalDecision(approved = true, reason = approvalReason),
             executionOrigin = AgentExecutionOrigin.FOREGROUND,
-            invocationSource = invocationSource,
+            invocationSource = recoveredSource,
+            workflowDeviceActionContext = workflowContext,
         )
     }
 
@@ -655,6 +659,7 @@ class AgentRunUseCase(
         AgentPluginExecutionPolicy.requireFreshSelection(detail)
         GenUiExecutionPolicy.requireFreshSelection(detail)
         AgentChildLifecyclePolicy.requireFreshInvocation(detail)
+        val workflowContext = frozenWorkflowRecoveryContext(detail)
         val ledger = ReportingAgentRunLedger(
             delegate = baseLedger,
             onSnapshot = onSnapshot,
@@ -670,7 +675,8 @@ class AgentRunUseCase(
             llm = RecoveryOnlyAgentLlm,
             permissionChecker = permissionChecker,
         )
-        runtime.resumeCommittedToolRun(detail)
+        runtime.resumeCommittedToolRun(detail, workflowDeviceActionContext = workflowContext,
+            invocationSource = if (workflowContext == null) AgentInvocationSource.DIRECT else AgentInvocationSource.WORKFLOW)
     }
 
     suspend fun resumeVerifiedToolRun(
@@ -681,6 +687,7 @@ class AgentRunUseCase(
         AgentPluginExecutionPolicy.requireFreshSelection(detail)
         GenUiExecutionPolicy.requireFreshSelection(detail)
         AgentChildLifecyclePolicy.requireFreshInvocation(detail)
+        val workflowContext = frozenWorkflowRecoveryContext(detail)
         val ledger = ReportingAgentRunLedger(
             delegate = baseLedger,
             onSnapshot = onSnapshot,
@@ -690,7 +697,29 @@ class AgentRunUseCase(
             llm = RecoveryOnlyAgentLlm,
             permissionChecker = permissionChecker,
         )
-        runtime.resumeVerifiedToolRun(detail)
+        runtime.resumeVerifiedToolRun(detail, workflowDeviceActionContext = workflowContext,
+            invocationSource = if (workflowContext == null) AgentInvocationSource.DIRECT else AgentInvocationSource.WORKFLOW)
+    }
+
+    private suspend fun frozenWorkflowRecoveryContext(detail: AgentRunDetailRecord): WorkflowDeviceActionRunContext? = try {
+        baseLedger.workflowRecoveryContext(detail).also { context ->
+            require(context == null || context.completionRequiredToolNames.size <= AgentRuntimeOptions().maxToolCalls) {
+                "冻结步骤完成标准超出原 Workflow 调用预算"
+            }
+        }
+    } catch (error: CancellationException) {
+        throw error
+    } catch (error: Throwable) {
+        // long: 冻结事实无法恢复时先收敛原 Run，审批尚未消费、Executor 尚未进入；不能让错误关联长期停在可恢复状态。
+        withContext(NonCancellable) {
+            val reason = "Workflow 冻结恢复上下文无效，请创建新 Run 重试"
+            detail.snapshot.steps.filter { it.status in setOf(AgentStepStatus.PENDING, AgentStepStatus.RUNNING) }.forEach {
+                baseLedger.updateStep(it.id, AgentStepStatus.FAILED, reason)
+            }
+            baseLedger.appendEvent(detail.snapshot.run.id, "run.failed", reason, RunEventMetadata.Reason(reason))
+            baseLedger.updateRunStatus(detail.snapshot.run.id, AgentRunStatus.FAILED, errorMessage = reason)
+        }
+        throw error
     }
 
     suspend fun listSkills(): List<AgentSkillRecord> = skillCatalog.list()

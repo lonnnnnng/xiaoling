@@ -1,5 +1,9 @@
 # 文档索引
 
+## 第 299 阶段恢复与持续输入隐私
+
+- [恢复完成约束与持续输入隐私](android-recovery-input-privacy-acceptance.md)：冻结完成契约贯通三恢复入口，缺动作/后置观察保持失败；同 Run 快照/Direct 后置快照持续保护拼接与局部显示。隔离生产恢复 UseCase 和真实模型公开 Probe 通过，自然恢复与跨 Run 隐私单列。
+
 ## 第 297 阶段正式 Workflow 滚动
 
 - [正式滚动验收](android-workflow-scroll-acceptance.md)：系统设置两步六调用、一审批和 SAFE 滚动零审批，同轮 VERIFIED、真实内容变化、Activity 重建和独立回读通过；首轮导航失败保留。限定应用定义仍由夹具预置，其他方向/边界、复杂任务和自然恢复独立追踪。

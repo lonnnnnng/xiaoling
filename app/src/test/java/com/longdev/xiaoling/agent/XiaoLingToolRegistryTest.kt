@@ -2525,7 +2525,7 @@ class XiaoLingToolRegistryTest {
     }
 
     @Test
-    fun directTypeTextProjectsOnlyTheNextSnapshotWhileKeepingControllerReadBack() = runTest {
+    fun directTypeTextProtectsAllLaterSnapshotsUntilRunChangesWhileKeepingControllerReadBack() = runTest {
         val inputText = "stage279_exact_readback"
         val provider = FakeDeviceController(
             enabled = true,
@@ -2596,7 +2596,76 @@ class XiaoLingToolRegistryTest {
             ToolCall(id = "tool-call-direct-privacy-later", name = "device.snapshot", arguments = emptyMap(), risk = ToolRisk.SAFE),
         )
         assertTrue(laterSnapshot.success)
-        assertTrue("一次性投影消费后，后续 snapshot 仍应反映 Controller 的当前内存事实", laterSnapshot.content.contains(inputText))
+        assertFalse("同 Run 后续 snapshot 不能重新回显输入", laterSnapshot.content.contains(inputText))
+        registry.bindRunContext(AgentToolExecutionContext("c", "m", "run-direct-type-text-privacy", "保持当前 Run"))
+        assertFalse(registry.execute(ToolCall(name = "device.snapshot", arguments = emptyMap(), risk = ToolRisk.SAFE)).content.contains(inputText))
+        registry.onRunFinished("run-direct-type-text-privacy")
+        registry.bindRunContext(AgentToolExecutionContext("c", "new-message", "new-run", "新 Run 独立观察"))
+        assertTrue("保护边界是原 Run；不能声称跨任务全局隐私", registry.execute(ToolCall(name = "device.snapshot", arguments = emptyMap(), risk = ToolRisk.SAFE)).content.contains(inputText))
+    }
+
+    @Test fun recoveredInputAuditProtectsConcatenatedSnapshotWithoutOriginalText() = runTest {
+        val provider = FakeDeviceController(enabled = true, typedTextSnapshotFactory = { text -> listOf(
+            DeviceSnapshotNode(0, null, 0, "text_field", "前缀 $text 后缀", text.take(3), "下一输入", DeviceBounds(0, 0, 40, 80),
+                true, null, false, false, "r1", setOf(DeviceNodeAction.TYPE_TEXT))) })
+        provider.typeText("snapshot-direct", "r1", "公开输入")
+        val registry = testRegistry(deviceController = provider)
+        registry.bindRunContext(AgentToolExecutionContext("c", "m", "recovered-run", "只观察", protectDeviceDisplayText = true))
+        repeat(3) {
+            val result = registry.execute(ToolCall(name = "device.snapshot", arguments = emptyMap(), risk = ToolRisk.SAFE))
+            assertTrue(result.success)
+            assertFalse(result.content.contains("公开"))
+            assertFalse(result.content.contains("前缀"))
+            assertFalse(result.content.contains("下一输入"))
+            assertTrue(result.content.contains("\"ref\":\"r1\""))
+        }
+        assertEquals("前缀 公开输入 后缀", provider.lastCapturedSnapshot?.nodes?.single()?.text)
+    }
+
+    @Test fun failedOrCancelledNativeInputStillProtectsLaterObservation() = runTest {
+        for (cancelled in listOf(false, true)) {
+            val text = "公开输入"
+            val provider = FakeDeviceController(enabled = true, typedTextSnapshotFactory = { value -> listOf(
+                DeviceSnapshotNode(0, null, 0, "text_field", value, value, value, DeviceBounds(0, 0, 40, 80),
+                    true, null, false, false, "r1", setOf(DeviceNodeAction.TYPE_TEXT))) })
+            val partial = object : DeviceController by provider {
+                override suspend fun typeText(snapshotId: String, ref: String, text: String): DeviceActionCapture {
+                    provider.typeText(snapshotId, ref, text)
+                    if (cancelled) throw kotlinx.coroutines.CancellationException("输入后回读被取消")
+                    return DeviceActionCapture.Failed(DeviceActionFailure.POST_ACTION_OBSERVATION_FAILED, "输入后回读失败")
+                }
+            }
+            val registry = testRegistry(deviceController = partial)
+            registry.bindRunContext(AgentToolExecutionContext("c", "m", "partial-input", "普通输入"))
+            runCatching { registry.execute(ToolCall(name = "device.type_text", risk = ToolRisk.REQUIRES_APPROVAL,
+                arguments = mapOf("snapshot_id" to "snapshot-direct", "ref" to "r1", "text" to text))) }
+            repeat(2) {
+                val observed = registry.execute(ToolCall(name = "device.snapshot", arguments = emptyMap(), risk = ToolRisk.SAFE))
+                assertTrue(observed.success)
+                assertFalse(observed.content.contains(text))
+            }
+            assertEquals(text, provider.lastCapturedSnapshot?.nodes?.single()?.text)
+            assertEquals(1, provider.actions.size)
+        }
+    }
+
+    @Test fun recoveredPrivacyAlsoCoversDirectActionEmbeddedSnapshot() = runTest {
+        val text = "前缀 公开输入 后缀"
+        val provider = FakeDeviceController(enabled = true, snapshotNodes = listOf(
+            DeviceSnapshotNode(0, null, 0, "button", text, text, text, DeviceBounds(0, 0, 40, 80),
+                true, null, false, false, "r1", setOf(DeviceNodeAction.TAP))))
+        val actionController = object : DeviceController by provider {
+            override suspend fun back(): DeviceActionCapture = DeviceActionCapture.Success(DeviceActionOutcome("back", "snapshot-direct",
+                (provider.capture() as DeviceSnapshotCapture.Success).snapshot.copy(windowTitle = text), true, "已验证"))
+        }
+        val registry = testRegistry(deviceController = actionController)
+        registry.bindRunContext(AgentToolExecutionContext("c", "m", "recovered-run", "返回", protectDeviceDisplayText = true))
+        val result = registry.execute(ToolCall(name = "device.back", arguments = emptyMap(), risk = ToolRisk.SAFE))
+        assertTrue(result.success)
+        assertFalse(result.content.contains("公开输入"))
+        assertFalse(result.content.contains("前缀"))
+        assertTrue(result.content.contains("after_snapshot"))
+        assertEquals(text, provider.lastCapturedSnapshot?.nodes?.single()?.text)
     }
 
     @Test

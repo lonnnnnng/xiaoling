@@ -14,7 +14,7 @@ class DeviceTypeTextSnapshotPrivacyTest {
 
     @Test fun matchingDisplayFieldsAreRemovedWithoutChangingControllerIdentity() {
         val original = snapshot("public-input")
-        val result = DeviceTypeTextSnapshotPrivacyProjection.fromText("public-input").redact(original)
+        val result = DeviceTypeTextSnapshotPrivacyProjection.redact(original)
         assertNull(result.windowTitle)
         assertNull(result.nodes.single().text)
         assertNull(result.nodes.single().description)
@@ -23,10 +23,18 @@ class DeviceTypeTextSnapshotPrivacyTest {
         assertEquals("public-input", original.nodes.single().text)
     }
 
-    @Test fun sameLengthDifferentTextAndPublicLabelsRemainUnchanged() {
-        val original = snapshot("public-other")
-        assertEquals(original, DeviceTypeTextSnapshotPrivacyProjection.fromText("public-input").redact(original))
-        val labelled = snapshot("搜索")
-        assertEquals(labelled, DeviceTypeTextSnapshotPrivacyProjection.fromText("public-input").redact(labelled))
+    @Test fun repeatedConcatenatedNormalizedAndPartialDisplayCannotEchoInput() {
+        for (display in listOf("前缀 public-input 后缀", "public input", "public-in", "搜索", "另一次输入")) {
+            val original = snapshot(display)
+            repeat(3) {
+                val projected = DeviceTypeTextSnapshotPrivacyProjection.redact(original)
+                assertNull(projected.windowTitle)
+                assertNull(projected.nodes.single().text)
+                assertNull(projected.nodes.single().description)
+                assertNull(projected.nodes.single().hint)
+                assertEquals(original.nodes.single().ref, projected.nodes.single().ref)
+                assertEquals(display, original.nodes.single().text)
+            }
+        }
     }
 }

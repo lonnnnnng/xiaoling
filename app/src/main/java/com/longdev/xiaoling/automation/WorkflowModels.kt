@@ -164,6 +164,10 @@ object WorkflowStepSnapshotCodec {
 
     fun decodeInput(raw: String): WorkflowStepInputSnapshot {
         val json = JSONObject(raw)
+        // long: 目标契约存在却不是对象时属于损坏，不能把显式完成标准当作老快照的空标准。
+        require(!json.has("goalVerificationContract") || json.opt("goalVerificationContract") is JSONObject) {
+            "Workflow 目标完成标准快照无效"
+        }
         val outputs = json.optJSONArray("previousOutputs") ?: JSONArray()
         return WorkflowStepInputSnapshot(
             goal = json.getString("goal"),

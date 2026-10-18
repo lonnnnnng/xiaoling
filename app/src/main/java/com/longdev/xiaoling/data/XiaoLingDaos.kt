@@ -718,6 +718,12 @@ interface WorkflowDao {
     @Query("SELECT * FROM workflow_steps WHERE agentRunId = :agentRunId LIMIT 1")
     suspend fun getStepByAgentRunId(agentRunId: String): WorkflowStepEntity?
 
+    @Query("SELECT * FROM workflow_steps WHERE agentRunId = :agentRunId")
+    suspend fun getStepsByAgentRunId(agentRunId: String): List<WorkflowStepEntity>
+
+    @Query("SELECT * FROM workflow_runs WHERE agentRunId = :agentRunId")
+    suspend fun getRunsWithAgentRunId(agentRunId: String): List<WorkflowRunEntity>
+
     @Query("SELECT * FROM workflow_steps WHERE workflowRunId IN (:workflowRunIds) ORDER BY workflowRunId ASC, sequence ASC")
     suspend fun getStepsForRuns(workflowRunIds: List<String>): List<WorkflowStepEntity>
 

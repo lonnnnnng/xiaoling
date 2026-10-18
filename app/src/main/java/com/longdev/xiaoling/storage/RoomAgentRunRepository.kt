@@ -99,6 +99,10 @@ class RoomAgentRunRepository(
     context: Context,
     private val database: XiaoLingDatabase = XiaoLingDatabase.getInstance(context),
 ) : AgentRunLedger {
+    private val workflowRecoveryRepository = RoomWorkflowRepository(context, database)
+
+    internal suspend fun workflowRecoveryContext(detail: AgentRunDetailRecord) = workflowRecoveryRepository.recoveryContext(detail)
+
     suspend fun createReadOnlyChildParent(conversationId: String, userMessageId: String, goals: List<String>,
         profile: AgentProfileSnapshot, foregroundRevision: Long): AgentRunRecord = database.withTransaction {
         val normalized = AgentChildBatchPolicy.goals(goals)

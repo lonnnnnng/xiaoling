@@ -3,6 +3,9 @@ package com.longdev.xiaoling.storage
 import android.content.Context
 import androidx.room.withTransaction
 import com.longdev.xiaoling.agent.AgentRunStatus
+import com.longdev.xiaoling.agent.AgentRunDetailRecord
+import com.longdev.xiaoling.agent.WorkflowDeviceActionRunContext
+import com.longdev.xiaoling.agent.WorkflowRecoveryContextPolicy
 import com.longdev.xiaoling.agent.AgentTaskOneTimeScheduleRecord
 import com.longdev.xiaoling.agent.AgentTaskRescheduleRequest
 import com.longdev.xiaoling.automation.WorkflowDefinitionPolicy
@@ -1624,6 +1627,20 @@ class RoomWorkflowRepository(
     suspend fun isWorkflowAgentRun(agentRunId: String): Boolean {
         // long: 审批恢复必须从已落库的 Workflow Step 关联还原调用来源，不能把进程重建后的 Run 默认当作前台直接对话并扩大设备动作工具面。
         return database.workflowDao().getRunByAgentRunId(agentRunId) != null
+    }
+
+    internal suspend fun recoveryContext(detail: AgentRunDetailRecord): WorkflowDeviceActionRunContext? = database.withTransaction {
+        val dao = database.workflowDao()
+        val agentRunId = detail.snapshot.run.id
+        // long: 恢复不能使用 LIMIT 1 掩盖重复关联，也不能在步骤丢失后把旧 Workflow 降为 Direct；读取的是冻结 Run，当前定义编辑不参与。
+        val matches = dao.getStepsByAgentRunId(agentRunId)
+        require(matches.size <= 1) { "Agent Run 关联多个 Workflow 步骤，拒绝恢复" }
+        val step = matches.singleOrNull()
+        val headerMatches = dao.getRunsWithAgentRunId(agentRunId)
+        require(headerMatches.all { it.id == step?.workflowRunId }) { "Workflow Run 关联缺少对应步骤，拒绝恢复" }
+        val parent = step?.let { requireNotNull(dao.getRun(it.workflowRunId)) { "Workflow 恢复缺少父 Run" } }
+        WorkflowRecoveryContextPolicy.resolve(detail, parent?.toRecord(),
+            parent?.let { dao.getSteps(it.id).map { entity -> entity.toRecord() } }.orEmpty())
     }
 
     suspend fun recentRunDetails(limit: Int = 50): List<WorkflowRunDetail> {

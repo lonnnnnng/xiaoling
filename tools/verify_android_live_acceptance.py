@@ -20,6 +20,10 @@ def descriptor(test, method, stage=292, evidence=None, arguments=None, required_
 
 TEST = "agent.AndroidLiveAcceptanceInstrumentedTest"
 PHASES = {}
+PHASES["device-input-privacy"] = descriptor("agent.DeviceInputPrivacyLiveInstrumentedTest",
+    "realModelInputKeepsRepeatedConcatenatedAndRecoveredObservationsPrivate", stage=299, evidence="EVIDENCE INPUT_PRIVACY",
+    required_evidence=("EVIDENCE INPUT_PRIVACY realModel=true realAccessibility=true publicProbeOnly=true calls=3 approvals=1 nativeInputs=1 exactReadBack=true concatenatedRaw=true repeatedSnapshots=2 recoveredSnapshots=2 roomReopened=true auditPrivate=true ",
+        "EVIDENCE INPUT_PRIVACY_RESTORE preferencesEqual=true controlledRecoveryOnly=true"))
 for api, mode in (("chat", "CHAT_COMPLETIONS"), ("responses", "RESPONSES")):
     for streaming in (False, True):
         PHASES[api + ("-stream" if streaming else "")] = descriptor(TEST,
