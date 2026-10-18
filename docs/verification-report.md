@@ -8,7 +8,7 @@
 
 指定 Redmi 本轮起始主包缺失、无障碍授权为空。正式证书 v0.1.22 全新安装后无损升级至 v0.1.23，首次安装时间、启动、UI、PID 与设备 APK 哈希核对通过。独立包名宿主完成 5 项迁移（含直接 40→44）、6 项编辑器/Room 和 1 项文档语料；不卸载/清数据、不自动授予系统权限。正式包完整模型和设备动作联合、自然恢复与 Remote 稳定服务/通知仍独立。
 
-APK 大小 `3,728,850` 字节，SHA-256 `ce85338066e050d896ee0b264c0263041aef31dc367a82c31a109b04fbedb4b9`；v2 签名、与旧正式证书一致、zipalign、Debug 入口缺失和关闭 HTTP 日志通过。GitHub 发布与回验在完成后追加，详见[本版发布记录](android-v0.1.23-release.md)。
+APK 大小 `3,728,850` 字节，SHA-256 `ce85338066e050d896ee0b264c0263041aef31dc367a82c31a109b04fbedb4b9`；v2 签名、与旧正式证书一致、zipalign、Debug 入口缺失和关闭 HTTP 日志通过。GitHub 正式 Release 已发布为 Latest，发布提交 `b690e442d370cadbd69dd9a88e4d48e08ebeafee` / tag `v0.1.23`。重新下载两个资产，字节、hash、GitHub digest、版本、签名、zipalign 与标签指向均通过。回验记录独立提交，不移动发布标签；详见[本版发布记录](android-v0.1.23-release.md)。
 
 # 2026-10-18 第 300 阶段：普通工作流编辑器确认
 

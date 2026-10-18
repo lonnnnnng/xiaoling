@@ -21,7 +21,7 @@ Room 从上一正式版本 v40 升到 v44：40→41 为记忆补 CAS 基线，41
 
 ## 本版发布门禁
 
-本机发布门禁已通过。GitHub 标签、资产上传和远端回验结果在发布后追加。
+本机发布门禁和 GitHub 远端回验均已通过；正式版本为 [v0.1.23](https://github.com/lonnnnnng/xiaoling/releases/tag/v0.1.23)。
 
 | 检查 | 实际结果 |
 | --- | --- |
@@ -47,6 +47,14 @@ Certificate SHA-256: 23ad3f3662babb32cc0ed98f8d7a6028254fbb2bb3c7c37ba54730bff8a
 首次完整 Gradle 门禁在 `packageDebug / IncrementalSplitterRunnable` 失败，单独重试 Debug/AndroidTest 打包成功；原失败未改记通过。随后 Release/Lint 构建成功，期间出现 2 GiB heap 告警。失败、重试和最终成功日志均保留；未修改项目默认内存设置。
 
 本机证据目录：`outputs/verification/release-v0.1.23/`。正式资产目录：`outputs/release/`。
+
+## GitHub 发布与远端回验
+
+- 发布提交：`b690e442d370cadbd69dd9a88e4d48e08ebeafee`；annotated tag `v0.1.23`，已推送 main 和标签。
+- GitHub Release 为正式版本（非 draft、非 prerelease），已标记 Latest。
+- 两个资产均为 uploaded；重新下载 APK 和 `.sha256`，与本地产物逐字节一致，GitHub digest 和文件大小相同。
+- 远端 APK 再次通过版本、正式签名证书与 zipalign 校验；远端标签解引用指向发布提交。
+- 本条记录在发布后独立提交，发布标签保持原提交，不随文档追加移动。
 
 ## 已有真机证据与待办
 
