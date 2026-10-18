@@ -2,6 +2,23 @@
 
 验证日期：2026-10-18（北京时间）
 
+# 2026-10-18 第 293 阶段：生产设备审批浮层专项
+
+指定 Redmi `wsvwypiz7xwslvl7 / begonia / SDK 36`、真实 `gpt-6-luna`、同签名 Debug `0.1.22 (23)`。用户停止操作手机后，`live-unattended` **同一轮 4/4 通过**，另有拒绝点击诊断单项 **1/1**；主机 runner **7/7**，Debug/AndroidTest 构建和 Debug Lint 通过。未修改生产 main 逻辑、Room schema 或发布版本。
+
+| 项目 | 审批 / Run | 生产节点动作尝试 |
+| --- | --- | --- |
+| 批准点击 / 输入 | APPROVED / COMPLETED，两项工具 PASSED、executorVerified | 各 1 次 |
+| 拒绝点击 | DENIED / FAILED，预期未获批准异常 | 0 次 |
+| 窗口变化撤销 | CANCELLED / FAILED，真实第二个 nonce Probe 窗口 | 0 次 |
+
+- 真正调用生产 `WorkflowDeviceActionApprovalGate`、Accessibility overlay/Executor 和隔离 Room，UiAutomation 点击生产可见控件；PENDING 和浮层可见时核对零调用/无结果，确切公开 View 回读一致。输入原文从审批/工具账本省略，长度/指纹匹配。**未通过正式 Workflow 页面、ViewModel 或 AgentRunUseCase 完整入口**，不扩大为全部产品流程或真实人手触屏验收。
+- 最终点击 initial/pending 的公开 Probe 诊断为 0，批准后为 1 且栈经过 Accessibility action；拒绝/窗口撤销始终为 0。计数是公开 Debug 诊断，硬断言仍为 gateway 动作尝试、实际 View 和生产 typed 验证。
+- `live-initial / live-corrected / live-probe-bound` 三份失败报告完整保留。首轮负向用例未收集 Runtime 预期异常，修正测试结果收集；其他失败曾是“gateway 0 次但 Probe 已改变”。用户确认当时操作手机并随后停止，早期没有来源栈，不能确定每次旧变化原因或用新通过改写历史。
+- 四项恢复回执均核对 UI 稳定值 `e3b0c442…`、Room 选择稳定值 `2ddf3214…`、Memory undo absent 与授权选择相同；只恢复本轮两个键，UUID Room 公开 Run 保留。instrumentation 后原授权存在但服务 crashed/unbound，文档门禁后受控重绑原组件并核实最终系统状态，回执见 `accessibility-closeout.json`，不称为自然恢复。
+- 证据根 `outputs/verification/stage293-device-approval/`，机器汇总 `verification-summary.json`、制品/凭据/文档审计 `artifact-audit-closeout.json`。真实配置继续单次长度前缀 USB/ACK，只进内存；主机门禁新增错决定/缺恢复拒绝回归。文档语料与最终系统保护结果单独记录。
+- [专项详细记录](android-device-approval-acceptance.md)保留完整 Run ID、失败矩阵和边界。Remote 稳定部署、真实通知/长期自然系统、正式 Workflow 页面/目标应用、其他模块完整入口与签名 Release 仍独立；iOS 产品暂停。本轮中文本地提交，不 push/tag/Release，保留 refs。
+
 # 2026-10-18 第 292 阶段：Android 真实模型与正式产品链验收
 
 用户决定短期不做 iOS 产品，本轮只使用指定 Redmi `wsvwypiz7xwslvl7 / begonia / SDK 36` 和授权 `gpt-6-luna` 配置。内部 Debug 仍为 `0.1.22 (23)`；不继续 iOS，不卸载/清正式数据，不推送、打标签或发布 Release。七点实现基线与所有产品功能验收是不同结论，独立待办继续保留。

@@ -9,13 +9,13 @@ import java.net.InetAddress
 import java.net.ServerSocket
 
 /** long: 真实验收配置只经单次 USB socket 进入测试内存，避免正式偏好、Intent 和 APK 留存凭据。 */
-internal fun androidLiveProvider(): ProviderRequestConfig {
-    requireAndroidLiveScope()
+internal fun androidLiveProvider(stage: Int = 292): ProviderRequestConfig {
+    requireAndroidLiveScope(stage)
     val args = InstrumentationRegistry.getArguments()
-    val port = requireNotNull(args.getString("stage292ConfigPort")).toInt().also { require(it in 1024..65535) }
+    val port = requireNotNull(args.getString("stage${stage}ConfigPort")).toInt().also { require(it in 1024..65535) }
     val json = ServerSocket(port, 1, InetAddress.getByName("127.0.0.1")).use { listener ->
         listener.soTimeout = 30_000
-        androidLiveStatus("STAGE292_CONFIG_READY")
+        androidLiveStatus("STAGE${stage}_CONFIG_READY")
         listener.accept().use { socket ->
             socket.soTimeout = 10_000
             val stream = DataInputStream(socket.getInputStream())
@@ -29,11 +29,12 @@ internal fun androidLiveProvider(): ProviderRequestConfig {
         }
     }
     return ProviderRequestConfig(json.getString("baseUrl"), json.getString("apiKey"), json.getString("model"),
-        providerId = "stage292-live", maxTokens = 4000, httpDebugLoggingEnabled = false)
+        providerId = "stage${stage}-live", maxTokens = 4000, httpDebugLoggingEnabled = false)
 }
 
-internal fun requireAndroidLiveScope() {
-    require(InstrumentationRegistry.getArguments().getString("stage292RealRun") == "true") { "真实验收必须显式选择并提供内存配置" }
+internal fun requireAndroidLiveScope(stage: Int = 292) {
+    require(stage in setOf(292, 293))
+    require(InstrumentationRegistry.getArguments().getString("stage${stage}RealRun") == "true") { "真实验收必须显式选择并提供内存配置" }
     check(android.os.Build.DEVICE == "begonia" && android.os.Build.VERSION.SDK_INT == 36) { "只允许指定 Redmi/SDK 真机" }
 }
 

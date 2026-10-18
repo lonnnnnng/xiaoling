@@ -51,6 +51,21 @@ class McpLiveAcceptanceAuditTest(unittest.TestCase):
         self.assertFalse(result["passed"])
         self.assertEqual(["STAGE292_EVIDENCE PRODUCT_RESTORE "], result["missingEvidence"])
 
+    def test_overlay_rejects_other_decisions_and_missing_restore_even_with_junit_success(self):
+        for name in ("overlay-tap-approve", "overlay-type-approve", "overlay-tap-deny", "overlay-tap-window-change"):
+            spec = PHASES[name]
+            business, restore = spec["requiredEvidence"]
+            records = [business + "verified=true\n", restore + "verified=true\n", "OK (1 test)\n"]
+            with self.subTest(phase=name):
+                self.assertTrue(live.instrumentation_verdict(0, True, records, spec)["passed"])
+                # long: 同一生产浮层的其他决定与 JUnit 成功都不能替代本项动作；恢复缺失也必须留下失败记录。
+                wrong_decision = "deny" if "decision=approve " in business else "approve"
+                wrong = business.split("decision=", 1)[0] + f"decision={wrong_decision} verified=true\n"
+                for incomplete in ([wrong, records[1], records[2]], [records[0], records[2]]):
+                    result = live.instrumentation_verdict(0, True, incomplete, spec)
+                    self.assertFalse(result["passed"])
+                    self.assertTrue(result["missingEvidence"])
+
     def test_startup_and_cleanup_failures_keep_both_causes(self):
         with tempfile.TemporaryDirectory() as folder, \
                 patch.object(live, "adb", side_effect=["34567", RuntimeError("device offline")]), \

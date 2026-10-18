@@ -1,5 +1,10 @@
 # 文档索引
 
+## 第 293 阶段 Android 设备审批浮层专项
+
+- [设备审批浮层验收](android-device-approval-acceptance.md)：指定 Redmi、真实 `gpt-6-luna` 与生产 Gate/Service/隔离 Room，同一轮批准点击、批准输入、拒绝、窗口撤销四项通过；保留前三轮失败和用户操作手机的干扰事实。正式 Workflow 页面完整入口与自然服务恢复单列。
+- [第 292 阶段真实模型与产品验收](android-live-acceptance.md)：24 项已有功能的证据分级、失败历史、偏好保护和独立待办。
+
 ## 第 290 阶段 GenUI（第 6 点三片实现基线收口）
 
 - [GenUI v2 与显式 action](genui-actions.md)：版本化组件、仅内存草稿、短期单次引用、单工具前台审批及旧引用恢复拒绝。Workspace/Browser/GenUI 实现基线收口；完整产品真实模型联合、自然系统、真实渲染 DOM/网页输入与正式 Release 单列，下一主线为第 7 点 KMP 协议/codec。

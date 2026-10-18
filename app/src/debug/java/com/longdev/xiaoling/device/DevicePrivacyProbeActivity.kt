@@ -3,6 +3,8 @@ package com.longdev.xiaoling.device
 import android.app.Activity
 import android.os.Bundle
 import android.text.InputType
+import android.text.Editable
+import android.text.TextWatcher
 import android.view.ViewGroup
 import android.view.WindowManager
 import android.widget.Button
@@ -12,6 +14,8 @@ import android.widget.TextView
 import android.widget.ScrollView
 
 class DevicePrivacyProbeActivity : Activity() {
+    private var publicClickCount = 0
+    private var publicMutationTrace = "none"
     override fun onResume() {
         super.onResume()
         resumedProbe = this
@@ -35,6 +39,8 @@ class DevicePrivacyProbeActivity : Activity() {
     }
 
     private fun render(intent: android.content.Intent) {
+        publicClickCount = 0
+        publicMutationTrace = "none"
         window.setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_STATE_ALWAYS_HIDDEN)
         val layout = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
@@ -69,12 +75,21 @@ class DevicePrivacyProbeActivity : Activity() {
         } else {
             layout.addView(TextView(this).apply { text = "设备动作验收" })
             val actionStatus = TextView(this).apply { text = "等待测试动作" }
+            // long: 公开按钮状态在审批前漂移时，记录类与方法来源，区分本轮节点动作和页面之外的点击；不记录任何参数或用户窗口。
+            actionStatus.addTextChangedListener(object : TextWatcher {
+                override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) = Unit
+                override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) = Unit
+                override fun afterTextChanged(s: Editable?) {
+                    if (s.toString() == "动作已完成") publicMutationTrace = Throwable().stackTrace.take(30)
+                        .joinToString("|") { "${it.className}#${it.methodName}" }
+                }
+            })
             layout.addView(actionStatus)
             layout.addView(
                 Button(this).apply {
                     text = "测试按钮"
                     // long: 真机 tracer bullet 需要可复核的页面变化；明确更新状态文本，避免仅凭 ACTION_CLICK 返回 true 就把无业务效果的点击判为成功。
-                    setOnClickListener { actionStatus.text = "动作已完成" }
+                    setOnClickListener { publicClickCount++; actionStatus.text = "动作已完成" }
                 },
             )
         }
@@ -94,13 +109,19 @@ class DevicePrivacyProbeActivity : Activity() {
         else setContentView(layout)
     }
 
+    fun publicClickAudit(nonce: String): String {
+        check(intent.getStringExtra(EXTRA_LIVE_NONCE) == nonce)
+        return "clicks=$publicClickCount mutationTrace=$publicMutationTrace"
+    }
+
     companion object {
         @Volatile private var resumedProbe: DevicePrivacyProbeActivity? = null
         const val EXTRA_LIVE_NONCE = "public_live_nonce"
         // long: 包名不能区分公开 Probe 与正式会话页；nonce 与真实 resumed/focus 联合绑定，防止测试误采集同包用户页面。
-        fun ownsResumedPublicProbe(nonce: String): Boolean = resumedProbe?.let {
+        fun currentResumedPublicProbe(nonce: String): DevicePrivacyProbeActivity? = resumedProbe?.takeIf {
             it.hasWindowFocus() && it.intent.getStringExtra(EXTRA_LIVE_NONCE) == nonce
-        } == true
+        }
+        fun ownsResumedPublicProbe(nonce: String): Boolean = currentResumedPublicProbe(nonce) != null
         const val EXTRA_MODE = "mode"
         const val MODE_TYPE_TEXT = "type_text"
         const val MODE_SCROLL = "scroll"

@@ -51,6 +51,13 @@ for action in ("tap", "type", "scroll"):
         required_evidence=("EVIDENCE DEVICE_REBIND ", f"EVIDENCE DEVICE action={action} "),
         arguments={"stage292DeviceAction": action})
 
+# long: 人工浮层必须同时留下当前动作的业务证据与恢复回执，旧受控 ApprovalGate 的成功不能满足本专项。
+for action, decision in (("tap", "approve"), ("type", "approve"), ("tap", "deny"), ("tap", "window-change")):
+    PHASES[f"overlay-{action}-{decision}"] = descriptor("agent.AndroidDeviceApprovalLiveInstrumentedTest",
+        "realModelUsesProductionDeviceApprovalOverlayOnPublicProbe", stage=293, evidence="EVIDENCE OVERLAY",
+        required_evidence=(f"EVIDENCE OVERLAY action={action} decision={decision} ", "EVIDENCE OVERLAY_RESTORE "),
+        arguments={"stage293Action": action, "stage293Decision": decision})
+
 
 def main():
     parser = argparse.ArgumentParser(description="真实 Android 功能验收；APK 需先覆盖安装，不修改正式 Provider")
