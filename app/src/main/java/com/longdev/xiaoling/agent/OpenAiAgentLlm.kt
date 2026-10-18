@@ -72,6 +72,13 @@ class OpenAiAgentLlm(
                 toolResult = execution.toolResult.copy(knowledgeReferences = execution.toolResult.knowledgeReferences.toList()))
         }
         val history = frozenTools.toPlannerHistoryJson()
+        // long: 目标、工具与 Skill 都可能包含多行原文；显式拼接前缀才能让历史边界与落库校验一致，不能依赖整段模板的最小缩进。
+        val plannerPrefix = buildString {
+            append("用户目标：").append(goal)
+            append("\n\n可用工具：\n").append(tools.joinToString("\n") { it.toModelPromptLine() })
+            append("\n\n按目标选中的 Skill：\n").append(selectedSkills.toModelPromptBlock())
+            append("\n\n已执行并验证的工具历史：\n")
+        }
         var messages = listOf(
                 RequestMessage(
                     role = "system",
@@ -92,24 +99,13 @@ class OpenAiAgentLlm(
                 ),
                 RequestMessage(
                     role = "user",
-                    content = """
-                        用户目标：$goal
-
-                        可用工具：
-                        ${tools.joinToString("\n") { tool -> tool.toModelPromptLine() }}
-
-                        按目标选中的 Skill：
-                        ${selectedSkills.toModelPromptBlock()}
-
-                        已执行并验证的工具历史：
-                        $history
-                    """.trimIndent(),
+                    content = plannerPrefix + history,
                     images = userAttachments.image?.let(::listOf).orEmpty(),
                     documents = userAttachments.document?.let(::listOf).orEmpty(),
                 ),
         )
         val source = contextInput(AgentLlmPhase.PLAN, messages, frozenTools)
-        val candidate = if (compressHistory) AgentContextCompressionPolicy.prepare(source, messages.last().content.length - history.length) else null
+        val candidate = if (compressHistory) AgentContextCompressionPolicy.prepare(source, plannerPrefix.length) else null
         if (candidate != null) {
             // long: 只替换末尾历史区，目标/工具目录/Skill 与最近结果不改；原输入将随派生版本落库，不能只保存压缩后文本。
             messages = messages.mapIndexed { index, message -> message.copy(content = candidate.input.messages[index].content) }

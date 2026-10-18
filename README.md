@@ -17,6 +17,8 @@
 
 ## 下载
 
+短期暂停 iOS 产品工作，当前优先[Android 真实模型与产品验收](docs/android-live-acceptance.md)。已有实现基线与完整产品、自然系统恢复和正式 Release 验收分别记录。
+
 - [GitHub Release v0.1.22](https://github.com/lonnnnnng/xiaoling/releases/tag/v0.1.22)
 - 安装包：`xiaoling-v0.1.22.apk`
 - 完整性校验：`xiaoling-v0.1.22.apk.sha256`

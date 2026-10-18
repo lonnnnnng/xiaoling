@@ -9,8 +9,18 @@ import android.widget.Button
 import android.widget.EditText
 import android.widget.LinearLayout
 import android.widget.TextView
+import android.widget.ScrollView
 
 class DevicePrivacyProbeActivity : Activity() {
+    override fun onResume() {
+        super.onResume()
+        resumedProbe = this
+    }
+
+    override fun onPause() {
+        if (resumedProbe === this) resumedProbe = null
+        super.onPause()
+    }
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         render(intent)
@@ -49,6 +59,13 @@ class DevicePrivacyProbeActivity : Activity() {
                     setText("ready")
                 },
             )
+        } else if (intent.getStringExtra(EXTRA_MODE) == MODE_SCROLL) {
+            // long: 滚动验收只使用宿主公开固定内容，避免为验证 viewport 变化读取用户的系统设置或其他应用资料。
+            layout.layoutParams.height = ViewGroup.LayoutParams.WRAP_CONTENT
+            repeat(60) { index -> layout.addView(TextView(this).apply {
+                text = "公开滚动验收条目 ${index + 1}"
+                setPadding(0, 32, 0, 32)
+            }) }
         } else {
             layout.addView(TextView(this).apply { text = "设备动作验收" })
             val actionStatus = TextView(this).apply { text = "等待测试动作" }
@@ -61,11 +78,31 @@ class DevicePrivacyProbeActivity : Activity() {
                 },
             )
         }
-        setContentView(layout)
+        if (intent.getStringExtra(EXTRA_MODE) == MODE_SCROLL) setContentView(object : ScrollView(this) {
+            override fun performAccessibilityAction(action: Int, arguments: Bundle?): Boolean {
+                if (action == android.view.accessibility.AccessibilityNodeInfo.ACTION_SCROLL_FORWARD ||
+                    action == android.view.accessibility.AccessibilityNodeInfo.ACTION_SCROLL_BACKWARD) {
+                    // long: 保留半屏共同锚点才能独立核实位移方向；原生整屏动作会移走全部锚点，本页仍实际滚动且返回真实位置变化。
+                    val before = scrollY
+                    val step = maxOf(1, height / 2)
+                    scrollBy(0, if (action == android.view.accessibility.AccessibilityNodeInfo.ACTION_SCROLL_FORWARD) step else -step)
+                    return scrollY != before
+                }
+                return super.performAccessibilityAction(action, arguments)
+            }
+        }.apply { addView(layout) })
+        else setContentView(layout)
     }
 
     companion object {
+        @Volatile private var resumedProbe: DevicePrivacyProbeActivity? = null
+        const val EXTRA_LIVE_NONCE = "public_live_nonce"
+        // long: 包名不能区分公开 Probe 与正式会话页；nonce 与真实 resumed/focus 联合绑定，防止测试误采集同包用户页面。
+        fun ownsResumedPublicProbe(nonce: String): Boolean = resumedProbe?.let {
+            it.hasWindowFocus() && it.intent.getStringExtra(EXTRA_LIVE_NONCE) == nonce
+        } == true
         const val EXTRA_MODE = "mode"
         const val MODE_TYPE_TEXT = "type_text"
+        const val MODE_SCROLL = "scroll"
     }
 }

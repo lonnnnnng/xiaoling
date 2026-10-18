@@ -9,9 +9,48 @@ import unittest
 from unittest.mock import MagicMock, patch
 
 import verify_mcp_live_acceptance as live
+from verify_android_live_acceptance import PHASES
 
 
 class McpLiveAcceptanceAuditTest(unittest.TestCase):
+    def test_generic_descriptor_keeps_usb_protocol_and_requires_its_own_evidence(self):
+        spec = {"test": "public.Test", "method": "actual", "realArg": "stage292RealRun",
+                "portArg": "stage292ConfigPort", "ready": "STAGE292_CONFIG_READY",
+                "evidence": "STAGE292_EVIDENCE NATIVE ", "progress": "STAGE292_RUN"}
+        for evidence, expected in (("STAGE292_EVIDENCE NATIVE public=true", True),
+                                   ("STAGE292_EVIDENCE WORKSPACE public=true", False),
+                                   ("STAGE286_EVIDENCE NATIVE public=true", False)):
+            raw = "STAGE292_CONFIG_READY\n" + evidence + "\nOK (1 test)\n"
+            process = SimpleNamespace(stdout=io.StringIO(raw), wait=lambda **_: 0, poll=lambda: 0)
+            connection = MagicMock()
+            connection.__enter__.return_value.recv.return_value = b"\x01"
+            with tempfile.TemporaryDirectory() as folder, patch.object(live, "adb", side_effect=["34567", ""]), \
+                    patch.object(live.subprocess, "Popen", return_value=process) as start, \
+                    patch.object(live.socket, "create_connection", return_value=connection):
+                result = live.phase("public", 19892, b"{}", (), Path(folder), descriptor=spec)
+            self.assertEqual(expected, result["passed"])
+            self.assertIn("public.Test#actual", start.call_args.args[0])
+            self.assertIn("stage292ConfigPort", start.call_args.args[0])
+            connection.__enter__.return_value.sendall.assert_called_once_with(b"\x00\x00\x00\x02{}")
+
+    def test_matching_stage_but_wrong_api_or_device_action_is_rejected(self):
+        for name, wrong in (("chat-stream", "STAGE292_EVIDENCE CHAT mode=CHAT_COMPLETIONS streaming=false marker=true"),
+                            ("responses", "STAGE292_EVIDENCE CHAT mode=CHAT_COMPLETIONS streaming=false marker=true"),
+                            ("attachment-image", "STAGE292_EVIDENCE ATTACHMENT type=text actualContent=true"),
+                            ("device-tap", "STAGE292_EVIDENCE DEVICE_REBIND originalSelectionRestored=true\n"
+                                           "STAGE292_EVIDENCE DEVICE action=type roomPassed=true")):
+            with self.subTest(phase=name):
+                result = live.instrumentation_verdict(0, True, [wrong + "\n", "OK (1 test)\n"], PHASES[name])
+                self.assertFalse(result["passed"])
+                self.assertTrue(result["missingEvidence"])
+
+    def test_product_ui_requires_restore_after_all_business_evidence(self):
+        records = [marker + "verified=true\n" for marker in PHASES["product-ui"]["requiredEvidence"]]
+        self.assertTrue(live.instrumentation_verdict(0, True, records + ["OK (1 test)\n"], PHASES["product-ui"])["passed"])
+        result = live.instrumentation_verdict(0, True, records[:-1] + ["OK (1 test)\n"], PHASES["product-ui"])
+        self.assertFalse(result["passed"])
+        self.assertEqual(["STAGE292_EVIDENCE PRODUCT_RESTORE "], result["missingEvidence"])
+
     def test_startup_and_cleanup_failures_keep_both_causes(self):
         with tempfile.TemporaryDirectory() as folder, \
                 patch.object(live, "adb", side_effect=["34567", RuntimeError("device offline")]), \

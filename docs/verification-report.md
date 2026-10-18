@@ -2,6 +2,34 @@
 
 验证日期：2026-10-18（北京时间）
 
+# 2026-10-18 第 292 阶段：Android 真实模型与正式产品链验收
+
+用户决定短期不做 iOS 产品，本轮只使用指定 Redmi `wsvwypiz7xwslvl7 / begonia / SDK 36` 和授权 `gpt-6-luna` 配置。内部 Debug 仍为 `0.1.22 (23)`；不继续 iOS，不卸载/清正式数据，不推送、打标签或发布 Release。七点实现基线与所有产品功能验收是不同结论，独立待办继续保留。
+
+| 验证层 | 本轮结果 | 证据边界 |
+| --- | --- | --- |
+| Context7 / MCP | **5/5** | Context7 默认公网 HTTPS 认证发现/只读解析；真实模型 SSE 成功/取消/停用的服务端为 loopback |
+| 聊天与附件 | **7/7** | 两种 API 各普通/流式，实际 delta 后本地取消，Responses 公开文本与现场合成图片 |
+| 原生 / Workspace / Browser | **3/3** | 五项状态、隔离文件/单 argv/持久 transcript、IANA 公网 SERVER_HTML 与批准后站内导航 |
+| Memory / 压缩 | **2/2** | 四个独立真实目标与召回/CAS/Room reopen；两次大文件读取、完整来源/账本和真实派生输入 |
+| GenUI / 插件 / child | **3/3** | 组件宿主批准、签名生产 UseCase、两个真实模型只读 child 与父单次消费；不能合称全部正式产品 UI |
+| 正式产品 UI | **1/1** | 实际 MainActivity/ViewModel 的两项聊天、发送按钮、Room 消息、生成卡片/点击/正式批准、批准前零执行、来源 hash 绑定 |
+| 设备动作 | **3/3** | 用户原已授予系统权限；公开 nonce Probe、真实 Accessibility、精确输入/回读/省略投影、半屏滚动位移；受控 ApprovalGate，非正式设备审批浮层链 |
+| 隔离受控 instrumentation | **8/8** | Remote 损坏/导航令牌，Memory outbox/Worker/CAS/undo，恢复审批门禁，提醒 Workflow/计划持久化；无真实模型 |
+| 独立进程恢复 | **3 + 3 + 2 项通过** | context / maintenance / Workspace 的独立 PID；持久边界由隔离夹具创建，无旧模型/工具重放，不代表自然 LMK/Doze |
+| App 聚焦 JVM | **25/25** | 压缩 5、context snapshot 7、兼容 client 11、取消 2；修复前压缩 5 项中 2 项失败，原日志保留 |
+| 主机 runner | **6/6** | USB 帧/业务 evidence、API/模式/动作与正式 UI 恢复回执、启动/失败/cleanup 保留；模拟 FAIL 输出为预期故障 |
+
+- **24 个独立 live phase 最终均有通过记录**，跨多轮选用成功记录，原失败报告不会改成通过。详细矩阵、执行分层、失败原文与尚未覆盖项见[Android 真实验收](android-live-acceptance.md)；证据根为 `outputs/verification/stage292-android-live/`，机器汇总见 `verification-summary.json`。
+- 真实 MCP Run 暴露 `AgentContextCompressionPolicy.history` 边界故障：多行目标/工具/Skill 与 `trimIndent()` 留下模板缩进。改成显式前缀加历史，以前缀长度定位历史；严格校验保留。真实短/长 adapter 回归与五项 MCP 复验通过，失败 Run `run-6abfc51f-a697-499c-9289-92ee6b762507` 保留。
+- Workspace 初版双 `printf` 参数和写回执正文断言、Memory 召回开关、设备数字 marker/方向/共同锚点均为验收夹具问题，修正没有放宽生产权限。Memory 组合目标跳步/调序属于真实模型遵循失败；笔记写入后的提供方超时、USB 255、真实前台 owner 撤销均保留，不用重试成功覆盖。
+- 配置由长度前缀、一次连接、ACK 的 USB socket 输入，密钥不进入 argv/Intent/APK；直接网络关闭 HTTP debug、落盘前脱敏。正式 UI 的临时 Provider 使用现有 Keystore 密文，仅按本轮 UUID 删除；原 Provider 不重写，偏好只恢复本轮选择键，清理失败独立汇总。异常进程死亡不保证 finally。
+- 设备测试在 Runner 重启后发现 enabled-but-crashed 服务；只受控重绑原已授权组件并恢复原服务字符串，不添加权限、不替换其他服务选择。半屏公开滚动页实际位移经共同锚点验证；这不证明所有应用滚动或自然服务恢复。
+- 三组实际 PID：context `21076 → 21168 → 21216`，maintenance `21262 → 21306 → 21353`，Workspace `21465 → 21512`；三组成功后仅清理自身 UUID 夹具。机器报告分别为 `context-process/result.json`、`maintenance-process/result.json`、`workspace-process/result.json`。最终构建/文档语料、授权后保护基线、APK 文档字节、本地链接及两项实际凭据匹配审计由同目录的最终日志与 `artifact-audit-final.json`、`protected-audit.json` 记录。
+- 授权后 `xiaoling_room_state.xml` 字节基线为 `b79dc81e…`，后续恢复观察到字节变化；不能声称 XML 字节未变。正式 UI 的恢复断言核实原键值完全一致，追加前后稳定值摘要均为 `2ddf3214…`，新进程再从磁盘核对；最终文件摘要见 `protected-audit.json`。新夹具不直接写回旧 XML，Memory undo 仍 absent，临时设备开关文件恢复为原不存在状态。结束检查曾发现系统授权列表为空，原因未确认；用户再次手动开启后最终只读核实授权、绑定正常且无 crashed service，详见 `accessibility-verified.json`。未再次运行 instrumentation 或写系统设置。
+- 最终主机门禁按业务/API/模式/动作与正式 UI 恢复回执回查保留日志，24/24 通过，见 `business-evidence-revalidation.json`。收口补充文字后仅在主机重建 AndroidTest assets、检查文档字节与本地链接；2/2 设备语料/偏好保护门禁来自此前 `final-state-corpus-protected.log`，未对补充后的文字再跑 instrumentation。最终制品审计见 `artifact-audit-closeout.json`。
+- Remote 稳定部署、自然 Doze/LMK/系统重启、真实通知与完整 Workflow、联系人/日历、语音/TTS、全部分享格式、各模块全部正式界面及签名 Release 仍为独立待办。受控恢复、底层真实工具和组件点击不能替代这些结论。
+
 # 2026-10-18 第 291 阶段第九片：真实 UIKit/模型前台 loop
 
 - 第 7 点原定实现基线收口：九片满足 Android 定向回归、iOS contract/codec/runtime smoke 和平台能力矩阵的原退出标准。本片新增静态 XiaoLingShared.framework、单窗口 UIKit 验收 App 和普通非流式 Chat Completions/严格 JSON adapter；只读 workspace/list/read 与宿主固定 example 页面，不扩到任意 URL、网页 action 或后台。shared Agent v5、HTTP/Browser v1、Room v44、Android 发布 `0.1.22 (23)` 保持；iOS 验收宿主内部 `0.0.1 (1)`。

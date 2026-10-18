@@ -1,5 +1,9 @@
 # 小灵个人 Agent 路线图
 
+## 2026-10-18：Android 产品验收优先
+
+用户决定短期不做 iOS 产品。第 291 阶段已有协议/codec 与宿主验收保留，后续产品工作暂停；当前执行第 292 阶段 Android 已有功能的指定 Redmi、真实 `gpt-6-luna` 验收，范围与失败记录见[Android 真实验收](android-live-acceptance.md)。七点的实现基线完成不等于所有产品/长期/Release 验收完成；原独立待办保持。
+
 ## 2026-10-17：六个参考仓库同步后的路线基线
 
 本轮已在 `refs/` 中用各仓库默认分支 `git fetch --prune` + `git pull --ff-only` 同步，六个仓库工作树均干净：

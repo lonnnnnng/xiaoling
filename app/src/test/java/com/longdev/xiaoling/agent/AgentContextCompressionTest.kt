@@ -78,11 +78,15 @@ class AgentContextCompressionTest {
         try {
             server.enqueue(MockResponse().setBody("""{"choices":[{"message":{"content":"{\"action\":\"complete\"}"}}]}"""))
             val llm = OpenAiAgentLlm(OpenAiCompatibleClient(), ProviderRequestConfig(server.url("/v1").toString(),
-                "fixture-key", "fixture", httpDebugLoggingEnabled = false), "样式")
+                "fixture-key", "fixture", httpDebugLoggingEnabled = false), "样式", selectedSkills = listOf(
+                AgentSkillDefinition("first", name = "读取", description = "夹具", instructions = "第一行\n第二行", toolNames = emptySet(), keywords = emptySet()),
+                AgentSkillDefinition("second", name = "总结", description = "夹具", instructions = "保留原文", toolNames = emptySet(), keywords = emptySet()),
+            ))
+            val tools = listOf(ToolDefinition("fixture.read", "读取", ToolRisk.SAFE), ToolDefinition("fixture.list", "目录", ToolRisk.SAFE))
             val executions = listOf(old, "最近完整事实").mapIndexed { i, text -> AgentToolExecution(
                 ToolCall("call-$i", "fixture.read", mapOf("value" to "$i"), ToolRisk.SAFE), ToolExecutionResult(true, text)) }
             var captured: AgentContextCompressionCandidate? = null
-            llm.proposeNextActionWithCompression("保留目标", emptyList(), executions) { input, candidate ->
+            llm.proposeNextActionWithCompression("保留目标\n不猜测缺失事实", tools, executions) { input, candidate ->
                 captured = requireNotNull(candidate)
                 assertEquals(input, candidate.input)
                 assertTrue(candidate.sourceInput.messages.last().content.contains("中间完整事实"))
@@ -92,6 +96,30 @@ class AgentContextCompressionTest {
             assertFalse(captured!!.input.messages.last().content.contains("中间完整事实"))
             assertTrue(runCatching { llm.proposeNextActionWithCompression("goal", emptyList(), executions) { _, _ -> error("fixture") } }.isFailure)
             assertTrue(runCatching { llm.proposeNextActionWithCompression("goal", emptyList(), executions) { _, _ -> throw kotlinx.coroutines.CancellationException("fixture") } }.isFailure)
+            assertEquals(1, server.requestCount)
+        } finally { server.shutdown() }
+    }
+
+    @Test fun multipleToolsWithSmallVerifiedHistoryKeepExactBoundaryAndSendOriginalInput() = runBlocking {
+        val server = MockWebServer()
+        server.start()
+        try {
+            server.enqueue(MockResponse().setBody("""{"choices":[{"message":{"content":"{\"action\":\"complete\"}"}}]}"""))
+            val llm = OpenAiAgentLlm(OpenAiCompatibleClient(), ProviderRequestConfig(server.url("/v1").toString(),
+                "fixture-key", "fixture", httpDebugLoggingEnabled = false), "样式")
+            val tools = listOf(ToolDefinition("fixture.read", "读取", ToolRisk.SAFE), ToolDefinition("fixture.list", "目录", ToolRisk.SAFE))
+            val executions = listOf("first", "second").map { id -> AgentToolExecution(
+                ToolCall(id, "fixture.read", emptyMap(), ToolRisk.SAFE), ToolExecutionResult(true, "短结果")) }
+            lateinit var captured: AgentContextInput
+            llm.proposeNextActionWithCompression("两步读取", tools, executions) { input, candidate ->
+                assertNull(candidate)
+                captured = input
+                val text = input.messages.last().content
+                val start = text.indexOf("已执行并验证的工具历史：\n") + "已执行并验证的工具历史：\n".length
+                assertEquals(2, AgentContextCompressionPolicy.history(input, start).length())
+            }
+            val wire = JSONObject(server.takeRequest().body.readUtf8()).getJSONArray("messages")
+            assertEquals(captured.messages.last().content, wire.getJSONObject(1).getString("content"))
             assertEquals(1, server.requestCount)
         } finally { server.shutdown() }
     }

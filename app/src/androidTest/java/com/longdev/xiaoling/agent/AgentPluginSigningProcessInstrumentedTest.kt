@@ -46,6 +46,12 @@ class AgentPluginSigningProcessInstrumentedTest {
         files.put("memoryUndo", if (undo.exists()) hash(undo) else "absent")
         InstrumentationRegistry.getInstrumentation().sendStatus(2, Bundle().apply {
             putString("pluginProtectedState", files.toString())
+            // long: 新进程从磁盘加载偏好再报告稳定值摘要，区分值恢复与 XML 字节顺序变化，任何正文都不进入日志。
+            putString("pluginProtectedPreferenceValues", JSONObject().apply {
+                listOf("xiaoling_room_state", "xiaoling_ui").forEach { name ->
+                    put(name, androidLivePreferenceDigest(context.getSharedPreferences(name, Context.MODE_PRIVATE).all))
+                }
+            }.toString())
         })
     }
 
