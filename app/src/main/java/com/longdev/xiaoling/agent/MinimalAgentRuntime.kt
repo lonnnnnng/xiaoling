@@ -1411,9 +1411,21 @@ class MinimalAgentRuntime internal constructor(
         result: ToolExecutionResult,
     ) {
         val evidence = result.readableEvidence ?: return
-        // long: 只读证据必须属于当前调用且保持 READABLE_ONLY；任何把页面快照标成已提交副作用的结果都在写入账本前拒绝。
+        // long: 普通页面保持 READABLE_ONLY；只有逐次审批的浏览器动作与当前会话、输入引用及输出快照完整绑定，才接受本机动作验证。
         check(result.success) { "失败工具不能携带只读成功证据" }
-        check(result.verified == null) { "只读证据不能升级为已验证副作用" }
+        val action = evidence.browserAction
+        if (action == null) check(result.verified == null && result.executionReceipt == null) { "只读证据不能升级为已验证副作用" }
+        else {
+            val expected = when (toolCall.name) {
+                BROWSER_CLICK_TOOL_NAME -> BrowserDomAction.NAVIGATE_LINK
+                BrowserTypeTextAuditPolicy.TOOL_NAME -> BrowserDomAction.TYPE_DRAFT
+                else -> error("非浏览器动作不能携带动作证据")
+            }
+            check(result.verified == true && result.executionReceipt == null && toolCall.risk == ToolRisk.REQUIRES_APPROVAL &&
+                action.action == expected && action.toolCallId == toolCall.id && action.sessionId == toolCall.arguments["session_id"] &&
+                action.inputSnapshotId == toolCall.arguments["snapshot_id"] && action.ref == toolCall.arguments["ref"] &&
+                action.outputSnapshotId == evidence.snapshotId) { "浏览器动作证据与当前调用不一致" }
+        }
         check(evidence.toolCallId == toolCall.id) {
             "只读证据不属于当前工具调用：expected=${toolCall.id}, actual=${evidence.toolCallId}"
         }

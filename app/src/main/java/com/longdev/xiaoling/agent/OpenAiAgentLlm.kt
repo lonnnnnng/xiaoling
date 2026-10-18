@@ -211,10 +211,12 @@ class OpenAiAgentLlm(
         messages: List<RequestMessage>,
         completedTools: List<AgentToolExecution>,
     ): AgentContextInput {
-        val containsDeviceInput = completedTools.any { it.toolCall.name == DeviceTypeTextAuditPolicy.TOOL_NAME }
+        val containsDeviceInput = completedTools.any { it.toolCall.name in setOf(DeviceTypeTextAuditPolicy.TOOL_NAME, BrowserTypeTextAuditPolicy.TOOL_NAME) }
+        // long: 浏览器草稿复用已有拒绝精确恢复的脱敏投影，保持旧 codec/Room 兼容；持久正文不能回流输入原文。
+        val containsBrowserDraft = completedTools.any { it.toolCall.name == BrowserTypeTextAuditPolicy.TOOL_NAME }
         val frozenMessages = messages.map { message ->
             // long: 输入原文可经多层 JSON、目标或工具结果回流；整条正文省略才能避免转义层数绕过脱敏，网络请求仍使用原冻结文本。
-            AgentContextMessage(message.role, if (containsDeviceInput) "[含设备输入历史，正文未持久化]" else message.content)
+            AgentContextMessage(message.role, if (containsBrowserDraft) "[含浏览器草稿输入历史，正文未持久化]" else if (containsDeviceInput) "[含设备输入历史，正文未持久化]" else message.content)
         }
         return AgentContextInput(
             phase, config.model, config.providerId, config.apiMode.name, frozenMessages, completedTools.map { it.toolCall.id },
@@ -244,11 +246,14 @@ private data class AgentExecutionSummary(
 private fun List<AgentToolExecution>.toPlannerHistoryJson(): String {
     return JSONArray().apply {
         this@toPlannerHistoryJson.forEachIndexed { index, execution ->
+            // long: 浏览器输入只更新本机草稿，后续规划只需目标与摘要；不能把 Executor 的原文重新发给模型。
+            val historyCall = if (execution.toolCall.name == BrowserTypeTextAuditPolicy.TOOL_NAME)
+                DeviceTypeTextAuditPolicy.toolCallForPersistence(execution.toolCall) else execution.toolCall
             put(
                 JSONObject()
                     .put("step", index + 1)
                     .put("tool", execution.toolCall.name)
-                    .put("arguments", JSONObject(execution.toolCall.arguments))
+                    .put("arguments", JSONObject(historyCall.arguments))
                     .put("success", execution.toolResult.success)
                     .put("verified", execution.toolResult.verified)
                     .put("content", execution.toolResult.content)

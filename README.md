@@ -104,7 +104,7 @@ Release 签名从未跟踪文件 `local-signing/xiaoling-release.env` 读取。�
 
 ## 当前状态
 
-当前主线为第 6 点 Workspace/Browser/GenUI（第 290 阶段）。第一片 Workspace 已实现独立原子会话账本、Run/命令身份、有界 transcript、真实退出码/超时/取消与旧进程中断收敛；固定 argv、逐次审批和禁止重放保持。Browser DOM/action 与 GenUI 版本化组件/显式 action 继续下一片，Room v44/发布版本不变。详见[Workspace 契约](docs/workspace-session-transcript.md)和[验证报告](docs/verification-report.md)。
+当前主线为第 6 点 Workspace/Browser/GenUI（第 290 阶段）。Workspace 第一片已实现独立持久会话与中断收敛；Browser 第二片补服务端语义 DOM、逐次审批的链接 GET/本机草稿 type、引用单次消费与前后快照证据，草稿原文不进持久审计。type 只改本机草稿，不改变真实网页。下一片为 GenUI 版本化组件与显式 action，第 6 点尚未整体收口，Room v44/发布版本不变。详见[Workspace 契约](docs/workspace-session-transcript.md)、[Browser 契约](docs/browser-dom-actions.md)和[验证报告](docs/verification-report.md)。
 
 第 5 点多 Agent 两片只读实现基线已收口：child checkpoint/唯一领取/父取消、任务中心显式 1–2 目标、独立会话与父结构化单次消费，真实 gpt-6-luna 联合已通过。精确共享扣账/费用、完整产品点击联合、自然系统和 Release 独立跟踪。详见[child 生命周期](docs/agent-child-lifecycle.md)。
 

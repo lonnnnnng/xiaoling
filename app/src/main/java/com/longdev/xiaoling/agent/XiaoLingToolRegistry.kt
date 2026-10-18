@@ -1202,7 +1202,23 @@ class XiaoLingToolRegistry(
                 ToolInputField("ref", "当前快照链接列表中的引用。", required = true, maxLength = 64),
             ),
             permissionPolicy = ToolPermissionPolicy(supportsBackground = false),
+            verificationPolicy = ToolVerificationPolicy.EXECUTOR_VERIFIED,
             timeoutMs = 60_000,
+        ),
+        ToolDefinition(
+            name = BrowserTypeTextAuditPolicy.TOOL_NAME,
+            description = "更新当前服务端 HTML 快照中的非敏感文本字段草稿；只改本机会话内存，不提交表单、不改变真实网页，需逐次确认。",
+            risk = ToolRisk.REQUIRES_APPROVAL,
+            inputSchema = listOf(
+                ToolInputField("session_id", "当前浏览器会话 ID。", required = true, maxLength = 32),
+                ToolInputField("snapshot_id", "当前快照 ID。", required = true, maxLength = 32),
+                ToolInputField("ref", "当前快照支持 TYPE_DRAFT 的输入引用。", required = true, maxLength = 64),
+                ToolInputField("text", "本机草稿文本，不允许敏感字段；原文不进入持久审计。", required = true, minLength = 1, maxLength = BrowserUrlPolicy.MAX_DRAFT_CHARS),
+            ),
+            permissionPolicy = ToolPermissionPolicy(supportsBackground = false),
+            verificationPolicy = ToolVerificationPolicy.EXECUTOR_VERIFIED,
+            validateBeforeAudit = true,
+            timeoutMs = 5_000,
         ),
         ToolDefinition(
             name = BROWSER_CLOSE_TOOL_NAME,
@@ -1891,6 +1907,7 @@ class XiaoLingToolRegistry(
             BROWSER_READ_TOOL_NAME -> readBrowserSession(call)
             BROWSER_NAVIGATE_TOOL_NAME -> navigateBrowserSession(call)
             BROWSER_CLICK_TOOL_NAME -> clickBrowserLink(call)
+            BrowserTypeTextAuditPolicy.TOOL_NAME -> typeBrowserDraft(call)
             BROWSER_CLOSE_TOOL_NAME -> closeBrowserSession(call)
             WORKSPACE_LIST_TOOL_NAME -> listWorkspace(call)
             WORKSPACE_READ_TOOL_NAME -> readWorkspace(call)
@@ -1980,9 +1997,10 @@ class XiaoLingToolRegistry(
         if (!extendedCapabilityAllowed(runContext)) {
             return ToolExecutionResult(success = false, content = "浏览器只允许在前台直接 Agent 中执行")
         }
+        val owner = BrowserSessionOwner.from(requireNotNull(runContext))
         val url = call.arguments["url"].orEmpty()
         val maxChars = call.arguments["max_chars"]?.toIntOrNull() ?: BrowserUrlPolicy.DEFAULT_MAX_CHARS
-        return executeBrowserOperation("浏览器会话打开失败", { browserPageReader.openSession(url, maxChars) }) { session ->
+        return executeBrowserOperation("浏览器会话打开失败", { browserPageReader.openSession(url, maxChars, owner) }) { session ->
             ToolExecutionResult(
                 success = true,
                 content = "浏览器会话已打开：${session.id}\n快照：${session.snapshotId}\n${formatBrowserPage(session.page)}",
@@ -1995,7 +2013,7 @@ class XiaoLingToolRegistry(
         if (!extendedCapabilityAllowed(runContext)) {
             return ToolExecutionResult(success = false, content = "浏览器只允许在前台直接 Agent 中执行")
         }
-        return executeBrowserOperation("浏览器会话读取失败", { browserPageReader.readSession(call.arguments["session_id"].orEmpty()) }) { session ->
+        return executeBrowserOperation("浏览器会话读取失败", { browserPageReader.readSession(call.arguments["session_id"].orEmpty(), BrowserSessionOwner.from(requireNotNull(runContext))) }) { session ->
             ToolExecutionResult(
                 success = true,
                 content = "会话：${session.id}\n快照：${session.snapshotId}\n${formatBrowserPage(session.page)}",
@@ -2008,10 +2026,11 @@ class XiaoLingToolRegistry(
         if (!extendedCapabilityAllowed(runContext)) {
             return ToolExecutionResult(success = false, content = "浏览器只允许在前台直接 Agent 中执行")
         }
+        val owner = BrowserSessionOwner.from(requireNotNull(runContext))
         val sessionId = call.arguments["session_id"].orEmpty()
         val url = call.arguments["url"].orEmpty()
         val maxChars = call.arguments["max_chars"]?.toIntOrNull() ?: BrowserUrlPolicy.DEFAULT_MAX_CHARS
-        return executeBrowserOperation("浏览器会话导航失败", { browserPageReader.navigateSession(sessionId, url, maxChars) }) { session ->
+        return executeBrowserOperation("浏览器会话导航失败", { browserPageReader.navigateSession(sessionId, url, maxChars, owner) }) { session ->
             ToolExecutionResult(
                 success = true,
                 content = "会话：${session.id}\n快照：${session.snapshotId}\n${formatBrowserPage(session.page)}",
@@ -2021,27 +2040,42 @@ class XiaoLingToolRegistry(
     }
 
     private suspend fun clickBrowserLink(call: ToolCall): ToolExecutionResult {
-        if (!extendedCapabilityAllowed(runContext)) {
-            return ToolExecutionResult(success = false, content = "浏览器只允许在前台直接 Agent 中执行")
+        if (!extendedCapabilityAllowed(runContext)) return ToolExecutionResult(false, "浏览器只允许在前台直接 Agent 中执行")
+        val owner = BrowserSessionOwner.from(requireNotNull(runContext))
+        return executeBrowserOperation("浏览器链接点击失败", { browserPageReader.clickLink(call.arguments["session_id"].orEmpty(),
+            call.arguments["snapshot_id"].orEmpty(), call.arguments["ref"].orEmpty(), owner, call.id) }) { browserActionResult(call, it) }
+    }
+
+    private suspend fun typeBrowserDraft(call: ToolCall): ToolExecutionResult {
+        if (!extendedCapabilityAllowed(runContext)) return ToolExecutionResult(false, "浏览器只允许在前台直接 Agent 中执行")
+        val owner = BrowserSessionOwner.from(requireNotNull(runContext))
+        return executeBrowserOperation("浏览器草稿更新失败", { browserPageReader.typeDraft(call.arguments["session_id"].orEmpty(),
+            call.arguments["snapshot_id"].orEmpty(), call.arguments["ref"].orEmpty(), call.arguments["text"].orEmpty(), owner, call.id) }) {
+            browserActionResult(call, it)
         }
-        val sessionId = call.arguments["session_id"].orEmpty()
-        val snapshotId = call.arguments["snapshot_id"].orEmpty()
-        val ref = call.arguments["ref"].orEmpty()
-        return executeBrowserOperation("浏览器链接点击失败", { browserPageReader.clickLink(sessionId, snapshotId, ref) }) { session ->
-            ToolExecutionResult(
-                success = true,
-                content = "已点击链接引用：$ref\n会话：${session.id}\n快照：${session.snapshotId}\n${formatBrowserPage(session.page)}",
-                readableEvidence = session.page.toReadableEvidence(call.id, session.snapshotId),
-            )
-        }
+    }
+
+    private fun browserActionResult(call: ToolCall, session: BrowserSession): ToolExecutionResult {
+        val receipt = requireNotNull(session.lastAction) { "浏览器未返回动作回执" }
+        val expectedAction = if (call.name == BrowserTypeTextAuditPolicy.TOOL_NAME) BrowserDomAction.TYPE_DRAFT else BrowserDomAction.NAVIGATE_LINK
+        require(receipt.toolCallId == call.id && receipt.inputSnapshotId == call.arguments["snapshot_id"] &&
+            receipt.ref == call.arguments["ref"] && receipt.outputSnapshotId == session.snapshotId &&
+            receipt.sessionId == call.arguments["session_id"] && session.id == receipt.sessionId && receipt.action == expectedAction) { "浏览器动作回执与目标不一致" }
+        // long: verified 只证明这次链接导航或本机草稿更新及新快照，不宣称表单已发送或服务端内容已改变。
+        return ToolExecutionResult(success = true, verified = true,
+            content = "动作：${receipt.actionId} · ${receipt.action}\n输入快照：${receipt.inputSnapshotId}\n会话：${session.id}\n快照：${session.snapshotId}\n${formatBrowserPage(session.page)}",
+            verificationEvidence = ToolVerificationEvidence(status = ToolVerificationStatus.PASSED, toolCallId = call.id,
+                reasonCode = if (expectedAction == BrowserDomAction.TYPE_DRAFT) "BROWSER_LOCAL_DRAFT_UPDATED" else "BROWSER_LINK_NAVIGATED"),
+            readableEvidence = session.page.toReadableEvidence(call.id, session.snapshotId).copy(browserAction = receipt))
     }
 
     private suspend fun closeBrowserSession(call: ToolCall): ToolExecutionResult {
         if (!extendedCapabilityAllowed(runContext)) {
             return ToolExecutionResult(success = false, content = "浏览器只允许在前台直接 Agent 中执行")
         }
+        val owner = BrowserSessionOwner.from(requireNotNull(runContext))
         val sessionId = call.arguments["session_id"].orEmpty()
-        return executeBrowserOperation("浏览器会话关闭失败", { browserPageReader.closeSession(sessionId) }) { closed ->
+        return executeBrowserOperation("浏览器会话关闭失败", { browserPageReader.closeSession(sessionId, owner) }) { closed ->
             ToolExecutionResult(success = closed, verified = closed, content = if (closed) "浏览器会话已关闭：$sessionId" else "浏览器会话不存在：$sessionId")
         }
     }
@@ -2066,6 +2100,13 @@ class XiaoLingToolRegistry(
         page.title?.let { append("标题：$it\n") }
         append("正文${if (page.truncated) "（已截断" else ""}：\n${page.text}")
         if (page.truncated) append("）")
+        page.dom?.let { dom ->
+            append("\n语义 DOM v${dom.schemaVersion} · ${dom.source}${if (dom.truncated) "（节点已截断）" else ""}：")
+            dom.nodes.forEach { node ->
+                append("\n- ${node.nodeId} parent=${node.parentId ?: "root"} ${node.role} ${node.name} actions=${node.actions.joinToString()} ref=${node.ref}")
+                if (node.draftSha256 != null) append(" 草稿长度=${node.draftLength} sha256=${node.draftSha256}")
+            }
+        }
         if (page.linkRefs.isNotEmpty()) {
             append("\n链接引用：\n${page.linkRefs.joinToString("\n") { "- ${it.ref}: ${it.href}" }}")
         } else if (page.links.isNotEmpty()) {
@@ -4974,6 +5015,7 @@ private val EXTENDED_AGENT_TOOL_NAMES = setOf(
     BROWSER_READ_TOOL_NAME,
     BROWSER_NAVIGATE_TOOL_NAME,
     BROWSER_CLICK_TOOL_NAME,
+    BrowserTypeTextAuditPolicy.TOOL_NAME,
     BROWSER_CLOSE_TOOL_NAME,
     WORKSPACE_LIST_TOOL_NAME,
     WORKSPACE_READ_TOOL_NAME,

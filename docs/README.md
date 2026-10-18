@@ -2,7 +2,7 @@
 
 ## 当前主线：第 290 阶段 Workspace/Browser/GenUI（第 6 点）
 
-- 第一片落地 Workspace 独立原子会话账本、Run/命令身份、有界 transcript、退出/超时/取消、关闭与重启收敛；不重放旧命令。JVM/Redmi/独立 PID 结果见[验证报告](verification-report.md)，行为和容量见[Workspace 契约](workspace-session-transcript.md)。Browser DOM/action、GenUI 版本化组件与显式 action 继续后续切片，Room v44/发布版本不变。
+- Workspace 第一片已落地独立原子会话账本、有界 transcript 与中断收敛，见[Workspace 契约](workspace-session-transcript.md)。Browser 第二片补服务端语义 DOM、逐次审批 click/本机草稿 type、引用消费与类型化动作证据，见[Browser 契约](browser-dom-actions.md)和[验证报告](verification-report.md)。下一片为 GenUI 版本化组件与显式 action；第 6 点尚未整体收口，Room v44/发布版本不变。
 
 ## 第 289 阶段多 Agent（两片只读实现基线收口）
 

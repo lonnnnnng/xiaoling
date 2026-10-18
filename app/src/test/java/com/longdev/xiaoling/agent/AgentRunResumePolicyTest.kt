@@ -599,6 +599,17 @@ class AgentRunResumePolicyTest {
     }
 
     @Test
+    fun browserDraftApprovalAfterProcessRecreationRequiresRestart() {
+        val first = ToolCall(id = "first", name = "notes.create", arguments = mapOf("title" to "first"), risk = ToolRisk.REQUIRES_APPROVAL)
+        val pending = DeviceTypeTextAuditPolicy.toolCallForPersistence(ToolCall(id = "draft", name = "browser.type",
+            arguments = mapOf("session_id" to "old", "snapshot_id" to "snapshot-old", "ref" to "input-old-0", "text" to "private-draft"), risk = ToolRisk.REQUIRES_APPROVAL))
+        val assessment = AgentRunResumePolicy.assess(pendingApprovalAfterVerifiedPrefix(first, pending))
+        assertEquals(AgentRunResumeKind.RESTART_REQUIRED, assessment.kind)
+        assertEquals(AgentRunRestartDispositionCode.EPHEMERAL_TOOL_INPUT_UNAVAILABLE, checkNotNull(assessment.restartDisposition).code)
+        assertFalse(assessment.canResumeInPlace)
+    }
+
+    @Test
     fun browserClickApprovalAfterProcessRecreationRequiresRestart() {
         val firstCall = ToolCall(
             id = "tool-call-first",

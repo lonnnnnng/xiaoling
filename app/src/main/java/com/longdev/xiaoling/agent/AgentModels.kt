@@ -694,7 +694,7 @@ enum class ToolReadableEvidenceKind {
 }
 
 /**
- * long: 只读工具的证据只描述“哪次调用读到了哪一版事实”，不宣称业务副作用已提交，也不保存网页原文、Cookie 或完整带参数 URL。
+ * long: 页面证据描述读取到的版本；可选动作只证明会话导航或本机草稿变化，不作为可恢复的业务提交回执。
  */
 data class ToolReadableEvidence(
     val kind: ToolReadableEvidenceKind,
@@ -702,6 +702,7 @@ data class ToolReadableEvidence(
     val snapshotId: String,
     val contentHash: String,
     val sourceRef: String,
+    val browserAction: BrowserActionReceipt? = null,
 ) {
     init {
         require(toolCallId.isNotBlank()) { "只读证据的工具调用 ID 不能为空" }
@@ -711,6 +712,8 @@ data class ToolReadableEvidence(
         require('?' !in sourceRef && '#' !in sourceRef && '@' !in sourceRef) {
             "只读证据的来源引用不能包含查询参数、片段或账号信息"
         }
+        require(browserAction == null || (kind == ToolReadableEvidenceKind.BROWSER_PAGE &&
+            browserAction.toolCallId == toolCallId && browserAction.outputSnapshotId == snapshotId)) { "浏览器动作证据与页面调用不一致" }
     }
 }
 

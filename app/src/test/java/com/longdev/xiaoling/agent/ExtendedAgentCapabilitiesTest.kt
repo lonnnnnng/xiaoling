@@ -64,9 +64,9 @@ class ExtendedAgentCapabilitiesTest {
                     chain.proceed(original.newBuilder().url(server.url("/page")).build())
                 }
                 .build()
-            val reader = OkHttpBrowserPageReader(client)
+            val reader = OkHttpBrowserPageReader(client, connectionDns = okhttp3.Dns.SYSTEM)
 
-            val opened = reader.openSession("https://example.com/one")
+            val opened = reader.openSession("https://8.8.8.8/one")
             val reread = reader.readSession(opened.id)
             assertEquals(opened.id, reread.id)
             assertEquals(opened.snapshotId, reread.snapshotId)
@@ -76,7 +76,7 @@ class ExtendedAgentCapabilitiesTest {
             assertFalse(firstEvidence.sourceRef.contains("?"))
             assertFalse(firstEvidence.sourceRef.contains("#"))
 
-            val navigated = reader.navigateSession(opened.id, "https://example.com/two")
+            val navigated = reader.navigateSession(opened.id, "https://8.8.8.8/two")
             assertEquals(opened.id, navigated.id)
             assertNotEquals(opened.snapshotId, navigated.snapshotId)
             assertEquals("Two", navigated.page.title)
@@ -100,7 +100,7 @@ class ExtendedAgentCapabilitiesTest {
     @Test
     fun browserClickConsumesCurrentSnapshotRefAndRejectsStaleOrUnsafeRefs() = runTest {
         val server = MockWebServer()
-        server.enqueue(MockResponse().setBody("<title>One</title><a href=\"https://example.com/next\">Next</a>"))
+        server.enqueue(MockResponse().setBody("<title>One</title><a href=\"https://8.8.8.8/next\">Next</a>"))
         server.enqueue(MockResponse().setBody("<title>Two</title><p>second page</p>"))
         server.enqueue(MockResponse().setBody("<title>Private</title><a href=\"http://127.0.0.1/secret\">Private</a>"))
         server.start()
@@ -110,9 +110,9 @@ class ExtendedAgentCapabilitiesTest {
                     chain.proceed(chain.request().newBuilder().url(server.url("/fixture")).build())
                 }
                 .build()
-            val reader = OkHttpBrowserPageReader(client)
+            val reader = OkHttpBrowserPageReader(client, connectionDns = okhttp3.Dns.SYSTEM)
 
-            val opened = reader.openSession("https://example.com/one")
+            val opened = reader.openSession("https://8.8.8.8/one")
             val ref = opened.page.linkRefs.single()
             assertTrue(ref.ref.startsWith("link-${opened.snapshotId}-"))
             val clicked = reader.clickLink(opened.id, opened.snapshotId, ref.ref)
@@ -126,7 +126,7 @@ class ExtendedAgentCapabilitiesTest {
                 runBlocking { reader.clickLink(clicked.id, clicked.snapshotId, "link-${clicked.snapshotId}-forged") }
             }
 
-            val privatePage = reader.navigateSession(clicked.id, "https://example.com/private")
+            val privatePage = reader.navigateSession(clicked.id, "https://8.8.8.8/private")
             val privateRef = privatePage.page.linkRefs.single()
             assertThrows(IllegalArgumentException::class.java) {
                 runBlocking { reader.clickLink(privatePage.id, privatePage.snapshotId, privateRef.ref) }
@@ -137,12 +137,13 @@ class ExtendedAgentCapabilitiesTest {
     }
 
     @Test
-    fun cancelledNavigationDoesNotReplaceTheCurrentBrowserSnapshot() = runTest {
+    fun cancelledNavigationDoesNotReplaceTheCurrentBrowserSnapshot() = runBlocking {
         val server = MockWebServer()
         server.enqueue(MockResponse().setBody("<title>One</title><p>first page</p>"))
         server.enqueue(
             MockResponse()
-                .setBodyDelay(5, TimeUnit.SECONDS)
+                // long: 保留响应正文尚未抵达的取消窗口，但不让夹具延迟与 MockWebServer 的 5 秒关闭期限竞争。
+                .setBodyDelay(1, TimeUnit.SECONDS)
                 .setBody("<title>Two</title><p>second page</p>"),
         )
         server.start()
@@ -152,14 +153,15 @@ class ExtendedAgentCapabilitiesTest {
                     chain.proceed(chain.request().newBuilder().url(server.url("/fixture")).build())
                 }
                 .build()
-            val reader = OkHttpBrowserPageReader(client)
-            val opened = reader.openSession("https://example.com/one")
+            val reader = OkHttpBrowserPageReader(client, connectionDns = okhttp3.Dns.SYSTEM)
+            val opened = reader.openSession("https://8.8.8.8/one")
 
+            assertNotNull(server.takeRequest(2, TimeUnit.SECONDS))
             val navigation = launch(Dispatchers.Default) {
-                reader.navigateSession(opened.id, "https://example.com/two")
+                reader.navigateSession(opened.id, "https://8.8.8.8/two")
             }
-            server.takeRequest(2, TimeUnit.SECONDS)
-            navigation.cancelAndJoin()
+            assertNotNull(server.takeRequest(2, TimeUnit.SECONDS))
+            withTimeout(2_000) { navigation.cancelAndJoin() }
 
             val current = reader.readSession(opened.id)
             assertEquals(opened.snapshotId, current.snapshotId)
@@ -180,8 +182,8 @@ class ExtendedAgentCapabilitiesTest {
                     chain.proceed(chain.request().newBuilder().url(server.url("/fixture")).build())
                 }
                 .build()
-            val reader = OkHttpBrowserPageReader(client)
-            val opened = reader.openSession("https://example.com/one")
+            val reader = OkHttpBrowserPageReader(client, connectionDns = okhttp3.Dns.SYSTEM)
+            val opened = reader.openSession("https://8.8.8.8/one")
             reader.clearSessions()
 
             assertThrows(IllegalArgumentException::class.java) {

@@ -36,6 +36,7 @@ import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.runTest
+import okhttp3.OkHttpClient
 import okhttp3.mockwebserver.Dispatcher
 import okhttp3.mockwebserver.MockResponse
 import okhttp3.mockwebserver.MockWebServer
@@ -60,11 +61,11 @@ class XiaoLingToolRegistryTest {
                 awaitCancellation()
             }
 
-            override suspend fun openSession(url: String, maxChars: Int): BrowserSession = error("unused")
-            override suspend fun readSession(sessionId: String): BrowserSession = error("unused")
-            override suspend fun navigateSession(sessionId: String, url: String, maxChars: Int): BrowserSession = error("unused")
-            override suspend fun clickLink(sessionId: String, snapshotId: String, ref: String): BrowserSession = error("unused")
-            override suspend fun closeSession(sessionId: String): Boolean = error("unused")
+            override suspend fun openSession(url: String, maxChars: Int, owner: BrowserSessionOwner?): BrowserSession = error("unused")
+            override suspend fun readSession(sessionId: String, owner: BrowserSessionOwner?): BrowserSession = error("unused")
+            override suspend fun navigateSession(sessionId: String, url: String, maxChars: Int, owner: BrowserSessionOwner?): BrowserSession = error("unused")
+            override suspend fun clickLink(sessionId: String, snapshotId: String, ref: String, owner: BrowserSessionOwner?, toolCallId: String): BrowserSession = error("unused")
+            override suspend fun closeSession(sessionId: String, owner: BrowserSessionOwner?): Boolean = error("unused")
         }
         val registry = testRegistry(browserPageReader = reader)
         registry.bindRunContext(
@@ -97,11 +98,11 @@ class XiaoLingToolRegistryTest {
         var clearCount = 0
         val reader = object : BrowserPageReader {
             override suspend fun read(url: String, maxChars: Int): BrowserPage = error("unused")
-            override suspend fun openSession(url: String, maxChars: Int): BrowserSession = error("unused")
-            override suspend fun readSession(sessionId: String): BrowserSession = error("unused")
-            override suspend fun navigateSession(sessionId: String, url: String, maxChars: Int): BrowserSession = error("unused")
-            override suspend fun clickLink(sessionId: String, snapshotId: String, ref: String): BrowserSession = error("unused")
-            override suspend fun closeSession(sessionId: String): Boolean = error("unused")
+            override suspend fun openSession(url: String, maxChars: Int, owner: BrowserSessionOwner?): BrowserSession = error("unused")
+            override suspend fun readSession(sessionId: String, owner: BrowserSessionOwner?): BrowserSession = error("unused")
+            override suspend fun navigateSession(sessionId: String, url: String, maxChars: Int, owner: BrowserSessionOwner?): BrowserSession = error("unused")
+            override suspend fun clickLink(sessionId: String, snapshotId: String, ref: String, owner: BrowserSessionOwner?, toolCallId: String): BrowserSession = error("unused")
+            override suspend fun closeSession(sessionId: String, owner: BrowserSessionOwner?): Boolean = error("unused")
             override fun clearSessions() {
                 clearCount += 1
             }
@@ -5173,6 +5174,79 @@ class XiaoLingToolRegistryTest {
         assertTrue(row.runRevoked)
         assertEquals(WorkspaceExecutionState.CANCELLED, row.executions.single().state)
         assertFalse(ledger.snapshot(requireNotNull(ledger.lastRunId)).events.any { it.type == "tool.verified" })
+    }
+
+    @Test
+    fun browserDomRuntimeApprovalsEvidenceAndDraftPrivacyShareOneChain() = kotlinx.coroutines.runBlocking {
+        val server = okhttp3.mockwebserver.MockWebServer()
+        server.enqueue(MockResponse().setBody("<title>DOM</title><label for='q'>Query</label><input id='q'><a href='/next'>Next</a>"))
+        server.enqueue(MockResponse().setBody("<title>Next</title><p>clicked</p>")); server.start()
+        try {
+            val client = OkHttpClient.Builder().addInterceptor { chain -> chain.proceed(chain.request().newBuilder().url(server.url("/fixture")).build()) }.build()
+            val reader = OkHttpBrowserPageReader(client, connectionDns = okhttp3.Dns.SYSTEM)
+            val native = testRegistry(browserPageReader = reader)
+            val ledger = InMemoryAgentRunLedger()
+            var approvals = 0
+            val secret = "private-browser-draft"
+            val model = object : AgentLlm {
+                override suspend fun proposeToolCall(goal: String, tools: List<ToolDefinition>): ToolCall = error("结构化步骤")
+                override suspend fun proposeNextAction(goal: String, tools: List<ToolDefinition>, completedTools: List<AgentToolExecution>): AgentPlanDecision {
+                    if (completedTools.isEmpty()) return AgentPlanDecision.CallTool(ToolCall(name = "browser.open",
+                        arguments = mapOf("url" to "https://8.8.8.8/start"), risk = ToolRisk.SAFE))
+                    if (completedTools.size == 3) return AgentPlanDecision.Complete
+                    val content = completedTools.last().toolResult.content
+                    val session = Regex("(?:浏览器会话已打开：|^会话：)([a-f0-9]{16})", RegexOption.MULTILINE).find(content)!!.groupValues[1]
+                    val snapshot = Regex("^快照：([a-f0-9]{16})", RegexOption.MULTILINE).find(content)!!.groupValues[1]
+                    val type = completedTools.size == 1
+                    val ref = Regex(if (type) "ref=(input-[a-f0-9]{16}-n[a-z0-9]+)" else "ref=(link-[a-f0-9]{16}-[a-z0-9]+)").find(content)!!.groupValues[1]
+                    val args = mapOf("session_id" to session, "snapshot_id" to snapshot, "ref" to ref) + if (type) mapOf("text" to secret) else emptyMap()
+                    return AgentPlanDecision.CallTool(ToolCall(name = if (type) "browser.type" else "browser.click", arguments = args, risk = ToolRisk.REQUIRES_APPROVAL))
+                }
+                override suspend fun summarize(goal: String, toolCall: ToolCall, toolResult: ToolExecutionResult) = """{"style":"compact","tone":"neutral"}"""
+            }
+            val gate = object : ApprovalGate {
+                override suspend fun requestApproval(runId: String, toolCall: ToolCall, definition: ToolDefinition): ApprovalDecision {
+                    approvals++
+                    if (toolCall.name == "browser.type") assertEquals(secret, toolCall.arguments["text"])
+                    return ApprovalDecision(true, "夹具逐次确认")
+                }
+            }
+            val summary = MinimalAgentRuntime(ledger, native, model, gate).run("dom-chat", "dom-message", "验证浏览器动作", memoryRecallEnabled = false)
+            assertEquals(AgentRunStatus.COMPLETED, summary.status); assertEquals(2, approvals)
+            val snapshot = ledger.snapshot(summary.runId)
+            assertFalse(snapshot.toString().contains(secret)); assertFalse(summary.verifiedContext.toString().contains(secret))
+            val typed = snapshot.events.filter { it.type == "tool.result" }.map { it.metadata as RunEventMetadata.ToolResult }
+            assertEquals(3, typed.size)
+            assertTrue(typed.drop(1).all { it.success && it.verified == true && it.readableEvidence != null })
+            val typeCall = snapshot.events.mapNotNull { it.metadata as? RunEventMetadata.ToolCall }.first { it.toolName == "browser.type" }
+            assertFalse(typeCall.arguments.containsKey("text"))
+            assertEquals(BrowserTypeTextAuditPolicy.fingerprint(secret), typeCall.arguments["text_sha256"])
+            assertEquals(2, server.requestCount)
+            assertEquals(ToolVerificationPolicy.EXECUTOR_VERIFIED, native.registeredTools().single { it.name == "browser.type" }.verificationPolicy)
+            native.bindRunContext(AgentToolExecutionContext("next-chat", "next-message", "next-run", "read"))
+            val sessionId = Regex("浏览器会话已打开：([a-f0-9]{16})").find(typed.first().content)!!.groupValues[1]
+            assertFalse(native.execute(ToolCall(name = "browser.read", arguments = mapOf("session_id" to sessionId), risk = ToolRisk.SAFE)).success)
+        } finally { server.shutdown() }
+    }
+
+    @Test
+    fun browserRuntimeCancellationStopsNetworkAndSettlesCancelled() = kotlinx.coroutines.runBlocking {
+        val server = okhttp3.mockwebserver.MockWebServer(); server.enqueue(MockResponse().setSocketPolicy(okhttp3.mockwebserver.SocketPolicy.NO_RESPONSE)); server.start()
+        try {
+            val client = OkHttpClient.Builder().addInterceptor { chain -> chain.proceed(chain.request().newBuilder().url(server.url("/fixture")).build()) }.build()
+            val native = testRegistry(browserPageReader = OkHttpBrowserPageReader(client, connectionDns = okhttp3.Dns.SYSTEM))
+            val ledger = InMemoryAgentRunLedger()
+            val model = object : AgentLlm {
+                override suspend fun proposeToolCall(goal: String, tools: List<ToolDefinition>) = ToolCall(name = "browser.fetch", arguments = mapOf("url" to "https://8.8.8.8/"), risk = ToolRisk.SAFE)
+                override suspend fun summarize(goal: String, toolCall: ToolCall, toolResult: ToolExecutionResult): String = error("取消后不总结")
+            }
+            val job = launch { MinimalAgentRuntime(ledger, native, model).run("cancel-chat", "cancel-message", "取消浏览器", memoryRecallEnabled = false) }
+            assertNotNull(kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) { server.takeRequest(2, java.util.concurrent.TimeUnit.SECONDS) })
+            kotlinx.coroutines.withTimeout(2_000) { job.cancelAndJoin() }
+            val snapshot = ledger.snapshot(requireNotNull(ledger.lastRunId))
+            assertEquals(AgentRunStatus.CANCELLED, snapshot.run.status)
+            assertFalse(snapshot.events.any { it.type == "tool.result" })
+        } finally { server.shutdown() }
     }
 
     private fun testRegistry(

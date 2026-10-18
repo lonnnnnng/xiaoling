@@ -117,6 +117,22 @@ class AgentContextSnapshotTest {
         } finally { server.shutdown() }
     }
 
+    @Test fun browserDraftDoesNotReturnRawArgumentsToPlannerOrPersistentContext() = runBlocking {
+        MockWebServer().use { server ->
+            server.enqueue(response("{\"action\":\"complete\"}")); server.start()
+            val text = "browser-private-draft"
+            val call = ToolCall(id = "draft-call", name = "browser.type", risk = ToolRisk.REQUIRES_APPROVAL,
+                arguments = mapOf("session_id" to "s", "snapshot_id" to "p", "ref" to "r", "text" to text))
+            var snapshot: AgentContextInput? = null
+            model(server).proposeNextActionWithContext("继续浏览器任务", emptyList(), listOf(AgentToolExecution(call, ToolExecutionResult(true, "本机草稿更新", true)))) { snapshot = it }
+            val wire = server.takeRequest().body.readUtf8()
+            assertFalse(wire.contains(text)); assertTrue(wire.contains(BrowserTypeTextAuditPolicy.fingerprint(text)))
+            assertFalse(AgentContextSnapshotCodec.encode(snapshot!!).contains(text))
+            assertEquals(AgentContextProjection.DEVICE_INPUT_REDACTED, snapshot!!.projection)
+            Unit
+        }
+    }
+
     @Test fun captureFailurePreventsBothPlannerAndSummaryNetworkRequests() = runBlocking {
         val server = MockWebServer()
         server.start()

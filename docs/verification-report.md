@@ -2,6 +2,19 @@
 
 验证日期：2026-10-18（北京时间）
 
+# 2026-10-18 第 290 阶段第二片：Browser 语义 DOM 与本机草稿动作
+
+- 主线仍为第 6 点。本片实现基线为服务端 HTML DOM/action；Workspace 第一片已完成，下一片 GenUI 版本化组件与显式 action，第 6 点尚未整体收口，不进入第 7 点。Room v44/发布版本 `0.1.22 (23)` 不变，详见[Browser 契约](browser-dom-actions.md)和[路线图](personal-agent-roadmap.md)。
+- jsoup 1.23.2 提取 schema v1 `SERVER_HTML` 语义节点、名称和动作；隐藏子树在父/label/正文聚合前移除，字段原值不读取，敏感/password form 不给输入动作。100 链接/128 节点/10,000 扫描/深度 32，链接超额撤销动作并标 truncated。静态解析没有 computed CSS、完整 ARIA 或真实渲染树。
+- owner 四字段、session/snapshot/ref/toolCallId 绑定，4 会话、每会话 32 动作、Run 128 调用；动作原子消费，失败请求不重放，成功轮换 refs。type 只写 1–500 字符本机内存草稿，不提交表单、不改变真实网页；close/Run clear 取消真实 Call，generation/control 复核阻止迟到发布。生产预检/建连 DNS 拒绝私网/保留/混合答案，GET 无 Cookie/重定向/代理/下载响应，2 MiB 上限。
+- 页面证据可选 browserAction schema v1 保存调用、session、动作、ref、前后快照及输入 hash；输出 hash 包含 DOM/草稿摘要。Registry/Runtime 绑定检查后记录 `PASSED / BROWSER_LOCAL_DRAFT_UPDATED / BROWSER_LINK_NAVIGATED`，不生成 `COMMITTED` 执行回执或恢复重放资格。旧页面 codec 兼容，损坏/错配及夹带业务回执在结果入账前拒绝。输入 hash 由可信 reader 从旧页面计算，Runtime 不独立重读历史页面；联合测试核对证据链。
+- 草稿原文仅内存：统一投影保护 Room 最后审批边界、事件、Tool Ledger 和 VerifiedContext；OpenAI 后续工具历史仅目标/长度/hash，context 捕获正文省略，沿用 `DEVICE_INPUT_REDACTED` 枚举以兼容旧存储。旧审批重开返回 `EPHEMERAL_TOOL_INPUT_UNAVAILABLE`，必须重新 open/确认。
+- JVM 定向 **49/49**（6 类，0 failed/errors/skipped）：DOM/action 11、Extended capabilities 23、Registry Browser 4、Browser 恢复 2、context snapshot 7、Runtime 隐私/旧页面 codec 2；追加上下文压缩回归 **4/4**，合计 **53/53**。覆盖 owner/stale/replay、失败消费、并发 close/clear、实际 socket 取消、隐藏/敏感/预算、codec 损坏、动作错配/夹带提交拒绝及生产模型 adapter 的请求脱敏。Debug/AndroidTest 构建通过，日志 `outputs/verification/stage290-browser/acceptance-build.log`、`jvm-summary.json`、`compression-doc-assets.log` 和 `compression-summary.json`。
+- Redmi `wsvwypiz7xwslvl7 / begonia / SDK 36`：新隔离 Room + 真实 loopback socket + 生产 Registry/Runtime 4 项与既有旧 click 审批恢复 1 项通过；默认公网 DNS/HTTPS 的 IANA DOM/link 导航、旧只读页面证据重开另 2 项通过，受影响合计 **7/7**。逐次审批 2、Ledger 3（open/type/click）、动作调用/前后快照/hash/PASSED、Room 重开、无原文、无 Cookie/提交、失败消费、旧引用/owner 拒绝、取消 2 秒内收敛与无成功结果均有断言。日志 `redmi-browser.log`、`redmi-public-evidence.log`；最终代码复跑证据为 `redmi-final.log`。
+- 失败证据保留：最初 Dns SAM/Element 重载及测试缺 OkHttpClient 导入造成编译失败；生产公网 DNS 拒绝 loopback/fake-IP 夹具，改为固定公网 IP 来源 + 测试拦截器/显式测试 DNS，不放宽生产。联合 Runtime 发现原只读证据不能标 verified，新增严格类型化动作绑定。虚拟超时与 MockWebServer 5 秒正文延迟/关闭竞争分别改为真实时间和 1 秒夹具延迟。初次 Redmi 选择了不存在的旧证据方法，runner 只运行 5 项，后按源码准确名称单独补跑，未把遗漏计为通过。
+- 收尾：文档 corpus/保护摘要 **2/2**、4.02s，6 个偏好文件前后 hash 相同，Memory undo 仍 absent；7 份文档的 168 个本地链接有效。25 个任务文件、证据及两个 APK 的全部解压条目对实际模型/Context7 凭据匹配 0 命中，原文只在主机内存中用于比对。最终文档重新打包后复验与制品摘要存同目录。只进行本地中文提交，保留 `refs/`；未 push/tag/发版。
+- 独立待办：真实渲染 DOM/动态 CSS、网页输入和表单权限、Activity 生命周期许可、完整产品界面到真实模型联合、自然 LMK/系统重启、性能和正式 Release。本片未调用真实模型、未验独立 PID，不将静态草稿或 Room 磁盘重开宣称为网页输入/自然系统恢复；未运行完整 JVM、Lint 或全量 instrumentation。
+
 # 2026-10-18 第 290 阶段第一片：Workspace 持久会话与命令记录
 
 - 主线为第 6 点，Workspace 第一片实现基线完成；Browser DOM/action 与 GenUI 版本化组件/显式 action 后续推进。本阶段整体尚未收口，不进入第 7 点。Room v44/发布版本 `0.1.22 (23)` 保持，详见[Workspace 契约](workspace-session-transcript.md)和[路线图](personal-agent-roadmap.md)。

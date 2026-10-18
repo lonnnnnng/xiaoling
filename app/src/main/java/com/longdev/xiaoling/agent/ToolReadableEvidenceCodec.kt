@@ -12,6 +12,14 @@ internal object ToolReadableEvidenceCodec {
         .put("snapshotId", evidence.snapshotId)
         .put("contentHash", evidence.contentHash)
         .put("sourceRef", evidence.sourceRef)
+        .apply {
+            evidence.browserAction?.let { action ->
+                put("browserAction", JSONObject().put("schemaVersion", 1).put("actionId", action.actionId)
+                    .put("toolCallId", action.toolCallId).put("action", action.action.name).put("sessionId", action.sessionId)
+                    .put("inputSnapshotId", action.inputSnapshotId).put("outputSnapshotId", action.outputSnapshotId)
+                    .put("ref", action.ref).put("inputContentHash", action.inputContentHash))
+            }
+        }
 
     fun encodeToString(evidence: ToolReadableEvidence): String = encode(evidence).toString()
 
@@ -25,7 +33,16 @@ internal object ToolReadableEvidenceCodec {
         val contentHash = json.optString("contentHash").takeIf(String::isNotBlank) ?: return null
         val sourceRef = json.optString("sourceRef").takeIf(String::isNotBlank) ?: return null
         return runCatching {
-            ToolReadableEvidence(kind, toolCallId, snapshotId, contentHash, sourceRef)
+            // long: 旧页面证据没有动作字段仍可读取；动作字段损坏必须拒绝整份证据，不能悄悄降级后失去调用绑定。
+            val action = if (json.has("browserAction")) json.getJSONObject("browserAction").let { value ->
+                val keys = buildSet { value.keys().forEach(::add) }
+                require(keys == setOf("schemaVersion", "actionId", "toolCallId", "action", "sessionId", "inputSnapshotId", "outputSnapshotId", "ref", "inputContentHash"))
+                require(value.get("schemaVersion") == 1)
+                BrowserActionReceipt(value.getString("actionId"), value.getString("toolCallId"), BrowserDomAction.valueOf(value.getString("action")),
+                    value.getString("inputSnapshotId"), value.getString("outputSnapshotId"), value.getString("ref"),
+                    value.getString("sessionId"), value.getString("inputContentHash"))
+            } else null
+            ToolReadableEvidence(kind, toolCallId, snapshotId, contentHash, sourceRef, action)
         }.getOrNull()
     }
 

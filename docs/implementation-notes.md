@@ -1,5 +1,12 @@
 # 当前实现说明
 
+## 2026-10-18 第 290 阶段第二片：Browser DOM/action
+
+- jsoup 1.23.2 提取 schema v1 服务端语义 DOM、父关系/名称与 link/textbox 动作。已知隐藏子树在文本聚合前移除，password form 保留敏感标记；节点/扫描/深度/链接预算一致，超额链接不发布空动作 ref。
+- ManagedBrowserSession 在 gate 内占槽、owner/TTL/busy/消费校验；type 原文仅内存草稿，快照仅长度/hash。OkHttp enqueue 绑定取消，默认 BrowserPublicDns 对实际建连重新做公网校验；close/Run clear 撤销真实 Call，control/generation 阻止迟到发布。
+- 页面证据 codec 可选 browserAction schema v1 携带调用、session、ref、前后快照和输入 hash，输出 hash 含 DOM/草稿摘要；旧只读证据兼容，动作损坏不降级。Registry/Runtime 严格绑定后 PASSED，无 COMMITTED 回执，不产生恢复重放资格。
+- browser.type 接统一持久参数投影、Room 最后审批边界和旧进程恢复拒绝；OpenAI 工具历史只回传摘要，context 捕获沿用 DEVICE_INPUT_REDACTED 枚举省略整条正文并拒绝提取压缩。生产 UseCase 可注入隔离 reader；静态 HTML、CSS 可见性和验收边界见[Browser 契约](browser-dom-actions.md)。
+
 ## 2026-10-18 第 290 阶段第一片：Workspace 持久会话与取消收敛
 
 - Workspace 根目录外的 schema v1 原子 JSON 账本，16 会话/每会话 8 命令/4 OPEN/24 MiB；记录 owner 四字段、物理进程 token、session/execution/toolCallId、argv、cwd、输出与终态。Room v44 不变，不自动清历史。

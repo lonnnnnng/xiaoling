@@ -1,5 +1,11 @@
 # 产品需求
 
+## 2026-10-18 第 290 阶段第二片：Browser 语义 DOM 与本机草稿
+
+- 服务端 HTML 快照明确 `SERVER_HTML`，提供有界节点、名称、原生语义与动作引用，不把静态解析宣称为渲染 DOM 或系统 accessibility 树。已知隐藏子树、字段原值和敏感输入不进入普通可操作路径。
+- click 仍是逐次确认的公开链接 GET；type 只更新本机会话草稿，不发送表单或输入。owner 四字段、快照、引用和调用 ID 完整绑定，成功轮换引用，失败请求也消费动作；关闭、Run 结束或取消不得由迟到响应复活。
+- 审批/事件/Ledger/可信上下文与后续模型工具历史只保存目标、长度和摘要。PASSED 仅证明本机动作及前后快照，不形成持久业务提交或旧审批恢复资格。下一片 GenUI；Room v44/发布版本不变，见[Browser 契约](browser-dom-actions.md)。
+
 ## 2026-10-18 第 290 阶段第一片：Workspace 会话与命令事实
 
 - 终端会话绑定当前 Run/conversation/userMessage/runtime process 身份，命令有唯一 execution/toolCallId、原始 argv、cwd、时间、输出截断与真实终态。先落盘后启动，跨 Run/重复调用/已有活动命令拒绝，关闭保留审计记录。

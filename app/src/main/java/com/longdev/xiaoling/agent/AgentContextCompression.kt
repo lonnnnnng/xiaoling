@@ -82,7 +82,7 @@ internal object AgentContextCompressionPolicy {
             require(row.keys().asSequence().toSet() == expectedKeys && row.get("step") == index + 1)
             require(row.get("tool") is String && row.get("content") is String && row.get("knowledge_references") is JSONArray)
             require(row.get("success") == true && (!row.has("verified") || row.isNull("verified") || row.get("verified") is Boolean))
-            require(row.getString("tool") != DeviceTypeTextAuditPolicy.TOOL_NAME)
+            require(row.getString("tool") !in setOf(DeviceTypeTextAuditPolicy.TOOL_NAME, BrowserTypeTextAuditPolicy.TOOL_NAME))
             val args = row.getJSONObject("arguments")
             require(args.keys().asSequence().all { args.get(it) is String })
         }

@@ -33,6 +33,7 @@ internal object DeviceTypeTextAuditPolicy {
     }
 
     fun toolCallForPersistence(toolCall: ToolCall): ToolCall {
+        if (toolCall.name == BrowserTypeTextAuditPolicy.TOOL_NAME) return BrowserTypeTextAuditPolicy.toolCallForPersistence(toolCall)
         if (toolCall.name != TOOL_NAME) return toolCall
         project(toolCall)?.let { return it.persistedToolCall }
         require(toolCall.isPersistedProjection()) { "设备文本输入审计参数不完整" }
