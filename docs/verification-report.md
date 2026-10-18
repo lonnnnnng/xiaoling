@@ -2,6 +2,29 @@
 
 验证日期：2026-10-18（北京时间）
 
+# 2026-10-18 第 291 阶段第八片：iOS 固定页面只读浏览器
+
+- 第 7 点继续推进；本片新增固定完整 URL 的宿主登记表、common 只读浏览器端口/前台 Executor 和 iOS 系统 libxml2 平台实现。模型目录只有 browser.list_pages/read_page，参数仅 page_id/max_chars；1–8 个宿主可信 HTTPS/443 页面，没有任意 URL、网页动作、query/认证头或实际连接 IP 门禁。shared Agent v5、Browser v1、Room v44、发布版本 `0.1.22 (23)` 保持。
+- 512 KiB 正文、明确 HTML/plain MIME/200/无下载响应、严格 UTF-8、已知静态隐藏/脚本/输入原值排除；原生 context 拒绝外部解析且不加载 DTD/实体，NONET 不作为跨版本安全保证。STATIC_TEXT 不代表 HTML5/渲染 DOM；节点/深度预算在建树后生效，不承诺整个解析器内存上限。当前调用绑定快照/hash/source，不生成 PASSED/COMMITTED 或重放许可。
+
+| 验证层 | 本轮结果 | 证据范围 |
+| --- | --- | --- |
+| shared Android Debug / Release | **各 103/103** | 既有 92 项，加本片 11 项目录/目标/前台/取消/身份/codec 门禁 |
+| shared iOS Simulator arm64 | **141/141** | common 103、workspace 11、HTTP 14、浏览器 13 |
+| 指定 Simulator 浏览器复验 | **13/13** | iPhone 16 Pro / iOS 18.3，显式 UUID standalone native 执行 |
+| iOS arm64 平台编译 | **通过** | 系统 libxml2/CommonCrypto C interop；没有 Swift App/设备产品运行 |
+| App 聚焦 JVM | **35/35** | OpenAiCancellation/CompatibleClient、MCP transport、Browser DOM/action |
+| Debug / AndroidTest / Debug Lint | **通过** | 内部 Debug 制品，没有构建或发布正式 Release |
+| 指定 Redmi 网络回归 | **5/5** | 隔离 MCP socket 3 项、Browser owner/stale/敏感目标和 Runtime 取消 2 项 |
+
+- 原生 13 项使用系统 NSURLSession + 真实随机端口 socket + libxml2，覆盖实体/Unicode/摘要与新快照、无资源请求、已知隐藏后代/表单原值、MIME/下载/charset/status、坏 UTF-8/NUL、代理对截断、深度/节点、未知页零连接、redirect、chunked 溢出、取消/直接 close、原生前台撤销、外部 DTD/本地实体与 scripted shared loop。取消和 close 在夹具清理前等待服务端 EOF 或 ECONNRESET；外部实体测试同时确认公开正文仍可提取，没有用空页面冒充通过。
+- 原生 loop 实际读到 HTML 后经 Executor 和完整结果 codec 联合，LLM 为 scripted；恒 true 或计数 callback 只证明宿主接口，不是 UIKit 生命周期。页面内容 SHA-256 用紧凑 JSON 的 UTF-8 bytes，已知 abc 向量及相同内容相同摘要/独立 snapshot 通过；它不是 Android 原 canonical 页面 hash。
+- Simulator UUID `EADF8DFC-ED26-4C03-8735-C0889ECB2DA5`，iPhone 16 Pro / iOS18.3，Xcode16.2 (16C5032a)，编译 SDK iPhoneSimulator18.2。显式 `xcrun simctl spawn --standalone` 没有启动可见 App 窗口。SDK libxml2 头声明 2.9.13，最新官方 API 与版本源码仅作接口依据，不冒充运行库版本活体证明。
+- Redmi 重新核对为 `wsvwypiz7xwslvl7 / begonia / Redmi Note 8 Pro / SDK36`，只更新现有 Debug/test 包，测试使用隔离目录/DB。提交门禁包括最终文档 assets 字节比对、corpus、正式偏好/Memory undo 摘要、实际两项凭据与两 APK/native 二进制审计；完整结果保存在本片 `verification-summary.json`。
+- 首轮 C 字节签名/CommonCrypto 入口、测试 shared loop/字段名与 ForeignApi opt-in 编译失败日志均保留；修复后上述最终测试无失败/错误/跳过。初始 App 筛选漏掉 network 包的两类 Provider 测试，保留 22 项初始结果，按实际包名最终执行四类 35 项，最终计数来自 XML。
+- 下一片 **真实前台 loop**。第 7 点尚未整体收口，前六点长期独立待办保持。当前没有任意公网 URL 安全、DNS pinning、公网 TLS/坏证书/mTLS、真实 UIKit/模型/Swift App、自然系统或正式 Release 证据。本轮中文本地提交，不 push/tag/Release，原 `refs/` 保留。
+- 契约与矩阵：[iOS 只读浏览器](ios-read-only-browser.md)、[共享证据](kmp-readable-evidence.md)、[完整结果](kmp-tool-result.md)、[路线图](personal-agent-roadmap.md)。证据目录 `outputs/verification/stage291-ios-browser/` 保存失败/最终构建、native/XML/显式 Simulator、SDK/官方抓取、App JVM/Lint、Redmi 原日志、最终文档/corpus/保护及凭据/产物审计。
+
 # 2026-10-18 第 291 阶段第七片：iOS HTTP宿主端口
 
 - 第7点继续推进；本片新增common HTTP契约v1和普通iosMain IosHttpClient，供可信宿主注入。仅有界GET/POST，1–8个HTTPS origin、512 KiB请求、默认1 MiB/最大2 MiB响应、4并发及100–60,000ms总时限；URL/Headers/防御性复制与诊断脱敏门禁。shared Agent contract v5、Room v44、发布版本 `0.1.22 (23)` 保持，Android原网络实现未迁移。

@@ -1,5 +1,11 @@
 # 产品需求
 
+## 2026-10-18 第 291 阶段第八片：iOS 固定页面只读浏览器
+
+- 宿主登记 1–8 个固定完整 HTTPS/443 页面，模型仅 browser.list_pages/read_page 的 page_id；不接受 URL/headers/body、链接或网页动作。名称筛选不是公网 DNS/实际连接 IP 门禁，登记表须来自可信宿主。
+- 512 KiB 正文、明确 HTML/plain MIME、严格 UTF-8 与静态解析预算；排除脚本、输入值和已知隐藏子树，不执行脚本或加载子资源，不冒充渲染 DOM。前台/取消/close 复核拒绝迟到正文，页面证据不产生 PASSED/COMMITTED 或重放许可。
+- 原生 socket/解析/scripted shared loop 联合与三端 common 测试通过；没有真实模型/UIKit、公网 TLS 或任意 URL 验收。shared Agent v5/Browser v1、Room v44/发布版本保持，下一片真实前台 loop，见[浏览器契约](ios-read-only-browser.md)和[报告](verification-report.md)。
+
 ## 2026-10-18 第 291 阶段第七片：iOS HTTP client
 
 - HTTP宿主端口仅普通有界GET/POST，宿主登记1–8个HTTPS origin，精确scheme/host/port匹配；不把请求/认证头变成模型参数，不把origin策略冒充公网DNS/SSRF门禁。默认1 MiB、最大2 MiB响应，512 KiB请求、4并发和完整请求总时限。

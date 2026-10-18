@@ -11,10 +11,10 @@ import kotlin.test.*
 
 /** long: 真正的loopback socket验证系统task行为；不注入URLProtocol，也不接触宿主配置或真实令牌。 */
 class IosHttpClientTest {
-    private data class Reply(val status: Int = 200, val body: String = "正文😀", val headers: String = "", val chunked: Boolean = false, val declared: Int? = null, val stall: Boolean = false, val stallBody: Boolean = false, val rawBody: ByteArray? = null)
-    private data class Incoming(val path: String, val headers: String, val body: String)
+    internal data class Reply(val status: Int = 200, val body: String = "正文😀", val headers: String = "", val chunked: Boolean = false, val declared: Int? = null, val stall: Boolean = false, val stallBody: Boolean = false, val rawBody: ByteArray? = null, val contentType: String = "application/octet-stream")
+    internal data class Incoming(val path: String, val headers: String, val body: String)
 
-    private class Server(private val replies: Map<String, Reply>) {
+    internal class Server(private val replies: Map<String, Reply>) {
         private val lock = NSLock()
         private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
         private val active = mutableSetOf<Int>()
@@ -91,7 +91,7 @@ class IosHttpClientTest {
             if (!reply.stall || reply.stallBody) {
                 val bytes = reply.rawBody ?: reply.body.encodeToByteArray()
                 val framing = if (reply.chunked) "Transfer-Encoding: chunked\r\n" else "Content-Length: ${reply.declared ?: bytes.size}\r\n"
-                sendBytes(fd, "HTTP/1.1 ${reply.status} Fixture\r\nContent-Type: application/octet-stream\r\nConnection: close\r\n$framing${reply.headers}\r\n".encodeToByteArray())
+                sendBytes(fd, "HTTP/1.1 ${reply.status} Fixture\r\nContent-Type: ${reply.contentType}\r\nConnection: close\r\n$framing${reply.headers}\r\n".encodeToByteArray())
                 if (reply.chunked) {
                     sendBytes(fd, "${bytes.size.toString(16)}\r\n".encodeToByteArray()); sendBytes(fd, bytes); sendBytes(fd, "\r\n0\r\n\r\n".encodeToByteArray())
                 } else sendBytes(fd, bytes)

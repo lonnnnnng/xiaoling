@@ -1,5 +1,11 @@
 # 当前实现说明
 
+## 2026-10-18 第 291 阶段第八片：iOS 静态页面平台实现
+
+- commonMain 新增固定页面 Registry、只读 Browser 端口/输出及前台 Executor；iOS 每个 reader 独占上一片 HTTP client，模型只提交 page_id，精确登记 URL 和全部 redirect 拒绝防止 origin 许可扩展到其他路径。
+- 当前 Xcode 系统 libxml2 经 cinterop 从内存解析，单独 context 拒绝外部 resolver、不加载 DTD/实体；遍历前排除输入原值/脚本/隐藏后代，静态文本与 SHA-256/snapshot 绑定。NONET不是跨版本保证，树先于遍历预算建立，不能把预算宣称为进程内存上限。
+- close 与快照领取互斥，协程取消及前台 callback 前后复核；真实 pending close/取消等待 peer EOF 或 ECONNRESET。common 11 条新门禁、native 13 条新专项和 scripted loop/完整结果 codec 联合通过；没有 UIKit/模型/公网证据，下一片真实前台 loop，详见[浏览器契约](ios-read-only-browser.md)和[报告](verification-report.md)。
+
 ## 2026-10-18 第 291 阶段第七片：iOS 有界网络平台实现
 
 - commonMain新增SharedHttpClient/Request/Response/TargetPolicy，v1宿主origin和URL/Header/原始字节限额；防御性复制、脱敏toString及固定错误，不解析业务或升级验证/提交。Android原OkHttp Provider/MCP/Browser保持原实现。

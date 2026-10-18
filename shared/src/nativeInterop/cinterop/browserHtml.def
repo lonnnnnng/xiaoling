@@ -1,0 +1,25 @@
+package = com.longdev.xiaoling.shared.browser.nativehtml
+headers = libxml/HTMLparser.h libxml/tree.h CommonCrypto/CommonDigest.h
+headerFilter = libxml/** CommonCrypto/**
+linkerOpts = -lxml2
+---
+// long: NONET不是跨版本保证；当前解析上下文单独拒绝外部实体且不加载DTD，不改其他宿主的全局loader。
+static inline xmlParserInputPtr xl_deny_external(void *ctx, const xmlChar *publicId, const xmlChar *systemId) { return NULL; }
+static inline xmlDocPtr xl_html(const void *bytes, int size) {
+    htmlParserCtxtPtr context = htmlNewParserCtxt();
+    if (!context) return NULL;
+    context->sax->resolveEntity = xl_deny_external;
+    context->sax->externalSubset = NULL;
+    context->replaceEntities = 0;
+    context->loadsubset = 0;
+    context->validate = 0;
+    xmlDocPtr result = htmlCtxtReadMemory(context, (const char *)bytes, size, NULL, "UTF-8", HTML_PARSE_NONET | HTML_PARSE_NOERROR | HTML_PARSE_NOWARNING);
+    htmlFreeParserCtxt(context);
+    return result;
+}
+static inline void xl_sha256(const void *bytes, unsigned int size, void *digest) { CC_SHA256(bytes, size, (unsigned char *)digest); }
+static inline const char *xl_name(xmlNodePtr node) { return (const char *)node->name; }
+static inline const char *xl_text(xmlNodePtr node) { return (const char *)node->content; }
+static inline int xl_type(xmlNodePtr node) { return node->type; }
+static inline char *xl_prop(xmlNodePtr node, const char *name) { return (char *)xmlGetProp(node, (const xmlChar *)name); }
+static inline void xl_free(void *value) { xmlFree(value); }
