@@ -55,16 +55,20 @@ class UiPreferenceStoreInstrumentedTest {
     }
 
     @Test
-    fun deviceActionAutoApprovalRequiresExplicitGrantAndRevokesWithDeviceAgent() {
+    fun deviceActionAutoApprovalDefaultsOnAndPreservesChoiceWhenAgentPauses() {
         val store = UiPreferenceStore(isolatedContext)
-        assertFalse(store.loadDeviceActionAutoApprovalEnabled())
-        store.saveDeviceActionAutoApprovalEnabled(true)
         assertFalse(store.loadDeviceActionAutoApprovalEnabled())
 
         store.saveDeviceAgentEnabled(true)
-        store.saveDeviceActionAutoApprovalEnabled(true)
         assertTrue(UiPreferenceStore(isolatedContext).loadDeviceActionAutoApprovalEnabled())
 
+        store.saveDeviceAgentEnabled(false)
+        assertFalse(store.loadDeviceActionAutoApprovalEnabled())
+        store.saveDeviceAgentEnabled(true)
+        assertTrue(UiPreferenceStore(isolatedContext).loadDeviceActionAutoApprovalEnabled())
+
+        store.saveDeviceActionAutoApprovalEnabled(false)
+        assertFalse(UiPreferenceStore(isolatedContext).loadDeviceActionAutoApprovalEnabled())
         store.saveDeviceAgentEnabled(false)
         store.saveDeviceAgentEnabled(true)
         assertFalse(store.loadDeviceActionAutoApprovalEnabled())

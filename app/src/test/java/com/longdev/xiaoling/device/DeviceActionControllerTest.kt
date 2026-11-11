@@ -116,7 +116,7 @@ class DeviceActionControllerTest {
         val second = (controller.capture() as DeviceSnapshotCapture.Success).snapshot
         gateway.nodeActionResult = RawDeviceActionResult.Performed
         gateway.onNodeAction = {
-            gateway.window = window(generation = 11L, node = node(text = "hello stage3", editable = true))
+            gateway.window = window(generation = 11L, node = node(text = "hello stage3", editable = true)).copy(windowId = 10)
         }
         val typed = controller.typeText(second.snapshotId, "r1", "hello stage3") as DeviceActionCapture.Success
 
@@ -140,7 +140,7 @@ class DeviceActionControllerTest {
                     node(text = "wrong target", editable = true),
                     node(text = "expected text"),
                 ),
-            )
+            ).copy(windowId = 20)
         }
 
         val result = controller.typeText(snapshot.snapshotId, "r1", "expected text") as DeviceActionCapture.Success
@@ -178,6 +178,51 @@ class DeviceActionControllerTest {
         val result = controller.tap(snapshot.snapshotId, "r1") as DeviceActionCapture.Success
 
         assertTrue(result.outcome.verified)
+        assertTrue("不应固定等待2.5秒", testScheduler.currentTime < 1_000L)
+    }
+
+    @Test
+    fun exactTypeTextReadBackPreservesWhitespaceDespiteDisplayNormalizationAndTruncation() = runTest {
+        listOf(" a ", "a  b", "a\nb", "a\tb").forEach { text ->
+            val gateway = ActionGateway(window = window(generation = 30L, node = node(editable = true)))
+            val controller = DeviceObservationController(
+                agentEnabled = { true }, gateway = gateway,
+                snapshotPolicy = DeviceSnapshotPolicy(maxTextCharacters = 1), clock = { 1_000L },
+            )
+            val snapshot = (controller.capture() as DeviceSnapshotCapture.Success).snapshot
+            gateway.nodeActionResult = RawDeviceActionResult.Performed
+            gateway.onNodeAction = { gateway.window = window(generation = 30L, node = node(text, editable = true)) }
+            val result = controller.typeText(snapshot.snapshotId, "r1", text) as DeviceActionCapture.Success
+            assertTrue("text=$text", result.outcome.verified)
+            assertEquals(text, result.outcome.typeTextReadBack?.text)
+            assertTrue(result.outcome.afterSnapshot.nodes.none { it.text == text })
+        }
+    }
+
+    @Test
+    fun exactTextInDifferentWindowCannotVerifyOriginalInputTarget() = runTest {
+        val gateway = ActionGateway(window = window(generation = 31L, node = node(editable = true)))
+        val controller = controller(gateway)
+        val snapshot = (controller.capture() as DeviceSnapshotCapture.Success).snapshot
+        gateway.nodeActionResult = RawDeviceActionResult.Performed
+        gateway.onNodeAction = { gateway.window = window("com.android.settings", 32L, node("expected", editable = true)) }
+        val result = controller.typeText(snapshot.snapshotId, "r1", "expected") as DeviceActionCapture.Success
+        assertFalse(result.outcome.verified)
+        assertEquals(null, result.outcome.typeTextReadBack)
+    }
+
+    @Test
+    fun silentDelayedNodeChangeRetainsBoundedVerificationOpportunity() = runTest {
+        val gateway = ActionGateway(window = window(generation = 33L, node = node("7", clickable = true)))
+        val controller = controller(gateway)
+        val snapshot = (controller.capture() as DeviceSnapshotCapture.Success).snapshot
+        gateway.nodeActionResult = RawDeviceActionResult.Performed
+        gateway.onCapture = {
+            if (testScheduler.currentTime >= 800L) gateway.window = window(generation = 33L, node = node("7×", clickable = true))
+        }
+        val result = controller.tap(snapshot.snapshotId, "r1") as DeviceActionCapture.Success
+        assertTrue(result.outcome.verified)
+        assertTrue(testScheduler.currentTime in 800L..1_000L)
     }
 
     private fun controller(gateway: ActionGateway): DeviceObservationController {
@@ -260,6 +305,7 @@ class DeviceActionControllerTest {
         var nodeActionCount: Int = 0
         var transientEmptyCaptures: Int = 0
         var captureCount: Int = 0
+        var onCapture: () -> Unit = {}
 
         override fun isServiceAuthorized(): Boolean = true
 
@@ -269,6 +315,7 @@ class DeviceActionControllerTest {
 
         override suspend fun captureRawWindow(): RawDeviceWindow? {
             captureCount += 1
+            onCapture()
             if (transientEmptyCaptures > 0) {
                 transientEmptyCaptures -= 1
                 return null

@@ -252,6 +252,44 @@ class WorkflowDeviceActionSafetyPolicyTest {
     }
 
     @Test
+    fun openingSettingsAcceptsRestoredSearchWindowWithSameApprovedCall() {
+        val policy = WorkflowDeviceActionSafetyPolicy(enabledToolNames = setOf("device.open_app"))
+        val base = validExecutionEvidence()
+        val identity = base.identity.copy(
+            toolName = "device.open_app",
+            arguments = mapOf("package_name" to "com.android.settings"),
+        )
+        val approval = requireNotNull(base.approval).copy(
+            toolName = identity.toolName,
+            arguments = identity.arguments,
+            windowGuarded = true,
+        )
+        val execution = base.copy(
+            identity = identity,
+            targetAppPackage = "com.android.settings",
+            userIntent = "打开系统设置并继续搜索",
+            approval = approval,
+            liveReferenceMatched = false,
+        )
+        val allowed = policy.assessExecution(execution) as WorkflowDeviceActionSafetyDecision.Allowed
+        val completion = validCompletionEvidence(allowed.authorization).copy(
+            identity = identity,
+            targetAppPackage = execution.targetAppPackage,
+            resultToolName = identity.toolName,
+            afterPackageName = "com.android.settings.intelligence",
+        )
+        assertEquals(allowed, policy.assessCompletion(completion))
+        assertDenied(
+            WorkflowDeviceActionSafetyFailure.TARGET_APP_MISMATCH,
+            policy.assessCompletion(completion.copy(afterPackageName = "com.android.calculator2")),
+        )
+        assertDenied(
+            WorkflowDeviceActionSafetyFailure.ACTION_ARGUMENTS_INVALID,
+            policy.assessExecution(execution.copy(identity = identity.copy(arguments = mapOf("package_name" to "com.android.settings.intelligence")))),
+        )
+    }
+
+    @Test
     fun openAppKeepsGuardedApprovalValidAfterSnapshotTtlAndOwnUiGenerationChanges() {
         val policy = WorkflowDeviceActionSafetyPolicy(enabledToolNames = setOf("device.open_app"))
         val base = validExecutionEvidence()

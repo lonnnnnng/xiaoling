@@ -1,12 +1,12 @@
 package com.longdev.xiaoling.storage
 
 import android.content.Context
-import android.database.sqlite.SQLiteDatabase
 import com.longdev.xiaoling.BuildConfig
 import com.longdev.xiaoling.data.XiaoLingDatabase
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.io.File
+import java.io.RandomAccessFile
 
 data class XiaoLingRestoreResult(
     val manifest: XiaoLingBackupManifest,
@@ -16,15 +16,20 @@ data class XiaoLingRestoreResult(
 class XiaoLingBackupManager(
     private val context: Context,
     private val database: XiaoLingDatabase = XiaoLingDatabase.getInstance(context),
+    private val databaseName: String = XiaoLingDatabase.DATABASE_NAME,
 ) {
     suspend fun export(uri: android.net.Uri): XiaoLingBackupManifest = withContext(Dispatchers.IO) {
-        val dbFile = context.getDatabasePath(XiaoLingDatabase.DATABASE_NAME)
-        database.openHelper.writableDatabase.query("PRAGMA wal_checkpoint(FULL)").use { }
         val localArchive = File.createTempFile("xiaoling-export-", ".zip", context.cacheDir)
+        var snapshot: File? = null
         try {
+            val snapshotFile = File.createTempFile("xiaoling-export-snapshot-", ".db", context.cacheDir).also { snapshot = it }
+            // long: checkpoint 后复制主文件仍可能漏掉并发写入或未刷回的 WAL；由 SQLite 生成事务快照，原库保持在线且不被替换。
+            DatabaseSnapshotExporter.write(database, snapshotFile)
+            RandomAccessFile(snapshotFile, "rw").use { it.fd.sync() }
+            BackupDatabaseValidator.checkIntegrityAndVersion(snapshotFile, XiaoLingDatabase.CURRENT_VERSION)
             XiaoLingBackupArchive.create(
                 output = localArchive,
-                database = dbFile,
+                database = snapshotFile,
                 schemaVersion = XiaoLingDatabase.CURRENT_VERSION,
                 appVersion = BuildConfig.VERSION_NAME,
             )
@@ -34,12 +39,17 @@ class XiaoLingBackupManager(
             XiaoLingBackupArchive.readManifest(localArchive)
         } finally {
             localArchive.delete()
+            snapshot?.let { file ->
+                file.delete()
+                listOf("-wal", "-shm", "-journal").forEach { File(file.path + it).delete() }
+            }
         }
     }
 
     suspend fun restore(uri: android.net.Uri): XiaoLingRestoreResult = withContext(Dispatchers.IO) {
         val localArchive = File.createTempFile("xiaoling-import-", ".zip", context.cacheDir)
-        val extracted = File.createTempFile("xiaoling-restore-", ".db", context.cacheDir)
+        val current = context.getDatabasePath(databaseName)
+        val extracted = File.createTempFile("xiaoling-restore-", ".db", current.parentFile)
         try {
             context.contentResolver.openInputStream(uri)?.use { input ->
                 localArchive.outputStream().buffered().use { output -> input.copyTo(output) }
@@ -49,34 +59,15 @@ class XiaoLingBackupManager(
                 destination = extracted,
                 expectedSchemaVersion = XiaoLingDatabase.CURRENT_VERSION,
             )
-            validateDatabaseVersion(extracted)
-            val current = context.getDatabasePath(XiaoLingDatabase.DATABASE_NAME)
-            val safetyCopy = File(current.parentFile, "${current.name}.pre-restore")
-            XiaoLingDatabase.resetInstanceForRestore()
-            if (current.isFile) current.copyTo(safetyCopy, overwrite = true)
-            extracted.copyTo(current, overwrite = true)
-            File(current.path + "-wal").delete()
-            File(current.path + "-shm").delete()
+            BackupDatabaseValidator.prepare(context, extracted, manifest.schemaVersion)
+            // long: 在线 Room 和 Worker 继续使用当前数据；只有下次进程首次打开数据库时才原子激活，防止旧连接覆盖恢复结果。
+            androidDatabaseRestoreFiles(current).stage(extracted)
             XiaoLingRestoreResult(manifest = manifest, restartRequired = true)
         } finally {
             localArchive.delete()
             extracted.delete()
+            listOf("-wal", "-shm", "-journal").forEach { File(extracted.path + it).delete() }
         }
     }
 
-    private fun validateDatabaseVersion(databaseFile: File) {
-        val opened = SQLiteDatabase.openDatabase(databaseFile.path, null, SQLiteDatabase.OPEN_READONLY)
-        try {
-            opened.rawQuery("PRAGMA user_version", null).use { cursor ->
-                if (!cursor.moveToFirst()) throw XiaoLingBackupException("备份数据库缺少 user_version")
-                val version = cursor.getInt(0)
-                if (version <= 0) throw XiaoLingBackupException("备份数据库版本无效：$version")
-                if (version > XiaoLingDatabase.CURRENT_VERSION) {
-                    throw XiaoLingBackupException("备份数据库版本 $version 高于当前支持版本 ${XiaoLingDatabase.CURRENT_VERSION}")
-                }
-            }
-        } finally {
-            opened.close()
-        }
-    }
 }

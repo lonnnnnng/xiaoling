@@ -26,6 +26,34 @@ class AgentTaskCenterPageInstrumentedTest {
     @get:Rule
     val composeRule = createComposeRule()
 
+    @Test
+    fun stopRoutesOnlyTargetRunAndReflectsPersistedCancellation() {
+        val actions = FakeAgentTaskCenterActions()
+        val first = taskCenterDetail("stop-a", AgentRunStatus.THINKING, 1L)
+        val second = taskCenterDetail("stop-b", AgentRunStatus.WAITING_APPROVAL, 2L)
+        fun project(a: AgentRunDetailRecord) = AgentTaskCenterProjection.project(
+            false, null, listOf(a, second), null, null,
+        )
+        var state by androidx.compose.runtime.mutableStateOf(project(first))
+        composeRule.setContent { MaterialTheme { AgentTaskCenterPage(state, actions, {}) } }
+        composeRule.onNodeWithTag("agent-task-stop-stop-a").performClick()
+        composeRule.runOnIdle {
+            assertEquals(listOf("stop-a"), actions.stoppedRunIds)
+            state = project(first.copy(snapshot = first.snapshot.copy(
+                run = first.snapshot.run.copy(cancelRequestedAt = 3L),
+            )))
+        }
+        composeRule.onNodeWithTag("agent-task-stop-stop-a").assertIsNotEnabled()
+        composeRule.onNodeWithTag("agent-task-stop-stop-b").performClick()
+        composeRule.runOnIdle {
+            assertEquals(listOf("stop-a", "stop-b"), actions.stoppedRunIds)
+            state = project(first.copy(snapshot = first.snapshot.copy(
+                run = first.snapshot.run.copy(status = AgentRunStatus.CANCELLED, cancelRequestedAt = 3L),
+            )))
+        }
+        composeRule.onNodeWithTag("agent-task-stop-stop-a").assertDoesNotExist()
+    }
+
     @Test fun pageRoutesExplicitBatchStartAndStopIndependentlyOfSelectedConversation() {
         val actions = FakeAgentTaskCenterActions()
         var state by androidx.compose.runtime.mutableStateOf(taskCenterState())
@@ -240,6 +268,9 @@ class AgentTaskCenterPageInstrumentedTest {
         var refreshCount = 0
         val selectedRunIds = mutableListOf<String>()
         val retryRunIds = mutableListOf<String>()
+        val stoppedRunIds = mutableListOf<String>()
+
+        override fun stopAgentRun(runId: String) { stoppedRunIds += runId }
 
         override fun refreshAgentRunHistory() {
             refreshCount += 1

@@ -46,8 +46,6 @@ import com.longdev.xiaoling.agent.DEVICE_TAP_REF_TOOL_NAME
 import com.longdev.xiaoling.agent.DeviceTypeTextAuditPolicy
 import com.longdev.xiaoling.agent.WorkflowDeviceActionApprovalGate
 import com.longdev.xiaoling.agent.WorkflowDeviceActionRunContext
-import com.longdev.xiaoling.agent.AgentSkillRecord
-import com.longdev.xiaoling.agent.AgentSkillSource
 import com.longdev.xiaoling.agent.McpServerConfig
 import com.longdev.xiaoling.agent.McpToolDescriptor
 import com.longdev.xiaoling.agent.GitHubSkillCandidate
@@ -58,6 +56,9 @@ import com.longdev.xiaoling.agent.AgentSkillDocumentCodec
 import com.longdev.xiaoling.agent.AgentRunRecord
 import com.longdev.xiaoling.agent.AgentRunSnapshot
 import com.longdev.xiaoling.agent.AgentRunStatus
+import com.longdev.xiaoling.agent.RunEventMetadata
+import com.longdev.xiaoling.agent.AgentRunExecutionRegistry
+import com.longdev.xiaoling.agent.isTerminal
 import com.longdev.xiaoling.agent.agentProfileSnapshotOrNull
 import com.longdev.xiaoling.agent.ApprovalDecision
 import com.longdev.xiaoling.agent.ApprovalGate
@@ -102,8 +103,6 @@ import com.longdev.xiaoling.model.MessagePart
 import com.longdev.xiaoling.model.MessageAttachmentSelection
 import com.longdev.xiaoling.model.DocumentAttachment
 import com.longdev.xiaoling.model.ImageAttachment
-import com.longdev.xiaoling.model.ModelReasoningSummary
-import com.longdev.xiaoling.model.ProviderMessagePartPolicy
 import com.longdev.xiaoling.model.ProviderRequestConfig
 import com.longdev.xiaoling.model.preferredEmbeddingModel
 import com.longdev.xiaoling.model.ProviderProfile
@@ -132,6 +131,10 @@ import com.longdev.xiaoling.network.ApiFailure
 import com.longdev.xiaoling.network.ProviderApiUrlBuilder
 import com.longdev.xiaoling.network.FailureKind
 import com.longdev.xiaoling.network.OpenAiCompatibleClient
+import com.longdev.xiaoling.ui.conversation.PersonalTaskAvailabilityPolicy
+import com.longdev.xiaoling.ui.conversation.PersonalTaskAvailabilityStatus
+import com.longdev.xiaoling.ui.conversation.personalTaskPreflightRequest
+import com.longdev.xiaoling.ui.conversation.personalTaskTemplates
 import com.longdev.xiaoling.network.RequestMessage
 import com.longdev.xiaoling.network.StreamDeltaUpdate
 import com.longdev.xiaoling.prompt.PromptDefaults
@@ -202,16 +205,6 @@ import java.util.Date
 import java.util.Locale
 import java.util.UUID
 import java.time.ZonedDateTime
-
-private fun newChatMessageId(): String = "message-${System.currentTimeMillis()}-${UUID.randomUUID()}"
-
-private fun ToolRisk.toUiLabel(): String {
-    return when (this) {
-        ToolRisk.SAFE -> "低风险"
-        ToolRisk.REQUIRES_APPROVAL -> "需确认"
-        ToolRisk.DANGEROUS -> "高风险"
-    }
-}
 
 data class PendingPersonalTaskPlanUiState(
     val id: String,
@@ -298,153 +291,6 @@ internal fun List<ChatMessage>.withRecoveredAgentUserMessage(run: AgentRunRecord
     )).sortedBy(ChatMessage::createdAt)
 }
 
-data class XiaoLingUiState(
-    val genUiActionLeases: Map<String, com.longdev.xiaoling.genui.GenUiActionLease> = emptyMap(),
-    val themeMode: AppThemeMode = AppThemeMode.SYSTEM,
-    val promptSettings: PromptSettings = PromptSettings(),
-    val profiles: List<ProviderProfile> = emptyList(),
-    val selectedProfileId: String = "",
-    val profileName: String = "",
-    val baseUrl: String = "",
-    val apiKey: String = "",
-    val userAgent: String = ProviderRequestConfig.DEFAULT_USER_AGENT,
-    val model: String = "",
-    val prompt: String = SecureConfigStore.DEFAULT_PROMPT,
-    val availableModels: List<String> = emptyList(),
-    val enabledModels: List<String> = emptyList(),
-    val loadingModels: Boolean = false,
-    val sendingMessage: Boolean = false,
-    val personalTaskMode: Boolean = false,
-    val pendingPersonalTaskPlan: PendingPersonalTaskPlanUiState? = null,
-    val personalTaskOperationPhase: PersonalTaskOperationUiPhase? = null,
-    val personalTaskFailure: PersonalTaskFailureUiState? = null,
-    val personalTaskCompletion: PersonalTaskCompletionUiState? = null,
-    val apiMode: ApiMode = ApiMode.CHAT_COMPLETIONS,
-    val streamingEnabled: Boolean = false,
-    val reasoningSummaryEnabled: Boolean = false,
-    val pendingImage: ImageAttachment? = null,
-    val pendingDocument: DocumentAttachment? = null,
-    val pendingSharedDraft: SharedDraftPayload? = null,
-    val pendingSharedDraftIsRemote: Boolean = false,
-    val sharedDraftImported: Boolean = false,
-    val sharedDraftImportedIsRemote: Boolean = false,
-    val sharedDraftNavigationVersion: Long = 0L,
-    val attachingImage: Boolean = false,
-    val attachingDocument: Boolean = false,
-    val loadingConversationMessages: Boolean = false,
-    val chatMessages: List<ChatMessage> = emptyList(),
-    val knowledgeReferenceStatuses: Map<KnowledgeReference, KnowledgeReferenceStatus> = emptyMap(),
-    val failedKnowledgeReferenceStatuses: Set<KnowledgeReference> = emptySet(),
-    val answerabilityNotices: Map<String, KnowledgeAnswerabilityUserNotice> = emptyMap(),
-    val conversations: List<ConversationSession> = emptyList(),
-    val selectedConversationId: String = "",
-    val conversationTitle: String = "",
-    val conversationSummary: String = "",
-    val manageDraft: ProviderEditDraft? = null,
-    val syncingProfileIds: Set<String> = emptySet(),
-    val syncingAllProfiles: Boolean = false,
-    val batchSyncResults: Map<String, String> = emptyMap(),
-    val activeAgentRun: AgentRunSnapshot? = null,
-    val directAgentCurrentFact: DirectAgentCurrentFactUiState? = null,
-    val refreshingDirectAgentCurrentFact: Boolean = false,
-    val agentMemoryRecallEnabled: Boolean = true,
-    val answerabilityShadowEnabled: Boolean = false,
-    val answerabilityShadowSampleSummary: KnowledgeAnswerabilityShadowSampleSummary =
-        KnowledgeAnswerabilityShadowSampleSummary(),
-    val answerabilityShadowPersistentSummary: KnowledgeAnswerabilityShadowPersistentSummary =
-        KnowledgeAnswerabilityShadowPersistentSummary(),
-    val pendingAgentApproval: AgentApprovalUiState? = null,
-    val loadingAgentRunHistory: Boolean = false,
-    val agentRunHistory: List<AgentRunDetailRecord> = emptyList(),
-    val selectedAgentRunId: String? = null,
-    val agentRunHistoryError: String? = null,
-    val loadingProcessExitObservations: Boolean = false,
-    val processExitObservations: List<ProcessExitObservation> = emptyList(),
-    val processExitObservationError: String? = null,
-    val retryingAgentRunId: String? = null,
-    val pendingAgentRetryConfirmation: AgentRetryConfirmationUiState? = null,
-    val childBatchDraftOpen: Boolean = false,
-    val childBatchRunning: Boolean = false,
-    val childBatchParentRunId: String? = null,
-    val agentRetryNavigationConversationId: String? = null,
-    val loadingMemories: Boolean = false,
-    val memories: List<AgentMemoryRecord> = emptyList(),
-    val memoryCandidatesEnabled: Boolean = false,
-    val loadingMemoryCandidates: Boolean = false,
-    val memoryCandidates: List<AgentMemoryCandidateRecord> = emptyList(),
-    val memoryMaintenanceRunning: Boolean = false,
-    val memoryMaintenanceMessage: String? = null,
-    val mutatingMemoryCandidateIds: Set<String> = emptySet(),
-    val memorySearchQuery: String = "",
-    val memoryFilter: AgentMemoryFilter = AgentMemoryFilter.ALL,
-    val selectedMemoryId: String? = null,
-    val memoryError: String? = null,
-    val mutatingMemoryIds: Set<String> = emptySet(),
-    val editingMemory: AgentMemoryEditUiState? = null,
-    val pendingMemoryDelete: AgentMemoryRecord? = null,
-    val deletedMemoryForUndo: AgentMemoryRecord? = null,
-    val memorySourceConversationNavigationId: String? = null,
-    val memorySourceRunNavigationId: String? = null,
-    val loadingSkills: Boolean = false,
-    val importingSkill: Boolean = false,
-    val skills: List<AgentSkillRecord> = emptyList(),
-    val githubSkillCandidates: List<GitHubSkillCandidate> = emptyList(),
-    val mutatingSkillIds: Set<String> = emptySet(),
-    val skillError: String? = null,
-    val pendingLocalSkillDelete: AgentSkillRecord? = null,
-    val loadingMcpServers: Boolean = false,
-    val savingMcpServer: Boolean = false,
-    val mcpServers: List<McpServerConfig> = emptyList(),
-    val mutatingMcpServerIds: Set<String> = emptySet(),
-    val mcpToolsByServer: Map<String, List<McpToolDescriptor>> = emptyMap(),
-    val loadingMcpToolServerIds: Set<String> = emptySet(),
-    val mutatingMcpToolKeys: Set<String> = emptySet(),
-    val mcpError: String? = null,
-    val pendingMcpServerDelete: McpServerConfig? = null,
-    val agentProfiles: List<AgentProfileRecord> = emptyList(),
-    val selectedAgentProfileId: String = "",
-    val registeredAgentTools: List<ToolDefinition> = emptyList(),
-    val mutatingAgentProfileIds: Set<String> = emptySet(),
-    val agentProfileError: String? = null,
-    val loadingWorkflows: Boolean = false,
-    val workflows: List<WorkflowRecord> = emptyList(),
-    val workflowRuns: List<WorkflowRunDetail> = emptyList(),
-    val workflowDeviceObservationsByAgentRunId: Map<String, List<WorkflowDeviceObservationUiState>> = emptyMap(),
-    val workflowDeviceActionApprovalsByAgentRunId: Map<String, List<WorkflowDeviceActionApprovalEvidence>> = emptyMap(),
-    val scheduledTasks: List<ScheduledTaskRecord> = emptyList(),
-    val workflowSchedules: List<WorkflowScheduleRecord> = emptyList(),
-    val mutatingWorkflowIds: Set<String> = emptySet(),
-    val mutatingScheduledTaskIds: Set<String> = emptySet(),
-    val mutatingWorkflowScheduleIds: Set<String> = emptySet(),
-    val schedulingWorkflowId: String? = null,
-    val runningWorkflowId: String? = null,
-    val pendingWorkflowRetryConfirmation: WorkflowRetryConfirmationUiState? = null,
-    val workflowError: String? = null,
-    val workflowNavigationConversationId: String? = null,
-    val scheduledTaskResultWorkflowId: String? = null,
-    val scheduledTaskResultTaskId: String? = null,
-    val scheduledTaskResultWorkflowRunId: String? = null,
-    val scheduledTaskResultNavigationVersion: Long = 0L,
-    val backupBusy: Boolean = false,
-    val backupRestartRequired: Boolean = false,
-    val result: OperationResult? = null,
-)
-
-internal fun mergeAnswerabilityShadowInitializationState(
-    initializedState: XiaoLingUiState,
-    runtimeState: XiaoLingUiState,
-): XiaoLingUiState = initializedState.copy(
-    answerabilityShadowEnabled = runtimeState.answerabilityShadowEnabled,
-    answerabilityShadowSampleSummary = runtimeState.answerabilityShadowSampleSummary,
-    // long: 匿名账本可能在 Profile/会话加载完成前已经读回；启动整表状态重建必须保留该结果，不能让默认零值覆盖真实跨进程累计。
-    answerabilityShadowPersistentSummary = runtimeState.answerabilityShadowPersistentSummary,
-    // long: 通知令牌可能在冷启动初始化期间先被 Activity 消费；Room 全量状态装载不能覆盖这条已校验但尚未由 Compose 路由的一次性请求。
-    scheduledTaskResultWorkflowId = runtimeState.scheduledTaskResultWorkflowId,
-    scheduledTaskResultTaskId = runtimeState.scheduledTaskResultTaskId,
-    scheduledTaskResultWorkflowRunId = runtimeState.scheduledTaskResultWorkflowRunId,
-    scheduledTaskResultNavigationVersion = runtimeState.scheduledTaskResultNavigationVersion,
-)
-
 private data class WorkflowUiData(
     val workflows: List<WorkflowRecord>,
     val runs: List<WorkflowRunDetail>,
@@ -460,164 +306,6 @@ private data class StartupAgentRecoveryState(
     val verifiedToolRuns: List<AgentRunDetailRecord>,
     val notice: OperationResult?,
 )
-
-data class ChatMessage(
-    val role: String,
-    val text: String,
-    val id: String = newChatMessageId(),
-    val createdAt: Long = System.currentTimeMillis(),
-    val origin: MessageOrigin = MessageOrigin.fromStored(value = null, role = role),
-    val verifiedAgentContext: VerifiedAgentContext? = null,
-    val meta: MessageMeta? = null,
-    val parts: List<MessagePart> = emptyList(),
-) {
-    fun effectiveParts(): List<MessagePart> = AgentMessagePartPolicy.resolve(
-        messageId = id,
-        text = text,
-        origin = origin,
-        verifiedContext = verifiedAgentContext,
-        storedParts = parts,
-    )
-}
-
-internal fun ChatMessage.imagesForRequest(apiMode: ApiMode): List<ImageAttachment> {
-    if (apiMode != ApiMode.RESPONSES || origin != MessageOrigin.USER) return emptyList()
-    return effectiveParts().filterIsInstance<MessagePart.Image>().map { it.attachment }
-}
-
-internal fun ChatMessage.documentsForRequest(apiMode: ApiMode): List<DocumentAttachment> {
-    if (apiMode != ApiMode.RESPONSES || origin != MessageOrigin.USER) return emptyList()
-    return effectiveParts().filterIsInstance<MessagePart.Document>().map { it.attachment }
-}
-
-internal fun ChatMessage.attachmentsForAgent(): MessageAttachmentSelection {
-    if (origin != MessageOrigin.USER) return MessageAttachmentSelection()
-    // long: 重试和审批恢复只能从 USER 的可信投影重建唯一附件；assistant、Tool 或损坏的重复附件不能重新进入规划请求。
-    return when (val attachmentPart = effectiveParts().firstOrNull { it is MessagePart.Image || it is MessagePart.Document }) {
-        is MessagePart.Image -> MessageAttachmentSelection(image = attachmentPart.attachment)
-        is MessagePart.Document -> MessageAttachmentSelection(document = attachmentPart.attachment)
-        else -> MessageAttachmentSelection()
-    }
-}
-
-data class MessageMeta(
-    val providerId: String? = null,
-    val providerName: String? = null,
-    val model: String? = null,
-    val apiMode: ApiMode? = null,
-    val streaming: Boolean? = null,
-    val requestUrl: String? = null,
-    val firstTokenLatencyMs: Long? = null,
-    val latencyMs: Long? = null,
-    val promptTokens: Int? = null,
-    val completionTokens: Int? = null,
-    val totalTokens: Int? = null,
-    val finishReason: String? = null,
-    val errorKind: String? = null,
-    val errorMessage: String? = null,
-)
-
-internal fun ChatMessage.isEligibleForConversationContext(): Boolean {
-    if (role == "user") return true
-    if (role != "assistant") return false
-    // long: 失败或取消的流式正文只是用户已经看到的局部输出，不能作为完整模型回复再次发送或进入摘要，否则残缺结论会在后续轮次被放大。
-    return meta?.finishReason !in setOf("failed", "cancelled")
-}
-
-internal fun List<ChatMessage>.withFailedStreamingGeneration(
-    baseMeta: MessageMeta,
-    errorKind: String,
-    errorMessage: String,
-): List<ChatMessage> {
-    val last = lastOrNull()
-    if (last?.role != "assistant") return this
-    // long: delta 已经展示后发生断流时保留用户看到的部分正文，但必须把同一气泡收敛为失败终态，不能让它永久显示“接收中”或伪装成完整回复。
-    return dropLast(1) + last.copy(
-        meta = (last.meta ?: baseMeta).copy(
-            finishReason = "failed",
-            errorKind = errorKind,
-            errorMessage = errorMessage,
-        ),
-    )
-}
-
-data class ConversationSession(
-    val id: String,
-    val title: String,
-    val summary: String,
-    val summaryUntilMessageId: String?,
-    val summaryUpdatedAt: Long?,
-    val summaryModel: String?,
-    val messages: List<ChatMessage>,
-    val createdAt: Long,
-    val updatedAt: Long,
-)
-
-enum class OperationResultAction {
-    OPEN_AGENT_RUN_HISTORY,
-    OPEN_INTERRUPTED_AGENT_RUN_HISTORY,
-}
-
-data class OperationResult(
-    val success: Boolean,
-    val title: String,
-    val message: String,
-    val action: OperationResultAction? = null,
-    val requestUrl: String? = null,
-    val latencyMs: Long? = null,
-    val firstTokenLatencyMs: Long? = null,
-)
-
-data class AgentApprovalUiState(
-    val requestId: String,
-    val runId: String,
-    val conversationId: String,
-    val toolCallId: String,
-    val toolName: String,
-    val toolDescription: String,
-    val riskLabel: String,
-    val arguments: Map<String, String>,
-    val expiresAt: Long,
-    val deciding: Boolean = false,
-    val restoredFromProcess: Boolean = false,
-) {
-    companion object {
-        fun from(request: ApprovalRequestRecord): AgentApprovalUiState {
-            return create(request, request.arguments)
-        }
-
-        fun fromCurrentProcess(
-            request: ApprovalRequestRecord,
-            toolCall: ToolCall,
-        ): AgentApprovalUiState {
-            val persistedToolCall = DeviceTypeTextAuditPolicy.toolCallForPersistence(toolCall)
-            // long: 当前进程审批卡可以显示未落盘原文，但必须先证明它与 Room 中的请求属于同一 ToolCall 和同一安全投影，不能把另一条调用的参数错配给用户确认。
-            require(request.toolCallId == persistedToolCall.id) { "审批请求与当前 ToolCall ID 不一致" }
-            require(request.toolName == persistedToolCall.name) { "审批请求与当前工具名称不一致" }
-            require(request.risk == persistedToolCall.risk) { "审批请求与当前工具风险不一致" }
-            require(request.arguments == persistedToolCall.arguments) { "审批请求与当前工具参数投影不一致" }
-            return create(request, toolCall.arguments)
-        }
-
-        private fun create(
-            request: ApprovalRequestRecord,
-            visibleArguments: Map<String, String>,
-        ): AgentApprovalUiState {
-            return AgentApprovalUiState(
-                requestId = request.id,
-                runId = request.runId,
-                conversationId = request.conversationId,
-                toolCallId = request.toolCallId,
-                toolName = request.toolName,
-                toolDescription = request.toolDescription,
-                riskLabel = request.risk.toUiLabel(),
-                // long: 当前进程可用内存中的原始参数帮助用户核对真实副作用；默认值始终来自 Room 安全投影，历史记录和进程恢复不能重新获得未持久化原文。
-                arguments = visibleArguments.toMap(),
-                expiresAt = request.expiresAt,
-            )
-        }
-    }
-}
 
 class XiaoLingViewModel @JvmOverloads constructor(
     application: Application,
@@ -702,6 +390,7 @@ class XiaoLingViewModel @JvmOverloads constructor(
     private val conversationLoadCoordinator = ConversationLoadCoordinator(
         scope = viewModelScope,
         loadMessages = { conversationId ->
+            conversationPersistenceCoordinator.awaitLatestSave()
             conversationStore.loadConversationMessages(conversationId).map { it.toChatMessage() }
         },
     )
@@ -740,6 +429,12 @@ class XiaoLingViewModel @JvmOverloads constructor(
     private val genUiLeases = com.longdev.xiaoling.genui.GenUiActionLeases()
     private val ordinarySendScope = ConversationSendScope()
     private val installedAppDirectoryReader by lazy { AndroidInstalledAppDirectoryReader(application) }
+    private val personalTaskEnvironmentCoordinator = PersonalTaskEnvironmentCoordinator(viewModelScope) {
+        PersonalTaskEnvironment(
+            directory = installedAppDirectoryReader.read(),
+            health = com.longdev.xiaoling.device.DeviceObservationComponents.controller(application).health(),
+        )
+    }
     private val agentProfileStore by lazy { RoomAgentProfileStore(application) }
     private val agentRunRepository by lazy { RoomAgentRunRepository(application) }
     private val workflowDeviceActionApprovalPersistence by lazy {
@@ -847,9 +542,44 @@ class XiaoLingViewModel @JvmOverloads constructor(
             reconcileUnsettledTask = scheduledWorkflowStopFallback::reconcile,
         )
     }
+    private val agentRunStopCoordinator by lazy {
+        AgentRunStopCoordinator(
+            loadRun = agentRunRepository::runDetail,
+            linkedScheduledTaskId = workflowRepository::scheduledTaskIdForAgentRun,
+            stopScheduledTask = { scheduledWorkflowStopCoordinator.stop(it); Unit },
+            requestCancel = agentRunRepository::requestCancel,
+            isExecuting = AgentRunExecutionRegistry::isRunning,
+            cancelInactiveRun = agentRunRepository::cancelActiveRun,
+            settleCancelledWorkflow = { runId, reason ->
+                workflowRepository.completeByAgentRunId(runId, WorkflowRunStatus.CANCELLED, errorMessage = reason)
+                Unit
+            },
+        )
+    }
     private val backupManager by lazy { XiaoLingBackupManager(application) }
-    private var streamingThrottleJob: Job? = null
-    private var pendingStreamingUpdate: StreamDeltaUpdate? = null
+    private val skillManagementPresentation by lazy {
+        AgentSkillManagementPresentation(
+            scope = viewModelScope,
+            readState = { uiState },
+            writeState = { uiState = it },
+            listSkills = agentRunUseCase::listSkills,
+            importDocument = agentRunUseCase::importSkill,
+            discoverCandidates = agentRunUseCase::discoverGitHubSkills,
+            importGitHubDocument = agentRunUseCase::importSkillFromGitHub,
+            setEnabled = agentRunUseCase::setSkillEnabled,
+            deleteLocal = agentRunUseCase::deleteLocalSkill,
+            showValidation = ::showValidation,
+        )
+    }
+    private val conversationSendPresentation = ConversationSendPresentation(
+        scope = viewModelScope,
+        readState = { uiState },
+        writeState = { uiState = it },
+        genUiLeases = genUiLeases,
+        onCompleted = { text, conversationId -> createMemoryCandidateAfterTurn(text, conversationId, null) },
+        saveConversationSelection = ::saveConversationSelection,
+        saveCurrentProfileSelection = ::saveCurrentProfileSelection,
+    )
     private val agentApprovalDecisionCoordinator = AgentApprovalDecisionCoordinator()
     private val agentConversationRuntimeStateStore = AgentConversationRuntimeStateStore()
     private val agentLaunchPreflightCoordinator = AgentLaunchPreflightCoordinator()
@@ -873,7 +603,6 @@ class XiaoLingViewModel @JvmOverloads constructor(
     }
     private var memorySearchJob: Job? = null
     private var memoryCandidateLoadJob: Job? = null
-    private var skillLoadJob: Job? = null
     private var mcpRefreshJob: Job? = null
     private val mcpDiscoveryJobs = mutableMapOf<String, Job>()
     private val mcpUiGenerations = mutableMapOf<String, Long>()
@@ -944,6 +673,7 @@ class XiaoLingViewModel @JvmOverloads constructor(
                     notice = notice,
                 )
             }
+            var schedulingRecoveryFailures = 0
             val workflowState = withContext(Dispatchers.IO) {
                 // long: Agent Run 先完成恢复收敛，Workflow Ledger 再依据真实 Agent 终态对账，避免把已经取消的执行继续显示为运行中。
                 workflowRepository.reconcileInterruptedRuns(
@@ -953,17 +683,16 @@ class XiaoLingViewModel @JvmOverloads constructor(
                     workflowRunIds = recoveryCandidates.workflowRunIds,
                 )
                 workflowRepository.reconcileInterruptedScheduledTasks(recoveryCandidates.scheduledTaskIds)
-                val tasksToEnqueue = (
-                    workflowRepository.reconcileWorkflowSchedules() +
-                        workflowRepository.listUnboundScheduledTasks()
-                    ).distinctBy { task -> task.id }
+                workflowRepository.reconcileWorkflowSchedules()
+                val tasksToEnqueue = workflowRepository.reconcileScheduledWorkBindings(scheduledTaskScheduler::activeWorkRequestId)
                 tasksToEnqueue.forEach { task ->
                     try {
                         val workRequestId = scheduledTaskScheduler.enqueue(task)
-                        workflowRepository.attachWorkRequest(task.id, workRequestId)
-                    } catch (error: Throwable) {
-                        // long: 周期实例已在 Room 中占位，启动补队失败时收敛该实例，保留规则供下次启动继续计算未来触发，不让初始化整体失败。
-                        workflowRepository.failScheduling(task.id, error.message ?: "恢复周期任务入队失败")
+                        workflowRepository.attachRecoveredWorkRequest(task.id, workRequestId)
+                    } catch (error: CancellationException) { throw error }
+                    catch (_: Exception) {
+                        // long: 系统入队失败保留等待记录供下次对账；不能把并发 Worker 已领取的实例改成 FAILED。
+                        schedulingRecoveryFailures++
                     }
                 }
                 loadWorkflowUiData()
@@ -973,6 +702,12 @@ class XiaoLingViewModel @JvmOverloads constructor(
                 agentMemoryStore.latestDeleted()
             }
             val storedProfiles = configStore.load()
+            val restoreNotice = withContext(Dispatchers.IO) {
+                val store = getApplication<Application>().getSharedPreferences("database_restore_notice", android.content.Context.MODE_PRIVATE)
+                store.getString("message", null)?.let {
+                    OperationResult(store.getBoolean("success", false), "数据库恢复结果", it)
+                }?.also { store.edit().remove("message").remove("success").commit() }
+            }
             val storedConversations = conversationStore.load()
             val availableAgentTools = agentRunUseCase.registeredTools()
             val availableSkills = withContext(Dispatchers.IO) { agentRunUseCase.listSkills() }
@@ -1026,7 +761,8 @@ class XiaoLingViewModel @JvmOverloads constructor(
                         workflowDeviceActionApprovalsByAgentRunId = workflowState.deviceActionApprovalsByAgentRunId,
                         scheduledTasks = workflowState.tasks,
                         workflowSchedules = workflowState.schedules,
-                        result = agentRecoveryState.notice ?: uiState.result,
+                        result = if (schedulingRecoveryFailures > 0) OperationResult(false, "部分提醒尚未恢复调度", "请重新打开应用重试；原任务记录已保留。")
+                            else restoreNotice ?: agentRecoveryState.notice ?: uiState.result,
                     ),
                 runtimeState = uiState,
             )
@@ -1110,6 +846,31 @@ class XiaoLingViewModel @JvmOverloads constructor(
             personalTaskCompletion = null,
             result = null,
         )
+        if (enabled) refreshPersonalTaskAvailability()
+        else personalTaskEnvironmentCoordinator.invalidate { uiState = uiState.copy(personalTaskEnvironment = it) }
+    }
+
+    fun refreshPersonalTaskAvailability() {
+        if (!uiState.personalTaskMode || uiState.sendingMessage) return
+        personalTaskEnvironmentCoordinator.refresh { environment ->
+            uiState = uiState.copy(personalTaskEnvironment = environment)
+        }
+    }
+
+    fun selectPersonalTaskTemplate(templateId: String) {
+        val template = personalTaskTemplates.singleOrNull { it.id == templateId } ?: return
+        if (!uiState.personalTaskMode || uiState.sendingMessage || uiState.pendingPersonalTaskPlan != null) return
+        val conversationId = uiState.selectedConversationId
+        val draft = uiState.prompt
+        // long: 选择时重新读取本机条件，等待期间编辑目标或切换会话就撤销填入；诊断不能创建计划或发起模型请求。
+        personalTaskEnvironmentCoordinator.refresh { environment ->
+            uiState = uiState.copy(personalTaskEnvironment = environment)
+            if (environment.directory == null || uiState.selectedConversationId != conversationId || uiState.prompt != draft ||
+                !uiState.personalTaskMode || uiState.sendingMessage) return@refresh
+            val availability = PersonalTaskAvailabilityPolicy.evaluate(template, uiState.personalTaskPreflightRequest(), environment)
+            if (availability.status == PersonalTaskAvailabilityStatus.READY) updatePrompt(template.goal)
+            else showValidation(availability.reason)
+        }
     }
 
     internal fun acceptSharedDraft(result: SharedDraftImport) {
@@ -1555,6 +1316,7 @@ class XiaoLingViewModel @JvmOverloads constructor(
             personalTaskCompletion = null,
             result = null,
         )
+        cancelOrdinarySendBeforeNavigation()
         conversationSelectionCoordinator.openNew(uiState, ::handleConversationSelectionEvent)
         uiState = uiState.copy(
             prompt = payload.text,
@@ -1850,8 +1612,8 @@ class XiaoLingViewModel @JvmOverloads constructor(
                     backupRestartRequired = restored.restartRequired,
                     result = OperationResult(
                         success = true,
-                        title = "备份已恢复",
-                        message = "Room v${restored.manifest.schemaVersion} 已替换当前数据库，请退出并重新打开应用；Keystore 密文只能在原设备密钥仍存在时解密",
+                        title = "备份已校验，等待重新启动",
+                        message = "备份已通过完整性和表结构检查，请退出并重新打开应用后生效；当前数据继续保留。Keystore 密文只能在原设备密钥仍存在时解密",
                     ),
                 )
             }.onFailure { error ->
@@ -1934,25 +1696,27 @@ class XiaoLingViewModel @JvmOverloads constructor(
     }
 
     fun stopGenerating() {
-        val runId = if (uiState.childBatchRunning) uiState.childBatchParentRunId else uiState.activeAgentRun?.run?.id
+        if (uiState.childBatchRunning) {
+            val parentId = uiState.childBatchParentRunId
+            val batchJob = sendMessageJob
+            viewModelScope.launch {
+                withContext(NonCancellable + Dispatchers.IO) {
+                    parentId?.let { agentRunRepository.requestCancel(it, "用户停止只读多 Agent 批次") }
+                }
+                batchJob?.cancel()
+            }
+            return
+        }
+        val runId = uiState.activeAgentRun?.run?.takeUnless { it.status.isTerminal }?.id
         val stoppingJob = sendMessageJob
         val reason = "用户停止 Agent 任务"
         if (runId == null) {
             agentApprovalDecisionCoordinator.cancelActive()
+            cancelOrdinarySendBeforeNavigation()
             stoppingJob?.cancel()
             return
         }
-        viewModelScope.launch {
-            // long: 先把用户停止意图写入 Room，再取消网络协程；进程若在 Runtime finally 前退出，启动恢复仍能识别这是用户取消而不是普通崩溃。
-            runCatching {
-                withContext(NonCancellable + Dispatchers.IO) {
-                    agentRunRepository.requestCancel(runId, reason)
-                }
-            }
-            // long: 持久取消等待期间旧批次可能已完成；只停止当时捕获的 Job，不能误取消用户随后启动的新任务或审批。
-            if (sendMessageJob === stoppingJob) agentApprovalDecisionCoordinator.cancelActive()
-            stoppingJob?.cancel()
-        }
+        requestAgentRunStop(runId, reason)
     }
 
     override fun refreshAgentRunHistory() {
@@ -1988,6 +1752,46 @@ class XiaoLingViewModel @JvmOverloads constructor(
     override fun selectAgentRun(runId: String) {
         if (uiState.agentRunHistory.none { it.snapshot.run.id == runId }) return
         uiState = uiState.copy(selectedAgentRunId = runId)
+    }
+
+    override fun stopAgentRun(runId: String) {
+        val shown = uiState.agentRunHistory.singleOrNull { it.snapshot.run.id == runId } ?: return
+        if (shown.snapshot.run.status.isTerminal) return
+        if (shown.snapshot.run.parentRunId != null && shown.snapshot.run.retryOfRunId == null) return
+        if (com.longdev.xiaoling.agent.AgentChildLifecyclePolicy.isManagedRun(shown)) return
+        if (shown.snapshot.events.any { it.metadata is RunEventMetadata.ChildRunExpectation }) return
+        requestAgentRunStop(runId, "用户从任务中心停止任务")
+    }
+
+    private fun requestAgentRunStop(runId: String, reason: String) {
+        if (runId in uiState.stoppingAgentRunIds) return
+        uiState = uiState.copy(stoppingAgentRunIds = uiState.stoppingAgentRunIds + runId)
+        viewModelScope.launch {
+            try {
+                // long: 活跃 Run 自行结算最后一次耗时；没有本地执行者的恢复记录直接关闭步骤与审批，两者都不触碰全局发送 Job。
+                val detail = withContext(NonCancellable + Dispatchers.IO) {
+                    agentRunStopCoordinator.stop(runId, reason)
+                }
+                detail?.let {
+                    // long: 停止旧历史任务的回读不能替换同会话后来创建的 Run，也不能清除后来 Run 的审批。
+                    val current = agentConversationRuntimeStateStore.stateFor(it.snapshot.run.conversationId).activeRun?.run
+                    if (current?.id == runId && !(current.status.isTerminal && !it.snapshot.run.status.isTerminal)) {
+                        rememberAgentRun(it.snapshot)
+                    }
+                    uiState = uiState.copy(agentRunHistory = uiState.agentRunHistory.map { old ->
+                        if (old.snapshot.run.id == runId &&
+                            !(old.snapshot.run.status.isTerminal && !it.snapshot.run.status.isTerminal)) it else old
+                    })
+                }
+                refreshWorkflows()
+            } catch (error: CancellationException) {
+                throw error
+            } catch (error: Exception) {
+                uiState = uiState.copy(agentRunHistoryError = "停止任务失败，请刷新后重试")
+            } finally {
+                uiState = uiState.copy(stoppingAgentRunIds = uiState.stoppingAgentRunIds - runId)
+            }
+        }
     }
 
     override fun refreshProcessExitObservations() {
@@ -2160,22 +1964,7 @@ class XiaoLingViewModel @JvmOverloads constructor(
         }
     }
 
-    fun refreshSkills() {
-        skillLoadJob?.cancel()
-        uiState = uiState.copy(loadingSkills = true, skillError = null)
-        skillLoadJob = viewModelScope.launch {
-            runCatching {
-                withContext(Dispatchers.IO) { agentRunUseCase.listSkills() }
-            }.onSuccess { skills ->
-                uiState = uiState.copy(loadingSkills = false, skills = skills, skillError = null)
-            }.onFailure { error ->
-                uiState = uiState.copy(
-                    loadingSkills = false,
-                    skillError = error.message ?: "无法读取 Skill",
-                )
-            }
-        }
-    }
+    fun refreshSkills() = skillManagementPresentation.refreshSkills()
 
     fun refreshMcpServers() {
         if (uiState.loadingMcpServers) return
@@ -3115,158 +2904,15 @@ class XiaoLingViewModel @JvmOverloads constructor(
         )
     }
 
-    fun importSkill(uri: android.net.Uri) {
-        if (uiState.importingSkill) return
-        uiState = uiState.copy(importingSkill = true, skillError = null, result = null)
-        viewModelScope.launch {
-            runCatching {
-                withContext(Dispatchers.IO) {
-                    val raw = readUtf8SkillDocument(uri)
-                    agentRunUseCase.importSkill(raw)
-                }
-            }.onSuccess { record ->
-                uiState = uiState.copy(
-                    importingSkill = false,
-                    result = OperationResult(
-                        true,
-                        "Skill 已导入",
-                        "${record.definition.name} v${record.definition.version} 已${if (record.enabled) "启用" else "保持停用"}",
-                    ),
-                )
-                refreshSkills()
-            }.onFailure { error ->
-                uiState = uiState.copy(
-                    importingSkill = false,
-                    skillError = error.message ?: "Skill 导入失败",
-                    result = OperationResult(false, "Skill 导入失败", error.message ?: "文件校验未通过"),
-                )
-            }
-        }
-    }
-
-    fun discoverGitHubSkills(url: String) {
-        if (uiState.importingSkill) return
-        uiState = uiState.copy(importingSkill = true, githubSkillCandidates = emptyList(), skillError = null)
-        viewModelScope.launch {
-            runCatching { withContext(Dispatchers.IO) { agentRunUseCase.discoverGitHubSkills(url) } }
-                .onSuccess { candidates ->
-                    uiState = uiState.copy(importingSkill = false)
-                    when (candidates.size) {
-                        0 -> uiState = uiState.copy(skillError = "GitHub 地址下没有找到 SKILL.json 或 SKILL.md")
-                        1 -> importSkillFromGitHub(candidates.single().sourceUrl)
-                        else -> uiState = uiState.copy(githubSkillCandidates = candidates)
-                    }
-                }
-                .onFailure { error ->
-                    uiState = uiState.copy(importingSkill = false, skillError = error.message ?: "GitHub Skill 发现失败")
-                }
-        }
-    }
-
-    fun importGitHubSkillCandidate(candidate: GitHubSkillCandidate) {
-        if (candidate !in uiState.githubSkillCandidates) return
-        uiState = uiState.copy(githubSkillCandidates = emptyList())
-        importSkillFromGitHub(candidate.sourceUrl)
-    }
-
-    fun cancelGitHubSkillSelection() {
-        if (uiState.importingSkill) return
-        uiState = uiState.copy(githubSkillCandidates = emptyList())
-    }
-
-    fun importSkillFromGitHub(url: String) {
-        if (uiState.importingSkill) return
-        uiState = uiState.copy(importingSkill = true, githubSkillCandidates = emptyList(), skillError = null, result = null)
-        viewModelScope.launch {
-            runCatching {
-                withContext(Dispatchers.IO) { agentRunUseCase.importSkillFromGitHub(url) }
-            }.onSuccess { record ->
-                uiState = uiState.copy(
-                    importingSkill = false,
-                    result = OperationResult(
-                        true,
-                        "GitHub Skill 已导入",
-                        "${record.definition.name} v${record.definition.version} 已${if (record.enabled) "启用" else "保持停用"}",
-                    ),
-                )
-                refreshSkills()
-            }.onFailure { error ->
-                uiState = uiState.copy(
-                    importingSkill = false,
-                    skillError = error.message ?: "GitHub Skill 导入失败",
-                    result = OperationResult(false, "GitHub Skill 导入失败", error.message ?: "远程文件校验未通过"),
-                )
-            }
-        }
-    }
-
-    fun setSkillEnabled(skillId: String, enabled: Boolean) {
-        if (skillId in uiState.mutatingSkillIds) return
-        uiState = uiState.copy(mutatingSkillIds = uiState.mutatingSkillIds + skillId, skillError = null)
-        viewModelScope.launch {
-            runCatching {
-                withContext(Dispatchers.IO) { agentRunUseCase.setSkillEnabled(skillId, enabled) }
-            }.onSuccess { updated ->
-                uiState = uiState.copy(
-                    mutatingSkillIds = uiState.mutatingSkillIds - skillId,
-                    result = OperationResult(
-                        updated != null,
-                        if (enabled) "Skill 已启用" else "Skill 已停用",
-                        updated?.definition?.name ?: "Skill 不存在",
-                    ),
-                )
-                refreshSkills()
-            }.onFailure { error ->
-                uiState = uiState.copy(
-                    mutatingSkillIds = uiState.mutatingSkillIds - skillId,
-                    skillError = error.message ?: "无法更新 Skill",
-                )
-            }
-        }
-    }
-
-    fun requestLocalSkillDelete(skillId: String) {
-        val skill = uiState.skills.firstOrNull { it.definition.id == skillId } ?: return
-        if (skill.definition.source != AgentSkillSource.LOCAL) {
-            showValidation("内置 Skill 不能删除")
-            return
-        }
-        uiState = uiState.copy(pendingLocalSkillDelete = skill)
-    }
-
-    fun cancelLocalSkillDelete() {
-        uiState = uiState.copy(pendingLocalSkillDelete = null)
-    }
-
-    fun confirmLocalSkillDelete() {
-        val skill = uiState.pendingLocalSkillDelete ?: return
-        val skillId = skill.definition.id
-        if (skillId in uiState.mutatingSkillIds) return
-        uiState = uiState.copy(
-            pendingLocalSkillDelete = null,
-            mutatingSkillIds = uiState.mutatingSkillIds + skillId,
-        )
-        viewModelScope.launch {
-            runCatching {
-                withContext(Dispatchers.IO) { agentRunUseCase.deleteLocalSkill(skillId) }
-            }.onSuccess { deleted ->
-                uiState = uiState.copy(
-                    mutatingSkillIds = uiState.mutatingSkillIds - skillId,
-                    result = OperationResult(
-                        deleted,
-                        if (deleted) "Skill 已删除" else "删除失败",
-                        if (deleted) skill.definition.name else "Skill 不存在或不是本地 Skill",
-                    ),
-                )
-                refreshSkills()
-            }.onFailure { error ->
-                uiState = uiState.copy(
-                    mutatingSkillIds = uiState.mutatingSkillIds - skillId,
-                    skillError = error.message ?: "删除 Skill 失败",
-                )
-            }
-        }
-    }
+    fun importSkill(uri: android.net.Uri) = skillManagementPresentation.importSkill { readUtf8SkillDocument(uri) }
+    fun discoverGitHubSkills(url: String) = skillManagementPresentation.discoverGitHubSkills(url)
+    fun importGitHubSkillCandidate(candidate: GitHubSkillCandidate) = skillManagementPresentation.importGitHubSkillCandidate(candidate)
+    fun cancelGitHubSkillSelection() = skillManagementPresentation.cancelGitHubSkillSelection()
+    fun importSkillFromGitHub(url: String) = skillManagementPresentation.importSkillFromGitHub(url)
+    fun setSkillEnabled(skillId: String, enabled: Boolean) = skillManagementPresentation.setSkillEnabled(skillId, enabled)
+    fun requestLocalSkillDelete(skillId: String) = skillManagementPresentation.requestLocalSkillDelete(skillId)
+    fun cancelLocalSkillDelete() = skillManagementPresentation.cancelLocalSkillDelete()
+    fun confirmLocalSkillDelete() = skillManagementPresentation.confirmLocalSkillDelete()
 
     private fun readUtf8SkillDocument(uri: android.net.Uri): String {
         val resolver = getApplication<Application>().contentResolver
@@ -4253,11 +3899,13 @@ class XiaoLingViewModel @JvmOverloads constructor(
 
     fun openNewConversation() {
         cancelConversationNavigationLoad()
+        cancelOrdinarySendBeforeNavigation()
         conversationSelectionCoordinator.openNew(uiState, ::handleConversationSelectionEvent)
     }
 
     fun selectConversation(conversationId: String) {
         cancelConversationNavigationLoad()
+        cancelOrdinarySendBeforeNavigation()
         conversationSelectionCoordinator.select(uiState, conversationId, ::handleConversationSelectionEvent)
     }
 
@@ -4345,7 +3993,16 @@ class XiaoLingViewModel @JvmOverloads constructor(
 
     fun deleteCurrentConversation() {
         cancelConversationNavigationLoad()
+        cancelOrdinarySendBeforeNavigation()
         conversationSelectionCoordinator.deleteCurrent(uiState, ::handleConversationSelectionEvent)
+    }
+
+    private fun cancelOrdinarySendBeforeNavigation() {
+        if (!ordinarySendScope.invalidate()) return
+        conversationSendPresentation.cancelBeforeNavigation()
+        sendMessageJob?.cancel()
+        sendMessageJob = null
+        uiState = uiState.copy(sendingMessage = false)
     }
 
     private fun cancelConversationNavigationLoad() {
@@ -4355,15 +4012,11 @@ class XiaoLingViewModel @JvmOverloads constructor(
     }
 
     private fun handleConversationSelectionEvent(event: ConversationSelectionEvent) {
+        personalTaskEnvironmentCoordinator.invalidate { uiState = uiState.copy(personalTaskEnvironment = it) }
         // long: 仅处理协调器接受的会话事件；离开、删除或重载会话均撤销卡片，不在恢复消息时重新签发。
         genUiLeases.revokeAll()
         uiState = uiState.copy(genUiActionLeases = emptyMap())
-        if (ordinarySendScope.invalidate()) {
-            sendMessageJob?.cancel(); sendMessageJob = null
-            streamingThrottleJob?.cancel(); streamingThrottleJob = null
-            pendingStreamingUpdate = null
-            uiState = uiState.copy(sendingMessage = false)
-        }
+        cancelOrdinarySendBeforeNavigation()
         if (notificationTaskDraftRequestId != null || notificationTaskVerificationRequestId != null) {
             // long: 通知来源只属于发起转换时的会话；会话切换必须让进行中的回读失效，回调不得把旧通知草稿或确认结果投影到新会话。
             notificationTaskDraftRequestId = null
@@ -4837,6 +4490,7 @@ class XiaoLingViewModel @JvmOverloads constructor(
         val preRequestSelectedConversationId = uiState.selectedConversationId
         val sendIdentity = ordinarySendScope.begin(preRequestSelectedConversationId)
         val baseMeta = config.toBaseMessageMeta(profileSnapshot)
+        conversationSendPresentation.begin(baseMeta)
         sendMessageJob = viewModelScope.launch {
             try {
                 conversationPersistenceCoordinator.cancelPendingSaveAndJoin()
@@ -4855,12 +4509,17 @@ class XiaoLingViewModel @JvmOverloads constructor(
                         initialContext = initialContext,
                     ),
                     onEvent = { event ->
-                        if (ordinarySendScope.accepts(sendIdentity, uiState.selectedConversationId)) handleConversationSendEvent(
-                            event = event,
-                            baseMeta = baseMeta,
-                            userMessage = userMessage,
-                            messagesWithUser = messagesWithUser,
-                        )
+                        // long: 网络 delta 来自 IO，导航与消息终态统一在主线程按当前 owner 投影；取消只允许本地收敛，不允许迟到写入新会话。
+                        val eventContext = if (event is ConversationSendEvent.Cancelled) NonCancellable + Dispatchers.Main.immediate
+                            else Dispatchers.Main.immediate
+                        withContext(eventContext) {
+                            if (ordinarySendScope.accepts(sendIdentity, uiState.selectedConversationId)) conversationSendPresentation.handle(
+                                event = event,
+                                baseMeta = baseMeta,
+                                userMessage = userMessage,
+                                messagesWithUser = messagesWithUser,
+                            )
+                        }
                     },
                 )
             } finally {
@@ -4929,6 +4588,13 @@ class XiaoLingViewModel @JvmOverloads constructor(
         )
         sendMessageJob = viewModelScope.launch {
             try {
+                personalTaskTemplates.firstOrNull { notificationSource == null && it.goal == goal }?.let { template ->
+                    val environment = PersonalTaskEnvironment(installedAppDirectoryReader.read(),
+                        com.longdev.xiaoling.device.DeviceObservationComponents.controller(getApplication()).health())
+                    uiState = uiState.copy(personalTaskEnvironment = environment)
+                    val availability = PersonalTaskAvailabilityPolicy.evaluate(template, uiState.personalTaskPreflightRequest(), environment)
+                    require(availability.status == PersonalTaskAvailabilityStatus.READY) { availability.reason }
+                }
                 val planContext = personalTaskPlanContextPreparer.prepare(
                     goal = goal,
                     conversationId = conversationId,
@@ -4961,7 +4627,8 @@ class XiaoLingViewModel @JvmOverloads constructor(
                     planningTime = planningTime,
                 )
                 val response = client.sendStructuredMessage(
-                    config = runtimeSelection.config.copy(maxTokens = minOf(runtimeSelection.config.maxTokens, 2_000)),
+                    // long: 推理模型会共享输出额度；额外压到 2000 会让合法计划在生成正文前截断，规划沿用已选 Provider 的统一上限。
+                    config = runtimeSelection.config,
                     messages = planRequest.messages,
                     outputFormat = PersonalTaskPlanPolicy.outputFormat,
                 )
@@ -5495,130 +5162,6 @@ class XiaoLingViewModel @JvmOverloads constructor(
         return personalTaskOperationRequestId == requestId && uiState.selectedConversationId == conversationId
     }
 
-    private suspend fun handleConversationSendEvent(
-        event: ConversationSendEvent,
-        baseMeta: MessageMeta,
-        userMessage: String,
-        messagesWithUser: List<ChatMessage>,
-    ) {
-        // long: Coordinator 只冻结普通聊天的执行顺序；这里把稳定事件投影为当前会话 UI，删除确认由持久化协调器负责，ViewModel 只触发记忆候选和最终快照。
-        when (event) {
-            is ConversationSendEvent.SnapshotPersisted -> {
-                // long: 该事件只标记发送前快照已经提交；显式删除 ID 的成功确认由同一个持久化协调器原子管理，ViewModel 不再维护第二份状态。
-            }
-
-            is ConversationSendEvent.ContextPrepared -> {
-                uiState = uiState
-                    .withUpdatedCurrentConversation(
-                        messages = messagesWithUser,
-                        summary = event.context.summary,
-                        summaryUntilMessageId = event.context.summaryUntilMessageId,
-                        summaryUpdatedAt = event.context.summaryUpdatedAt,
-                        summaryModel = event.context.summaryModel,
-                    )
-                    .copy(result = null)
-            }
-
-            is ConversationSendEvent.StreamDelta -> {
-                withContext(Dispatchers.Main.immediate) {
-                    scheduleStreamingAssistant(event.update, baseMeta)
-                }
-            }
-
-            is ConversationSendEvent.Completed -> {
-                flushStreamingAssistant(baseMeta)
-                val response = event.response
-                val finalMessages = uiState.chatMessages.upsertLastAssistant(
-                    text = response.responseText,
-                    reasoningSummaries = response.reasoningSummaries,
-                    meta = baseMeta.copy(
-                        requestUrl = response.requestUrl,
-                        firstTokenLatencyMs = response.firstTokenLatencyMs,
-                        latencyMs = response.latencyMs,
-                    ),
-                )
-                // long: 完整普通响应只在这个发送完成事件签发一次；持久正文恢复后默认没有执行引用。
-                val completed = finalMessages.lastOrNull { it.role == "assistant" }
-                completed?.takeIf { response.actionCompletionConfirmed }
-                    ?.let { genUiLeases.issue(uiState.selectedConversationId, it.id, it.text) }
-                uiState = uiState
-                    .withUpdatedCurrentConversation(
-                        messages = finalMessages,
-                        summary = event.context.summary,
-                        summaryUntilMessageId = event.context.summaryUntilMessageId,
-                        summaryUpdatedAt = event.context.summaryUpdatedAt,
-                        summaryModel = event.context.summaryModel,
-                    )
-                    .copy(
-                        sendingMessage = false,
-                        result = null,
-                        genUiActionLeases = genUiLeases.available(uiState.selectedConversationId),
-                    )
-                // long: 只有模型响应完整收敛后才生成长期记忆候选；取消或断流正文都不能成为新的跨会话事实来源。
-                createMemoryCandidateAfterTurn(
-                    userText = userMessage,
-                    conversationId = uiState.selectedConversationId,
-                    runId = null,
-                )
-                saveConversationSelection()
-                saveCurrentProfileSelection()
-            }
-
-            is ConversationSendEvent.Cancelled -> {
-                flushStreamingAssistant(baseMeta)
-                val stoppedMessages = uiState.chatMessages.withCancelledGeneration(baseMeta)
-                uiState = uiState
-                    .withUpdatedCurrentConversation(
-                        messages = stoppedMessages,
-                        summary = event.context.summary,
-                        summaryUntilMessageId = event.context.summaryUntilMessageId,
-                        summaryUpdatedAt = event.context.summaryUpdatedAt,
-                        summaryModel = event.context.summaryModel,
-                    )
-                    .copy(
-                        sendingMessage = false,
-                        result = null,
-                    )
-                saveConversationSelection()
-            }
-
-            is ConversationSendEvent.Failed -> {
-                // long: 先强制刷出已收到的最后一个 delta，再将其标记为不完整并追加错误气泡，避免网络失败把用户已经看到的正文静默删除。
-                flushStreamingAssistant(baseMeta)
-                val failure = event.error as? ApiFailure
-                val failureKind = failure?.kind?.title ?: FailureKind.UNKNOWN.title
-                val failureMessage = event.error.message ?: "未知错误"
-                val failedMessages = uiState.chatMessages.withFailedStreamingGeneration(
-                    baseMeta = baseMeta,
-                    errorKind = failureKind,
-                    errorMessage = failureMessage,
-                ) + ChatMessage(
-                    role = "error",
-                    text = event.error.toConversationErrorText(),
-                    createdAt = System.currentTimeMillis(),
-                    meta = baseMeta.copy(
-                        finishReason = "failed",
-                        errorKind = failureKind,
-                        errorMessage = failureMessage,
-                    ),
-                )
-                uiState = uiState
-                    .withUpdatedCurrentConversation(
-                        messages = failedMessages,
-                        summary = event.context.summary,
-                        summaryUntilMessageId = event.context.summaryUntilMessageId,
-                        summaryUpdatedAt = event.context.summaryUpdatedAt,
-                        summaryModel = event.context.summaryModel,
-                    )
-                    .copy(
-                        sendingMessage = false,
-                        result = null,
-                    )
-                saveConversationSelection()
-            }
-        }
-    }
-
     private fun sendAgentRun(
         userMessage: String,
         runtimeSelection: AgentRuntimeSelection,
@@ -5633,7 +5176,7 @@ class XiaoLingViewModel @JvmOverloads constructor(
         genUiForegroundRevision: Long? = null,
     ) {
         // long: 普通 Completed 的记忆候选可能仍在异步收尾；新 Agent owner 撤销旧发送代次，旧 finally 不能清空新的停止入口。
-        ordinarySendScope.invalidate()
+        cancelOrdinarySendBeforeNavigation()
         val externalInput = uiState.sharedDraftImported
         val effectiveMemoryRecallEnabled = memoryRecallEnabled && runtimeSelection.profile.memoryEnabled
         val currentConversation = uiState.conversations.firstOrNull { it.id == conversationId }
@@ -6138,6 +5681,7 @@ class XiaoLingViewModel @JvmOverloads constructor(
         if (snapshot.run.conversationId == uiState.selectedConversationId) {
             uiState = uiState.copy(
                 activeAgentRun = snapshot,
+                pendingAgentApproval = agentConversationRuntimeStateStore.stateFor(snapshot.run.conversationId).pendingApproval,
                 agentRunHistory = updatedHistory,
                 selectedAgentRunId = selectedRetryRunId ?: uiState.selectedAgentRunId,
             )
@@ -6762,41 +6306,6 @@ class XiaoLingViewModel @JvmOverloads constructor(
 
     private fun nowSyncTimeText(): String = SimpleDateFormat(FULL_TIME_PATTERN, Locale.getDefault()).format(Date())
 
-    private fun Throwable.toConversationErrorText(): String {
-        val failure = this as? ApiFailure
-        val title = failure?.kind?.title ?: FailureKind.UNKNOWN.title
-        val detail = message ?: "未知错误"
-        return "$title\n$detail"
-    }
-
-    private fun scheduleStreamingAssistant(update: StreamDeltaUpdate, baseMeta: MessageMeta) {
-        pendingStreamingUpdate = update
-        if (streamingThrottleJob?.isActive == true) return
-        // long: SSE delta 可能按 token 高频到达；UI 只保留最新累计文本并按 30ms 合并刷新，避免 Markdown 每个 token 都触发重组。
-        streamingThrottleJob = viewModelScope.launch {
-            delay(STREAMING_UI_THROTTLE_MS)
-            flushStreamingAssistant(baseMeta)
-        }
-    }
-
-    private fun flushStreamingAssistant(baseMeta: MessageMeta) {
-        val update = pendingStreamingUpdate ?: return
-        pendingStreamingUpdate = null
-        streamingThrottleJob?.cancel()
-        streamingThrottleJob = null
-        val updatedMessages = uiState.chatMessages.upsertLastAssistant(
-            text = update.accumulatedText,
-            meta = baseMeta.copy(firstTokenLatencyMs = update.firstTokenLatencyMs),
-        )
-        // long: 流式期间只刷新内存 UI，不在这里写 SharedPreferences；最终成功或失败时再统一持久化完整会话。
-        uiState = uiState
-            .withUpdatedCurrentConversation(
-                messages = updatedMessages,
-                summary = uiState.conversationSummary,
-            )
-            .copy(result = null)
-    }
-
     private fun ProviderRequestConfig.toBaseMessageMeta(profile: ProviderProfile) = MessageMeta(
         providerId = profile.id,
         providerName = profile.name,
@@ -6804,55 +6313,6 @@ class XiaoLingViewModel @JvmOverloads constructor(
         apiMode = apiMode,
         streaming = streamingEnabled,
     )
-
-    private fun List<ChatMessage>.upsertLastAssistant(
-        text: String,
-        meta: MessageMeta?,
-        reasoningSummaries: List<ModelReasoningSummary> = emptyList(),
-    ): List<ChatMessage> {
-        val last = lastOrNull()
-        return if (last?.role == "assistant") {
-            dropLast(1) + last.copy(
-                text = text,
-                meta = meta,
-                parts = ProviderMessagePartPolicy.fromResponse(last.id, text, reasoningSummaries),
-            )
-        } else {
-            val message = ChatMessage(
-                role = "assistant",
-                text = text,
-                createdAt = System.currentTimeMillis(),
-                meta = meta,
-            )
-            this + message.copy(
-                parts = ProviderMessagePartPolicy.fromResponse(message.id, text, reasoningSummaries),
-            )
-        }
-    }
-
-    private fun List<ChatMessage>.withCancelledGeneration(baseMeta: MessageMeta): List<ChatMessage> {
-        val last = lastOrNull()
-        return if (last?.role == "assistant") {
-            dropLast(1) + last.copy(
-                meta = (last.meta ?: baseMeta).copy(
-                    finishReason = "cancelled",
-                    errorKind = "已取消",
-                    errorMessage = "用户停止生成",
-                ),
-            )
-        } else {
-            this + ChatMessage(
-                role = "error",
-                text = "已停止生成",
-                createdAt = System.currentTimeMillis(),
-                meta = baseMeta.copy(
-                    finishReason = "cancelled",
-                    errorKind = "已取消",
-                    errorMessage = "用户停止生成",
-                ),
-            )
-        }
-    }
 
     private fun XiaoLingUiState.fromProfile(profile: ProviderProfile, selectedId: String) = copy(
         selectedProfileId = selectedId,
@@ -7034,7 +6494,6 @@ class XiaoLingViewModel @JvmOverloads constructor(
         private const val DEFAULT_AGENT_PROFILE_ID = "agent-profile-default"
         private const val FULL_TIME_PATTERN = "yyyy-MM-dd HH:mm:ss"
         private const val SUMMARY_MAX_CHARS = 4_000
-        private const val STREAMING_UI_THROTTLE_MS = 30L
         private const val AGENT_RUN_HISTORY_LIMIT = 50
         private const val MEMORY_MANAGEMENT_LIMIT = 200
         private const val MEMORY_CANDIDATE_LIMIT = 100

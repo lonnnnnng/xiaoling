@@ -234,6 +234,7 @@ internal fun AgentTaskCenterPage(
                             retrying = item.retrying,
                             onClick = { actions.selectAgentRun(runId) },
                             onRetry = { actions.requestAgentRunRetry(runId) },
+                            onStop = { actions.stopAgentRun(runId) },
                         )
                         if (item.selected) {
                             AgentRunDetailPanel(
@@ -375,6 +376,7 @@ private fun AgentRunHistoryItemCard(
     retrying: Boolean,
     onClick: () -> Unit,
     onRetry: () -> Unit,
+    onStop: () -> Unit,
 ) {
     val run = detail.snapshot.run
     val metrics = AgentRunMetricsPolicy.summarizeRun(detail, nowMs = System.currentTimeMillis())
@@ -414,7 +416,7 @@ private fun AgentRunHistoryItemCard(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(7.dp),
             ) {
-                AgentStatusChip(run.status)
+                AgentStatusChip(run.status, stopping = item.stopping)
                 Text(
                     text = run.goal.ifBlank { "未命名任务" },
                     style = MaterialTheme.typography.labelLarge.copy(fontSize = 12.sp, lineHeight = 15.sp),
@@ -464,6 +466,22 @@ private fun AgentRunHistoryItemCard(
                     maxLines = 2,
                     overflow = TextOverflow.Ellipsis,
                 )
+            }
+            item.currentStep?.let { step ->
+                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    Text("当前步骤 · ${step.sequence}", style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.primary)
+                    AgentStepRow(step.status, step.title, step.detail)
+                }
+            }
+            if (item.canStop || item.stopping) {
+                TextButton(
+                    onClick = onStop,
+                    enabled = item.canStop,
+                    modifier = Modifier.testTag("agent-task-stop-${run.id}"),
+                ) {
+                    Text(if (item.stopping) "正在停止" else "停止任务")
+                }
             }
             Row(
                 modifier = Modifier.fillMaxWidth(),

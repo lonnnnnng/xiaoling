@@ -1,5 +1,7 @@
 # 小灵个人 Agent 路线图
 
+> **当前后续顺序已迁至 [Android 后续路线图](android-product-roadmap.md)**，源码依据见[2026-10-18 六仓对照](reference-code-review-2026-10-18.md)。本文以下日期/阶段段落为历史快照，其中旧版“当前状态”和“下一步”只描述当时进度，不作为新的执行顺序。正式版本以[最新发布记录](android-v0.1.24-release.md)为准；原七点实现已收口，长期验收独立追踪，iOS 产品暂停。
+
 ## 2026-10-18：Android 产品验收优先
 
 第 300 阶段补[普通工作流编辑器确认](android-workflow-editor-acceptance.md)：限定应用、每步事实标准、完成时应用可显式确认，经正式 VM/Room 保存并随 Run 冻结。指定 Redmi 的真实模型批准链 VERIFIED，拒绝链保持 FAILED；两项均由编辑器创建并从页面手动运行，没有预置定义。编辑器/Room 六项、完整 JVM 1632/1632、主机门禁 13/13 通过。自然系统恢复、复杂任务、跨 Run 隐私、Remote 稳定部署/通知与签名 Release 继续独立，iOS 产品暂停。

@@ -1,7 +1,17 @@
 # 文档索引
 
+## 当前路线与源码对照
+
+- [Android 后续路线图](android-product-roadmap.md)：v0.1.24 之后的执行顺序、下一开发片、退出标准与独立待办。
+- [六个参考项目源码对照](reference-code-review-2026-10-18.md)：2026-10-18 同步 commit、子模块缺口和双方源码定位。
+- [历史路线图](personal-agent-roadmap.md) · [历史参考分析](reference-apps-analysis.md)：保留旧阶段快照；后续顺序以当前路线为准。
+
+下方按阶段组织的条目记录当时的实现和验收范围；当前版本及发布结果以最新发布记录为准。
+
 ## Android 发布与当前验收
 
+- [可靠性修复与 M1 推进](android-reliability-m1-2026-11-11.md)：六项修复、POCO 验证与当前路线图剩余门禁。
+- [v0.1.24 发布记录](android-v0.1.24-release.md)：本轮可靠性修复、M1 真机闭环与发布门禁。
 - [v0.1.23 发布记录](android-v0.1.23-release.md)：更新范围、数据升级、发布门禁及独立待办。
 - [工作流编辑器专项](android-workflow-editor-acceptance.md)：限定应用与完成标准的正式编辑器确认，以及批准、拒绝、两步只读的真实模型证据。
 

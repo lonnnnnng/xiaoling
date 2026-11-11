@@ -7,6 +7,9 @@ import androidx.room.RoomDatabase
 import androidx.room.migration.Migration
 import androidx.sqlite.db.SupportSQLiteDatabase
 import org.json.JSONObject
+import com.longdev.xiaoling.storage.BackupDatabaseValidator
+import com.longdev.xiaoling.storage.DatabaseRestoreFiles
+import com.longdev.xiaoling.storage.androidDatabaseRestoreFiles
 
 @Database(
     entities = [
@@ -72,17 +75,46 @@ abstract class XiaoLingDatabase : RoomDatabase() {
 
         fun getInstance(context: Context): XiaoLingDatabase {
             return instance ?: synchronized(this) {
-                instance ?: Room.databaseBuilder(
-                    context.applicationContext,
-                    XiaoLingDatabase::class.java,
-                    DATABASE_NAME,
-                )
-                    .addMigrations(*migrations())
-                    // long: 这是小灵首次引入 Room 的数据库；后续表结构变化必须补 Migration，不能再丢弃用户会话和运行记录。
-                    .build()
-                    .also { instance = it }
+                instance ?: openWithPendingRestore(context.applicationContext).also { instance = it }
             }
         }
+
+        private fun openWithPendingRestore(context: Context): XiaoLingDatabase {
+            val current = context.getDatabasePath(DATABASE_NAME)
+            val restore = androidDatabaseRestoreFiles(current)
+            try {
+                val interrupted = restore.hasUnfinishedRestore
+                val activated = restore.activate(
+                    prepareCurrent = {
+                        if (!current.isFile) {
+                            val empty = build(context)
+                            try { empty.openHelper.writableDatabase } finally { empty.close() }
+                        }
+                        BackupDatabaseValidator.checkpoint(current)
+                    },
+                    validate = { BackupDatabaseValidator.checkIntegrityAndVersion(it, CURRENT_VERSION) },
+                    verifyInstalled = {
+                        val candidate = build(context)
+                        try { candidate.openHelper.writableDatabase } finally { candidate.close() }
+                    },
+                )
+                if (activated || interrupted) {
+                    context.getSharedPreferences("database_restore_notice", Context.MODE_PRIVATE).edit()
+                        .putString("message", if (activated) "备份恢复已生效；定时任务将按本机调度状态重新对账。"
+                            else "检测到上次恢复中断，已恢复原数据库。").putBoolean("success", activated).commit()
+                }
+            } catch (error: Exception) {
+                // long: 恢复失败不能让用户困在无法启动的新库；替换层先回滚，随后按原库启动并保留可见提示。
+                context.getSharedPreferences("database_restore_notice", Context.MODE_PRIVATE).edit()
+                    .putString("message", "备份恢复未生效，已尝试保留原数据库；请检查备份后重试。").putBoolean("success", false).commit()
+                if (restore.hasUnfinishedRestore) throw error
+            }
+            return build(context)
+        }
+
+        private fun build(context: Context): XiaoLingDatabase = Room.databaseBuilder(
+            context, XiaoLingDatabase::class.java, DATABASE_NAME,
+        ).addMigrations(*migrations()).build()
 
         fun resetInstanceForRestore() {
             synchronized(this) {

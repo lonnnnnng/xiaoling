@@ -4,6 +4,9 @@ import com.longdev.xiaoling.agent.AgentRunDetailRecord
 import com.longdev.xiaoling.agent.AgentRunRecord
 import com.longdev.xiaoling.agent.AgentRunSnapshot
 import com.longdev.xiaoling.agent.AgentRunStatus
+import com.longdev.xiaoling.agent.AgentStepRecord
+import com.longdev.xiaoling.agent.AgentStepStatus
+import com.longdev.xiaoling.agent.isTerminal
 import com.longdev.xiaoling.agent.AgentTaskRetryEvidenceCode
 import com.longdev.xiaoling.agent.AgentEventTypes
 import com.longdev.xiaoling.agent.RunEventMetadata
@@ -14,6 +17,56 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class AgentTaskCenterProjectionTest {
+    @Test
+    fun stopAvailabilityUsesActualTerminalAndCancellationState() {
+        AgentRunStatus.entries.forEach { status ->
+            val detail = runDetail("run-stop", status)
+            fun project(record: AgentRunDetailRecord) = AgentTaskCenterProjection.project(
+                false, null, listOf(record), null, null,
+            ).runs.single()
+            val active = project(detail)
+            assertEquals(!status.isTerminal, active.canStop)
+            assertFalse(active.stopping)
+            val requested = project(detail.copy(snapshot = detail.snapshot.copy(
+                run = detail.snapshot.run.copy(cancelRequestedAt = 20L),
+            )))
+            assertFalse(requested.canStop)
+            assertEquals(!status.isTerminal, requested.stopping)
+        }
+    }
+
+    @Test
+    fun currentStepUsesStatusAndSequenceAndExcludesForeignRun() {
+        val detail = runDetail("run-current", AgentRunStatus.EXECUTING)
+        fun step(sequence: Int, status: AgentStepStatus, runId: String = "run-current") = AgentStepRecord(
+            "step-$sequence-$runId", runId, sequence, "tool.execute", status, "步骤 $sequence", "步骤详情", 1L, null,
+        )
+        val running = step(20, AgentStepStatus.RUNNING)
+        val pending = step(30, AgentStepStatus.PENDING)
+        fun project(steps: List<AgentStepRecord>, status: AgentRunStatus = AgentRunStatus.EXECUTING) =
+            AgentTaskCenterProjection.project(false, null, listOf(detail.copy(snapshot = detail.snapshot.copy(
+                run = detail.snapshot.run.copy(status = status), steps = steps,
+            ))), null, null).runs.single()
+        assertEquals(running, project(listOf(pending, step(10, AgentStepStatus.COMPLETED), running,
+            step(99, AgentStepStatus.RUNNING, "other-run"))).currentStep)
+        assertEquals(pending, project(listOf(step(40, AgentStepStatus.PENDING), pending)).currentStep)
+        assertEquals(null, project(emptyList()).currentStep)
+        assertEquals(null, project(listOf(running), AgentRunStatus.CANCELLED).currentStep)
+    }
+
+    @Test
+    fun childBatchUsesExistingBatchStopButIndependentRetryCanStop() {
+        val parent = runDetail("parent", AgentRunStatus.THINKING, events = listOf(
+            event("parent", AgentEventTypes.MULTI_AGENT_CHILDREN_EXPECTED, "两个子任务", RunEventMetadata.ChildRunExpectation(2)),
+        ))
+        val child = runDetail("child", AgentRunStatus.THINKING, parentRunId = "parent")
+        val retry = runDetail("retry", AgentRunStatus.THINKING, parentRunId = "source", retryOfRunId = "source")
+        val items = AgentTaskCenterProjection.project(false, null, listOf(parent, child, retry), null, null).runs
+        assertFalse(items[0].canStop)
+        assertFalse(items[1].canStop)
+        assertTrue(items[2].canStop)
+    }
+
     @Test
     fun projectKeepsHistoryOrderAndMarksSelectedAndRetryingRuns() {
         val first = runDetail("run-1", AgentRunStatus.COMPLETED)

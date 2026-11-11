@@ -79,6 +79,15 @@ internal class ConversationPersistenceCoordinator(
         pendingJob?.cancelAndJoin()
     }
 
+    suspend fun awaitLatestSave() {
+        while (true) {
+            val pending = latestSaveJob ?: return
+            pending.join()
+            // long: 切换期间可能提交更新的取消终态快照；读取会话前要等待最新单写者，不能从 Room 把已显示正文回退为发送前版本。
+            if (latestSaveJob === pending) return
+        }
+    }
+
     suspend fun persist(snapshot: ConversationPersistenceSnapshot) {
         writeMutex.withLock {
             persistSnapshot(snapshot)

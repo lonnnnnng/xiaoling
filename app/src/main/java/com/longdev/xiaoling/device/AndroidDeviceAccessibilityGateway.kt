@@ -4,6 +4,7 @@ import android.accessibilityservice.AccessibilityServiceInfo
 import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
+import android.provider.Settings
 import android.view.accessibility.AccessibilityManager
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -12,12 +13,18 @@ class AndroidDeviceAccessibilityGateway(context: Context) : DeviceAccessibilityG
     private val appContext = context.applicationContext
 
     override fun isServiceAuthorized(): Boolean {
-        val manager = appContext.getSystemService(AccessibilityManager::class.java) ?: return false
         val expected = ComponentName(appContext, XiaoLingAccessibilityService::class.java)
-        val listedAsEnabled = manager.getEnabledAccessibilityServiceList(AccessibilityServiceInfo.FEEDBACK_ALL_MASK).any { info ->
+        // long: 系统保留授权但服务被临时抑制时，Manager 列表可能为空；授权与实际连接分开读取，才能提示重连而不是反复要求授权。
+        val configuredAsEnabled = runCatching {
+            Settings.Secure.getString(appContext.contentResolver, Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES)
+                ?.split(':')?.any { ComponentName.unflattenFromString(it) == expected } == true
+        }.getOrDefault(false)
+        if (configuredAsEnabled) return true
+        val manager = appContext.getSystemService(AccessibilityManager::class.java)
+        val listedAsEnabled = manager?.getEnabledAccessibilityServiceList(AccessibilityServiceInfo.FEEDBACK_ALL_MASK)?.any { info ->
             val serviceInfo = info.resolveInfo.serviceInfo
             serviceInfo.packageName == expected.packageName && serviceInfo.name == expected.className
-        }
+        } == true
         // long: Redmi 在窗口切换或短暂 UiAutomation 连接期间可能让系统列表瞬时为空；已绑定的本进程服务仍是更强的授权事实，避免把可用服务误报为未授权。
         return listedAsEnabled || DeviceAccessibilityRuntime.isConnected()
     }

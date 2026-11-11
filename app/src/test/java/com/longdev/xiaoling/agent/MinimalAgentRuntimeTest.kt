@@ -4150,6 +4150,10 @@ internal class InMemoryAgentRunLedger : AgentRunLedger {
     var lastRunId: String? = null
         private set
 
+    fun requestCancelForTest(runId: String) {
+        runs[runId] = runs.getValue(runId).copy(cancelRequestedAt = System.currentTimeMillis())
+    }
+
     override suspend fun createRun(
         conversationId: String,
         userMessageId: String,

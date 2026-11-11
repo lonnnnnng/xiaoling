@@ -75,15 +75,16 @@ class UiPreferenceStore(context: Context) {
         preferences.edit()
             .putBoolean(KEY_DEVICE_AGENT_ENABLED, enabled)
             .apply()
-        if (!enabled) saveDeviceActionAutoApprovalEnabled(false)
+        // long: 暂停设备 Agent 只停止设备能力，不覆盖免逐次审批偏好；重新启用后沿用用户选择，避免任务重新卡在每步确认。
     }
 
     fun loadDeviceActionAutoApprovalEnabled(): Boolean {
-        return loadDeviceAgentEnabled() && preferences.getBoolean(KEY_DEVICE_ACTION_AUTO_APPROVAL_ENABLED, false)
+        // long: 前台限定应用的设备动作默认连续执行；设备 Agent 关闭时授权不生效，显式关闭逐次免审的选择仍会持久保留。
+        return loadDeviceAgentEnabled() && preferences.getBoolean(KEY_DEVICE_ACTION_AUTO_APPROVAL_ENABLED, true)
     }
 
     fun saveDeviceActionAutoApprovalEnabled(enabled: Boolean) {
-        // long: 免逐次审批只由设备 Agent 页显式授予；关闭设备 Agent 时同步撤销，旧版本和首次安装均保持逐次确认。
+        // long: 用户可在设备 Agent 页恢复逐次确认；默认免审只替代人工点击，目标应用边界、动作审计和后置验证仍由执行链检查。
         preferences.edit()
             .putBoolean(KEY_DEVICE_ACTION_AUTO_APPROVAL_ENABLED, enabled && loadDeviceAgentEnabled())
             .apply()

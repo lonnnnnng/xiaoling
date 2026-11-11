@@ -52,6 +52,12 @@ internal interface ConversationActions {
 
     fun updatePersonalTaskMode(enabled: Boolean)
 
+    fun refreshPersonalTaskAvailability() {}
+
+    fun selectPersonalTaskTemplate(templateId: String) {}
+
+    fun openPersonalTaskConfiguration(target: PersonalTaskConfigurationTarget) {}
+
     fun removePendingImage()
 
     fun removePendingDocument()
@@ -150,6 +156,7 @@ internal data class ConversationMessagesUiState(
 )
 
 internal data class ConversationComposerUiState(
+    val personalTaskAvailability: List<PersonalTaskAvailability> = emptyList(),
     val prompt: String = "",
     val sendingMessage: Boolean = false,
     val model: String = "",
@@ -224,6 +231,7 @@ internal object ConversationProjection {
         personalTaskOperationPhase: PersonalTaskOperationUiPhase? = null,
         personalTaskFailure: PersonalTaskFailureUiState? = null,
         personalTaskCompletion: PersonalTaskCompletionUiState? = null,
+        personalTaskAvailability: List<PersonalTaskAvailability> = emptyList(),
     ): ConversationUiState {
         val agentCommand = AgentCommand.matches(prompt) || personalTaskMode
         val attaching = attachingImage || attachingDocument
@@ -267,6 +275,7 @@ internal object ConversationProjection {
                 waitingForModelStart = waitingForModelStart,
             ),
             composer = ConversationComposerUiState(
+                personalTaskAvailability = personalTaskAvailability,
                 prompt = prompt,
                 sendingMessage = sendingMessage,
                 model = model,

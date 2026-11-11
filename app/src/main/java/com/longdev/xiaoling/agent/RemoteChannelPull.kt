@@ -231,14 +231,20 @@ class RemoteChannelPullSourceRegistry(
     }
 }
 
+internal class RemoteChannelPublicDns(private val delegate: Dns) : Dns {
+    override fun lookup(hostname: String): List<InetAddress> = try {
+        RemoteChannelPullPolicy.publicAddresses(delegate.lookup(hostname))
+    } catch (error: IllegalArgumentException) {
+        // long: 策略拒绝必须走 OkHttp 的网络失败回调；RuntimeException 会在回调后继续逸出调度线程并使应用崩溃。
+        throw java.net.UnknownHostException("HTTPS 收件地址解析到本机、私有或保留网络").apply { initCause(error) }
+    }
+}
+
 /** long: DNS 校验置于 OkHttp 真正建连时，避免先解析校验、再解析连接之间被 DNS rebinding 替换。 */
 class RemoteChannelHttpsPuller(
     dns: Dns = Dns.SYSTEM,
     private val client: OkHttpClient = OkHttpClient.Builder()
-        .dns(object : Dns {
-            override fun lookup(hostname: String): List<InetAddress> =
-                RemoteChannelPullPolicy.publicAddresses(dns.lookup(hostname))
-        })
+        .dns(RemoteChannelPublicDns(dns))
         .cookieJar(CookieJar.NO_COOKIES)
         .proxy(Proxy.NO_PROXY)
         .followRedirects(false)

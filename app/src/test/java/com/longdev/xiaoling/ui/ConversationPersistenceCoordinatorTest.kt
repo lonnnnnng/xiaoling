@@ -15,6 +15,28 @@ import org.junit.Test
 
 class ConversationPersistenceCoordinatorTest {
     @Test
+    fun conversationReadWaitsForReplacingCancellationSnapshot() = runTest {
+        val started = CompletableDeferred<Unit>()
+        val release = CompletableDeferred<Unit>()
+        var stored = ""
+        val coordinator = ConversationPersistenceCoordinator(this) { snapshot ->
+            if (snapshot.selectedConversationId == "partial") {
+                started.complete(Unit)
+                withContext(NonCancellable) { release.await() }
+            }
+            stored = snapshot.selectedConversationId
+        }
+        coordinator.saveLatest(emptyList(), "partial")
+        started.await()
+        val read = async { coordinator.awaitLatestSave(); stored }
+        yield()
+        coordinator.saveLatest(emptyList(), "cancelled")
+        assertFalse(read.isCompleted)
+        release.complete(Unit)
+        assertEquals("cancelled", read.await())
+    }
+
+    @Test
     fun latestSaveCancelsOlderPendingSnapshot() = runTest {
         val firstStarted = CompletableDeferred<Unit>()
         val persistedSelections = mutableListOf<String>()

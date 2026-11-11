@@ -46,12 +46,16 @@ data class LlmStructuredOutputFormat(
     }
 }
 
+enum class LlmStreamStatus { COMPLETED, FAILED, INCOMPLETE }
+
 data class LlmStreamEvent(
     val deltaText: String? = null,
     val finalText: String? = null,
     val reasoningSummaryDelta: ModelReasoningSummary? = null,
     val reasoningSummaries: List<ModelReasoningSummary> = emptyList(),
     val actionCompletionConfirmed: Boolean? = null,
+    val terminalStatus: LlmStreamStatus? = null,
+    val failureMessage: String? = null,
 )
 
 sealed interface RequestInputItem

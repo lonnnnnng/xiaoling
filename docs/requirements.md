@@ -295,7 +295,7 @@
 ## 第272阶段系统设置搜索跨包安全门禁（已完成）
 
 - “打开系统设置并搜索 Wi-Fi”仍以 `com.android.settings` 为用户确认的目标应用；系统实际把搜索输入交给 `com.android.settings.intelligence` 时，只把后者视为受控伴随窗口。
-- 伴随窗口只允许参与当前设置任务的引用动作和最终观察，不得被单独启动、加入应用发现有效交集或扩大默认白名单。
+- 伴随窗口可参与当前设置任务的引用动作、主应用启动后的恢复窗口回读和最终观察，不得被单独启动、加入应用发现有效交集或扩大默认白名单。
 - 定向 JVM `33/33`、Debug/AndroidTest APK 已通过；Redmi `wsvwypiz7xwslvl7 / begonia` 独立前台验收完成两次动作审批、三次新鲜 snapshot、跨包后置观察和当前结果回读，最终目标级 `VERIFIED`，读到 3 条 Wi-Fi 相关结果。
 - 本阶段仍不把 `com.android.settings.intelligence` 作为可启动目标，不扩大 Launcher 发现交集、默认白名单、任意 App、后台设备动作或精确定时边界；未执行全量矩阵或 Release。
 
@@ -1519,7 +1519,7 @@ Controller 的滚动结果不得继续用 generation-only 判定。动作后必�
 
 每次打开应用都必须创建独立 Room Approval，并通过 Accessibility 安全浮层让用户确认目标包；审批证据要精确绑定 Workflow Run/Step、Agent Run、ToolCall、参数、当前进程 session、同 Run 已验证 snapshot、最多 30 秒 TTL 和当前 window generation。`open_app` 不消费节点 ref，但仍要求动作前观察保持同一窗口 generation。首次人工审批超过 TTL 时必须拒绝为观察过期，不能因为用户最终批准而延长旧 snapshot。
 
-动作完成后必须重新观察，并同时取得 `success=true / executorVerified=true / typed PASSED`。后置包名必须在执行完成门禁和答案级 Room 证据重建时分别与获批 `package_name` 精确比较；打开另一个白名单包也不得收敛为当前调用成功。答案级 Decision、下一步、关联重试和 Workflow 管理页只显示“打开应用”、获批后实际验证的前后包名与有限节点摘要，不保存 Intent、原始审批参数或可复用节点引用。拒绝、取消、执行失败和窗口漂移继续使用稳定脱敏投影。
+动作完成后必须重新观察，并同时取得 `success=true / executorVerified=true / typed PASSED`。后置包名必须在 Executor、执行完成门禁和答案级 Room 证据重建时分别绑定获批 `package_name` 的已登记流程窗口（主包、OEM 等价实现及受控伴随包）；主设置启动后恢复已有搜索页也可通过，但不代表设置首页或搜索目标完成。请求目标仍只能是可启动白名单主应用；打开另一个白名单应用也不得收敛为当前调用成功。答案级 Decision、下一步、关联重试和 Workflow 管理页只显示“打开应用”、获批后实际验证的前后包名与有限节点摘要，不保存 Intent、原始审批参数或可复用节点引用。拒绝、取消、执行失败和窗口漂移继续使用稳定脱敏投影。
 
 真实验收只使用 Redmi `wsvwypiz7xwslvl7`。六组聚焦 JVM 合计 `95/95`，Debug/AndroidTest APK 构建成功；Compose `pageDisplaysVerifiedOpenAppTargetAndFollowUpBoundary` 与 Room `workflowPersistsVerifiedOpenAppDecisionForNextStepAndUi` 均为 `OK (1 test)`（`2.681s / 0.628s`）；真实 tracer 最终为 `workflow-open-app-e2e success=true / action=open_app / approval=APPROVED / executorVerified=true / verification=PASSED / afterPackage=com.android.calculator2 / answerDecision=VERIFIED`。同步后的文档 corpus 首轮为 `OK (1 test)`（`2.783s`），该证据写回后的冻结文本复验同样通过。当前快速迭代阶段不运行完整 JVM、Lint、Release 或默认完整 instrumentation；`swipe`、后台/定时设备工具、恢复自动续跑、截图、坐标、视觉定位和任意 App 继续关闭。
 

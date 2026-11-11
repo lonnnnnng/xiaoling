@@ -917,6 +917,12 @@ private class ReportingAgentRunLedger(
         emit(runId)
     }
 
+    override suspend fun completeRun(runId: String, result: String): Boolean {
+        val completed = delegate.completeRun(runId, result)
+        emit(runId)
+        return completed
+    }
+
     override suspend fun appendStep(
         runId: String,
         type: String,
@@ -941,6 +947,8 @@ private class ReportingAgentRunLedger(
     }
 
     override suspend fun snapshot(runId: String): AgentRunSnapshot = delegate.snapshot(runId)
+
+    override suspend fun isCancellationRequested(runId: String): Boolean = delegate.isCancellationRequested(runId)
 
     override suspend fun appendContextSnapshot(runId: String, stepId: String, input: AgentContextInput) =
         delegate.appendContextSnapshot(runId, stepId, input)

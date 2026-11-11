@@ -70,6 +70,27 @@ class DeviceObservationControllerTest {
     }
 
     @Test
+    fun openingSettingsCanRestoreItsSearchCompanionButOtherRequestsCannot() = runTest {
+        for (requestedPackage in listOf("com.android.settings", "com.android.calculator2", "com.android.settings.intelligence")) {
+            val gateway = FakeGateway(
+                authorized = true,
+                connected = true,
+                window = simpleWindow(packageName = "com.longdev.xiaoling", generation = 10L),
+                launchResult = true,
+                windowAfterLaunch = simpleWindow(packageName = "com.android.settings.intelligence", generation = 11L),
+            )
+            val result = DeviceObservationController({ true }, gateway).openApp(requestedPackage)
+            if (requestedPackage == "com.android.settings.intelligence") {
+                assertEquals(DeviceActionFailure.APP_NOT_ALLOWED, (result as DeviceActionCapture.Failed).reason)
+                assertTrue(gateway.launchedPackages.isEmpty())
+            } else {
+                assertEquals(requestedPackage == "com.android.settings", (result as DeviceActionCapture.Success).outcome.verified)
+                assertEquals(listOf(requestedPackage), gateway.launchedPackages)
+            }
+        }
+    }
+
+    @Test
     fun captureFailsClosedUntilAgentAuthorizationAndServiceAreReady() = runTest {
         val gateway = FakeGateway()
         var enabled = false

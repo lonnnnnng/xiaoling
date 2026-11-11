@@ -398,6 +398,9 @@ internal fun ConversationPage(
                 onAgentMemoryRecallChanged = actions::updateAgentMemoryRecallEnabled,
                 onAgentProfileSelected = actions::selectAgentProfile,
                 onPersonalTaskModeChanged = actions::updatePersonalTaskMode,
+                onRefreshPersonalTasks = actions::refreshPersonalTaskAvailability,
+                onSelectPersonalTask = actions::selectPersonalTaskTemplate,
+                onOpenPersonalTaskConfiguration = actions::openPersonalTaskConfiguration,
                 onPromptChange = actions::updatePrompt,
                 onAttachImage = actions::requestImageAttachment,
                 onAttachDocument = actions::requestDocumentAttachment,
@@ -708,6 +711,9 @@ private fun MessageInputBar(
     onAgentMemoryRecallChanged: (Boolean) -> Unit,
     onAgentProfileSelected: (String) -> Unit,
     onPersonalTaskModeChanged: (Boolean) -> Unit,
+    onRefreshPersonalTasks: () -> Unit,
+    onSelectPersonalTask: (String) -> Unit,
+    onOpenPersonalTaskConfiguration: (PersonalTaskConfigurationTarget) -> Unit,
     onPromptChange: (String) -> Unit,
     onAttachImage: () -> Unit,
     onAttachDocument: () -> Unit,
@@ -744,7 +750,10 @@ private fun MessageInputBar(
             if (state.personalTaskMode) {
                 PersonalTaskTemplateMenu(
                     enabled = state.controlsEnabled,
-                    onSelected = onPromptChange,
+                    availability = state.personalTaskAvailability,
+                    onRefresh = onRefreshPersonalTasks,
+                    onSelected = onSelectPersonalTask,
+                    onOpenConfiguration = onOpenPersonalTaskConfiguration,
                     modifier = Modifier.padding(horizontal = 10.dp),
                 )
             }
@@ -969,13 +978,16 @@ private fun PersonalTaskModeSelector(
 @Composable
 private fun PersonalTaskTemplateMenu(
     enabled: Boolean,
+    availability: List<PersonalTaskAvailability>,
+    onRefresh: () -> Unit,
     onSelected: (String) -> Unit,
+    onOpenConfiguration: (PersonalTaskConfigurationTarget) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     var expanded by remember { mutableStateOf(false) }
     Box(modifier = modifier.fillMaxWidth()) {
         OutlinedButton(
-            onClick = { expanded = true },
+            onClick = { onRefresh(); expanded = true },
             enabled = enabled,
             shape = RoundedCornerShape(7.dp),
             contentPadding = PaddingValues(horizontal = 8.dp),
@@ -991,15 +1003,31 @@ private fun PersonalTaskTemplateMenu(
             onDismissRequest = { expanded = false },
         ) {
             personalTaskTemplates.forEach { template ->
+                val status = availability.singleOrNull { it.templateId == template.id } ?: PersonalTaskAvailability(template.id)
                 DropdownMenuItem(
-                    text = { Text(template.title, style = MaterialTheme.typography.bodySmall) },
+                    text = {
+                        Column(modifier = Modifier.widthIn(max = 290.dp), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                            Text("${template.title} · ${status.status.label}", style = MaterialTheme.typography.bodyMedium)
+                            Text(status.reason, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                    },
+                    enabled = enabled && status.status == PersonalTaskAvailabilityStatus.READY,
                     onClick = {
-                        onSelected(template.goal)
+                        onSelected(template.id)
                         expanded = false
                     },
                     modifier = Modifier.testTag("personal-task-template-${template.id}"),
                 )
             }
+            availability.mapNotNull { it.configurationTarget }.distinct().forEach { target ->
+                DropdownMenuItem(
+                    text = { Text("前往${target.label}", style = MaterialTheme.typography.labelMedium) },
+                    onClick = { expanded = false; onOpenConfiguration(target) },
+                    modifier = Modifier.testTag("personal-task-configure-${target.name}"),
+                )
+            }
+            DropdownMenuItem(text = { Text("刷新本机条件") }, onClick = onRefresh,
+                modifier = Modifier.testTag("personal-task-refresh"))
         }
     }
 }

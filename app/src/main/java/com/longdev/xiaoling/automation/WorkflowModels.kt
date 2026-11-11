@@ -396,6 +396,12 @@ object WorkflowStepPromptPolicy {
             normalizedTarget?.let { packageName ->
                 appendLine("本任务限定应用：$packageName")
                 appendLine("当前步骤只能在该应用内执行；打开应用也只能请求这个包名，不能切换到其他应用。")
+                val flowPackages = DeviceActionPolicy.appFlowPackageCandidates(packageName)
+                if (flowPackages.any { it != packageName }) {
+                    // long: 应用可把搜索等界面交给已登记伴随包；向模型解释同一执行边界，防止它误以为越界而返回或重新打开主页面。
+                    appendLine("本任务允许的流程窗口包名：${flowPackages.joinToString("、")}。")
+                    appendLine("当前快照属于上述任一包名时，仍在本任务应用流程内，可按当前目标继续观察、点击和输入；不要仅因包名不同而调用 device.back 或重新打开应用。伴随窗口不能作为 device.open_app 的启动目标，打开应用仍只能请求 $packageName。")
+                }
                 appendLine()
             }
             if (numberedOutputs.isNotEmpty()) {

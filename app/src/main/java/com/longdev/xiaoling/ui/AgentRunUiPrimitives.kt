@@ -32,7 +32,7 @@ import com.longdev.xiaoling.agent.AgentRunStatus
 import com.longdev.xiaoling.agent.AgentStepStatus
 
 @Composable
-internal fun AgentStatusChip(status: AgentRunStatus) {
+internal fun AgentStatusChip(status: AgentRunStatus, stopping: Boolean = false) {
     // long: 对话时间线和任务中心共享同一状态色与中文终态文案，避免同一个 Run 在两个入口呈现成不同业务结论。
     val color = when (status) {
         AgentRunStatus.COMPLETED -> MaterialTheme.colorScheme.primary
@@ -48,7 +48,7 @@ internal fun AgentStatusChip(status: AgentRunStatus) {
         shape = RoundedCornerShape(12.dp),
     ) {
         Text(
-            text = status.toUiLabel(),
+            text = if (stopping) "正在停止" else status.toUiLabel(),
             style = MaterialTheme.typography.labelSmall.copy(fontSize = 9.sp, lineHeight = 11.sp),
             modifier = Modifier.padding(horizontal = 7.dp, vertical = 3.dp),
         )

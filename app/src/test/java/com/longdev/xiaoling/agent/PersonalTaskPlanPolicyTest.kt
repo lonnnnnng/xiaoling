@@ -12,6 +12,24 @@ import java.time.ZonedDateTime
 
 class PersonalTaskPlanPolicyTest {
     @Test
+    fun `valid root still rejects extra or missing step fields`() {
+        val raw = """{"name":"读取时间","target_app_package":"","schedule":{"type":"IMMEDIATE","delay_minutes":0,"hour":0,"minute":0,"day_of_week":0},"verification":{"required_tool_names":["app.current_time"],"expected_final_package":""},"steps":[{"goal":"读取当前时间"}]}"""
+        assertEquals(1, PersonalTaskPlanPolicy.parse(raw, allowedToolNames = setOf("app.current_time")).steps.size)
+        for (invalidStep in listOf(
+            """{"goal":"读取当前时间","tool":"app.current_time"}""",
+            """{"goal":"读取当前时间","arguments":null}""",
+            """{"description":"读取当前时间"}""",
+        )) {
+            // long: 根对象完整合法才能真正到达步骤字段校验，避免旧夹具因缺 schedule 而错误地证明此门禁。
+            val invalid = org.json.JSONObject(raw).put("steps", org.json.JSONArray().put(org.json.JSONObject(invalidStep)))
+            val error = assertThrows(IllegalArgumentException::class.java) {
+                PersonalTaskPlanPolicy.parse(invalid.toString(), allowedToolNames = setOf("app.current_time"))
+            }
+            assertEquals("任务计划第 1 步字段不符合约定", error.message)
+        }
+    }
+
+    @Test
     fun `calculator plan preserves repeated required taps and six independent goals`() {
         val plan = PersonalTaskPlanPolicy.parse(
             """{"name":"计算7乘8","target_app_package":"com.android.calculator2","schedule":{"type":"IMMEDIATE","delay_minutes":0,"hour":0,"minute":0,"day_of_week":0},"verification":{"required_tool_names":["device.open_app","device.tap_ref","device.tap_ref","device.tap_ref","device.tap_ref","device.tap_ref"],"expected_final_package":"com.android.calculator2"},"steps":[{"goal":"打开系统计算器"},{"goal":"始终点击一次清空键确保当前算式为空"},{"goal":"点击7"},{"goal":"点击乘号"},{"goal":"点击8"},{"goal":"点击等号并读取实际结果"}]}""",

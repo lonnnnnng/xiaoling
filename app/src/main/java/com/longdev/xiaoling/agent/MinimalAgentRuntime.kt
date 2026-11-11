@@ -7,6 +7,10 @@ import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeout
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.job
+import kotlinx.coroutines.launch
 import com.longdev.xiaoling.network.ApiFailure
 import com.longdev.xiaoling.network.FailureKind
 import java.util.UUID
@@ -80,88 +84,91 @@ class MinimalAgentRuntime internal constructor(
             runTimeoutMs = options.runTimeoutMs,
             monotonicClock = monotonicClock,
         )
-        return try {
-            persistExecutionBudget(run.id, "初始化执行预算", state.executionBudget)
-            ledger.appendEvent(
-                runId = run.id,
-                type = AgentEventTypes.PROFILE_SELECTED,
-                message = "已选择 Agent：${agentProfile.name} · ${agentProfile.model}",
-                metadata = RunEventMetadata.AgentProfileSelection(agentProfile),
-            )
-            if (!memoryRecallEnabled) {
+        return withRunCancellation(run.id, state) {
+            try {
+                requireRunActive(run.id)
+                persistExecutionBudget(run.id, "初始化执行预算", state.executionBudget)
                 ledger.appendEvent(
                     runId = run.id,
-                    type = MEMORY_RECALL_DISABLED_EVENT_TYPE,
-                    message = "本次 Run 已关闭长期记忆召回",
-                    metadata = RunEventMetadata.Reason("用户关闭本次 Run 的长期记忆召回"),
+                    type = AgentEventTypes.PROFILE_SELECTED,
+                    message = "已选择 Agent：${agentProfile.name} · ${agentProfile.model}",
+                    metadata = RunEventMetadata.AgentProfileSelection(agentProfile),
                 )
-            }
-            // long: 新 Run 只继承来源调用的名称、风险和参数语义，并生成全新 ToolCall ID；这样既能审计来源，又不会与旧 Tool Ledger 主键冲突或复用旧批准。
-            ledger.appendEvent(
-                runId = run.id,
-                type = AgentEventTypes.CONTROLLED_REPLAY_LINKED,
-                message = "已关联来源 Run 的尚未提交工具调用",
-                metadata = RunEventMetadata.ControlledReplay(
-                    sourceRunId = sourceRunId,
-                    sourceToolCallId = sourceToolCall.id,
-                    newToolCallId = replayToolCall.id,
-                    definitionFingerprint = qualification.recoveryContract.definitionFingerprint,
-                ),
-            )
-            ledger.appendEvent(
-                runId = run.id,
-                type = "tool.call.proposed",
-                message = "受控关联重试提出工具调用：${replayToolCall.name}",
-                metadata = AgentEventMetadata.toolCall(replayToolCall, definition),
-            )
-            executeToolCall(
-                runId = run.id,
-                definition = definition,
-                toolCall = replayToolCall,
-                executionOrigin = executionOrigin,
-                state = state,
-                recordValidationStep = true,
-                approvalAlreadyGranted = false,
-                reusePersistedEphemeralBusinessValidation = true,
-            )
-            // long: 受控重放只执行用户确认的单个冻结调用；成功后直接进入总结，禁止再次规划出额外工具或重复副作用。
-            completeRun(run, goal, state)
-        } catch (error: AgentProcessTerminationSimulation) {
-            throw error
-        } catch (error: AgentBudgetExceededException) {
-            withContext(NonCancellable) {
-                state.activeStepId?.let { ledger.updateStep(it, AgentStepStatus.FAILED, error.message ?: "Agent 预算耗尽") }
-                ledger.appendEvent(run.id, "run.budget_exhausted", error.message.orEmpty(), RunEventMetadata.Reason(error.message.orEmpty()))
-                ledger.updateRunStatus(run.id, AgentRunStatus.BUDGET_EXHAUSTED, errorMessage = error.message ?: "Agent 预算耗尽")
-            }
-            throw error
-        } catch (error: AgentTimeoutException) {
-            withContext(NonCancellable) {
-                state.activeStepId?.let { ledger.updateStep(it, AgentStepStatus.FAILED, error.message ?: "Agent 步骤超时") }
-                ledger.appendEvent(run.id, "run.timeout", error.message.orEmpty(), RunEventMetadata.Reason(error.message.orEmpty()))
-                ledger.updateRunStatus(run.id, AgentRunStatus.BUDGET_EXHAUSTED, errorMessage = error.message ?: "Agent 步骤超时")
-            }
-            throw error
-        } catch (error: AgentBackgroundApprovalRequiredException) {
-            settleBlockedRun(run.id, state, error)
-            throw error
-        } catch (error: CancellationException) {
-            settleCancelledRun(run.id, state, "用户取消受控关联重试")
-            throw error
-        } catch (error: Throwable) {
-            if (error is AgentToolRecoveryRequiredException) {
-                settleDeviceRecoveryRequired(run.id, state, error)
-            } else {
-                withContext(NonCancellable) {
-                    val reason = error.message ?: "受控关联重试失败"
-                    state.activeStepId?.let { ledger.updateStep(it, AgentStepStatus.FAILED, reason) }
-                    ledger.appendEvent(run.id, "run.failed", reason, RunEventMetadata.Reason(reason))
-                    ledger.updateRunStatus(run.id, AgentRunStatus.FAILED, errorMessage = reason)
+                if (!memoryRecallEnabled) {
+                    ledger.appendEvent(
+                        runId = run.id,
+                        type = MEMORY_RECALL_DISABLED_EVENT_TYPE,
+                        message = "本次 Run 已关闭长期记忆召回",
+                        metadata = RunEventMetadata.Reason("用户关闭本次 Run 的长期记忆召回"),
+                    )
                 }
+                // long: 新 Run 只继承来源调用的名称、风险和参数语义，并生成全新 ToolCall ID；这样既能审计来源，又不会与旧 Tool Ledger 主键冲突或复用旧批准。
+                ledger.appendEvent(
+                    runId = run.id,
+                    type = AgentEventTypes.CONTROLLED_REPLAY_LINKED,
+                    message = "已关联来源 Run 的尚未提交工具调用",
+                    metadata = RunEventMetadata.ControlledReplay(
+                        sourceRunId = sourceRunId,
+                        sourceToolCallId = sourceToolCall.id,
+                        newToolCallId = replayToolCall.id,
+                        definitionFingerprint = qualification.recoveryContract.definitionFingerprint,
+                    ),
+                )
+                ledger.appendEvent(
+                    runId = run.id,
+                    type = "tool.call.proposed",
+                    message = "受控关联重试提出工具调用：${replayToolCall.name}",
+                    metadata = AgentEventMetadata.toolCall(replayToolCall, definition),
+                )
+                executeToolCall(
+                    runId = run.id,
+                    definition = definition,
+                    toolCall = replayToolCall,
+                    executionOrigin = executionOrigin,
+                    state = state,
+                    recordValidationStep = true,
+                    approvalAlreadyGranted = false,
+                    reusePersistedEphemeralBusinessValidation = true,
+                )
+                // long: 受控重放只执行用户确认的单个冻结调用；成功后直接进入总结，禁止再次规划出额外工具或重复副作用。
+                completeRun(run, goal, state)
+            } catch (error: AgentProcessTerminationSimulation) {
+                throw error
+            } catch (error: AgentBudgetExceededException) {
+                withContext(NonCancellable) {
+                    state.activeStepId?.let { ledger.updateStep(it, AgentStepStatus.FAILED, error.message ?: "Agent 预算耗尽") }
+                    ledger.appendEvent(run.id, "run.budget_exhausted", error.message.orEmpty(), RunEventMetadata.Reason(error.message.orEmpty()))
+                    ledger.updateRunStatus(run.id, AgentRunStatus.BUDGET_EXHAUSTED, errorMessage = error.message ?: "Agent 预算耗尽")
+                }
+                throw error
+            } catch (error: AgentTimeoutException) {
+                withContext(NonCancellable) {
+                    state.activeStepId?.let { ledger.updateStep(it, AgentStepStatus.FAILED, error.message ?: "Agent 步骤超时") }
+                    ledger.appendEvent(run.id, "run.timeout", error.message.orEmpty(), RunEventMetadata.Reason(error.message.orEmpty()))
+                    ledger.updateRunStatus(run.id, AgentRunStatus.BUDGET_EXHAUSTED, errorMessage = error.message ?: "Agent 步骤超时")
+                }
+                throw error
+            } catch (error: AgentBackgroundApprovalRequiredException) {
+                settleBlockedRun(run.id, state, error)
+                throw error
+            } catch (error: CancellationException) {
+                settleCancelledRun(run.id, state, "用户取消受控关联重试")
+                throw error
+            } catch (error: Throwable) {
+                if (error is AgentToolRecoveryRequiredException) {
+                    settleDeviceRecoveryRequired(run.id, state, error)
+                } else {
+                    withContext(NonCancellable) {
+                        val reason = error.message ?: "受控关联重试失败"
+                        state.activeStepId?.let { ledger.updateStep(it, AgentStepStatus.FAILED, reason) }
+                        ledger.appendEvent(run.id, "run.failed", reason, RunEventMetadata.Reason(reason))
+                        ledger.updateRunStatus(run.id, AgentRunStatus.FAILED, errorMessage = reason)
+                    }
+                }
+                throw error
+            } finally {
+                finishToolRegistryRun(run.id)
             }
-            throw error
-        } finally {
-            finishToolRegistryRun(run.id)
         }
     }
 
@@ -184,105 +191,108 @@ class MinimalAgentRuntime internal constructor(
             monotonicClock = monotonicClock,
             completionRequiredToolNames = workflowDeviceActionContext?.completionRequiredToolNames?.toList().orEmpty(),
         )
-        return try {
-            require(state.completionRequiredToolNames.isEmpty() ||
-                (invocationSource == AgentInvocationSource.WORKFLOW && executionOrigin == AgentExecutionOrigin.FOREGROUND &&
-                    state.completionRequiredToolNames.size <= options.maxToolCalls)) {
-                "步骤完成约束只能用于原预算内的前台 Workflow"
-            }
-            // long: 真实 Run 已落库后，绑定依赖也可能失败；必须进入统一结算与清理，不能遗留 QUEUED 任务。
-            (toolRegistry as? AgentRunContextAwareToolRegistry)?.bindRunContext(
-                AgentToolExecutionContext(
-                    conversationId = conversationId,
-                    userMessageId = userMessageId,
-                    runId = run.id,
-                    goal = goal,
-                    memoryRecallEnabled = memoryRecallEnabled,
-                    executionOrigin = executionOrigin,
-                    invocationSource = invocationSource,
-                    processSessionId = processSessionId,
-                    workflowDeviceActionContext = workflowDeviceActionContext,
-                    agentProfileInfo = agentProfile?.toExecutionProfileInfo(memoryRecallEnabled),
-                ),
-            )
-            persistExecutionBudget(run.id, "初始化执行预算", state.executionBudget)
-            if (agentProfile != null) {
-                // long: Run 必须冻结启动时的 Agent 身份、模型和能力白名单；后续编辑或删除 Profile 不能改变历史审计、审批恢复和工具边界。
-                ledger.appendEvent(
-                    runId = run.id,
-                    type = AgentEventTypes.PROFILE_SELECTED,
-                    message = "已选择 Agent：${agentProfile.name} · ${agentProfile.model}",
-                    metadata = RunEventMetadata.AgentProfileSelection(agentProfile),
-                )
-            }
-            if (selectedSkills.isNotEmpty()) {
-                // long: Skill 选择必须进入 Run 审计，方便用户确认本轮为何只暴露部分工具；指令文本不改变工具定义中的风险和审批策略。
-                ledger.appendEvent(
-                    runId = run.id,
-                    type = "skill.selected",
-                    message = "已按目标选择 Skill：${selectedSkills.joinToString { it.name }}",
-                    metadata = RunEventMetadata.Reason(AgentSkillSelectionCodec.encode(selectedSkills)),
-                )
-            }
-            if (!memoryRecallEnabled) {
-                // long: 单次 Run 关闭记忆召回只阻止读取长期记忆，仍保留审计事件，方便用户确认本轮没有使用记忆上下文。
-                ledger.appendEvent(
-                    runId = run.id,
-                    type = MEMORY_RECALL_DISABLED_EVENT_TYPE,
-                    message = "本次 Run 已关闭长期记忆召回",
-                    metadata = RunEventMetadata.Reason("用户关闭本次 Run 的长期记忆召回"),
-                )
-            }
-            continuePlanning(run, goal, executionOrigin, state)
-            completeRun(run, goal, state)
-        } catch (error: AgentProcessTerminationSimulation) {
-            // long: 测试注入模拟操作系统直接杀死进程；真实进程不会执行 catch 收敛，因此保留中间态供启动恢复策略判定。
-            throw error
-        } catch (error: AgentBudgetExceededException) {
-            withContext(NonCancellable) {
-                state.activeStepId?.let { ledger.updateStep(it, AgentStepStatus.FAILED, error.message ?: "Agent 预算耗尽") }
-                ledger.appendEvent(
-                    run.id,
-                    "run.budget_exhausted",
-                    error.message.orEmpty(),
-                    RunEventMetadata.Reason(error.message.orEmpty()),
-                )
-                ledger.updateRunStatus(run.id, AgentRunStatus.BUDGET_EXHAUSTED, errorMessage = error.message ?: "Agent 预算耗尽")
-            }
-            throw error
-        } catch (error: AgentTimeoutException) {
-            withContext(NonCancellable) {
-                state.activeStepId?.let { ledger.updateStep(it, AgentStepStatus.FAILED, error.message ?: "Agent 步骤超时") }
-                ledger.appendEvent(
-                    run.id,
-                    "run.timeout",
-                    error.message.orEmpty(),
-                    RunEventMetadata.Reason(error.message.orEmpty()),
-                )
-                ledger.updateRunStatus(run.id, AgentRunStatus.BUDGET_EXHAUSTED, errorMessage = error.message ?: "Agent 步骤超时")
-            }
-            throw error
-        } catch (error: AgentBackgroundApprovalRequiredException) {
-            settleBlockedRun(run.id, state, error)
-            throw error
-        } catch (error: CancellationException) {
-            settleCancelledRun(run.id, state, "用户取消 Agent 任务")
-            throw error
-        } catch (error: Throwable) {
-            if (error is AgentToolRecoveryRequiredException) {
-                settleDeviceRecoveryRequired(run.id, state, error)
-            } else {
-                withContext(NonCancellable) {
-                    // long: 失败终态是后续审计和恢复任务的依据，即使上游异常叠加协程取消，也要尽量把当前 step 和 run 写成可追踪的 FAILED。
-                    state.activeStepId?.let { ledger.updateStep(it, AgentStepStatus.FAILED, error.message ?: "Agent 任务失败") }
-                    val reason = error.message ?: "Agent 任务失败"
-                    ledger.appendEvent(run.id, "run.failed", reason, RunEventMetadata.Reason(reason))
-                    ledger.updateRunStatus(run.id, AgentRunStatus.FAILED, errorMessage = error.message ?: "Agent 任务失败")
+        return withRunCancellation(run.id, state) {
+            try {
+                requireRunActive(run.id)
+                require(state.completionRequiredToolNames.isEmpty() ||
+                    (invocationSource == AgentInvocationSource.WORKFLOW && executionOrigin == AgentExecutionOrigin.FOREGROUND &&
+                        state.completionRequiredToolNames.size <= options.maxToolCalls)) {
+                    "步骤完成约束只能用于原预算内的前台 Workflow"
                 }
+                // long: 真实 Run 已落库后，绑定依赖也可能失败；必须进入统一结算与清理，不能遗留 QUEUED 任务。
+                (toolRegistry as? AgentRunContextAwareToolRegistry)?.bindRunContext(
+                    AgentToolExecutionContext(
+                        conversationId = conversationId,
+                        userMessageId = userMessageId,
+                        runId = run.id,
+                        goal = goal,
+                        memoryRecallEnabled = memoryRecallEnabled,
+                        executionOrigin = executionOrigin,
+                        invocationSource = invocationSource,
+                        processSessionId = processSessionId,
+                        workflowDeviceActionContext = workflowDeviceActionContext,
+                        agentProfileInfo = agentProfile?.toExecutionProfileInfo(memoryRecallEnabled),
+                    ),
+                )
+                persistExecutionBudget(run.id, "初始化执行预算", state.executionBudget)
+                if (agentProfile != null) {
+                    // long: Run 必须冻结启动时的 Agent 身份、模型和能力白名单；后续编辑或删除 Profile 不能改变历史审计、审批恢复和工具边界。
+                    ledger.appendEvent(
+                        runId = run.id,
+                        type = AgentEventTypes.PROFILE_SELECTED,
+                        message = "已选择 Agent：${agentProfile.name} · ${agentProfile.model}",
+                        metadata = RunEventMetadata.AgentProfileSelection(agentProfile),
+                    )
+                }
+                if (selectedSkills.isNotEmpty()) {
+                    // long: Skill 选择必须进入 Run 审计，方便用户确认本轮为何只暴露部分工具；指令文本不改变工具定义中的风险和审批策略。
+                    ledger.appendEvent(
+                        runId = run.id,
+                        type = "skill.selected",
+                        message = "已按目标选择 Skill：${selectedSkills.joinToString { it.name }}",
+                        metadata = RunEventMetadata.Reason(AgentSkillSelectionCodec.encode(selectedSkills)),
+                    )
+                }
+                if (!memoryRecallEnabled) {
+                    // long: 单次 Run 关闭记忆召回只阻止读取长期记忆，仍保留审计事件，方便用户确认本轮没有使用记忆上下文。
+                    ledger.appendEvent(
+                        runId = run.id,
+                        type = MEMORY_RECALL_DISABLED_EVENT_TYPE,
+                        message = "本次 Run 已关闭长期记忆召回",
+                        metadata = RunEventMetadata.Reason("用户关闭本次 Run 的长期记忆召回"),
+                    )
+                }
+                continuePlanning(run, goal, executionOrigin, state)
+                completeRun(run, goal, state)
+            } catch (error: AgentProcessTerminationSimulation) {
+                // long: 测试注入模拟操作系统直接杀死进程；真实进程不会执行 catch 收敛，因此保留中间态供启动恢复策略判定。
+                throw error
+            } catch (error: AgentBudgetExceededException) {
+                withContext(NonCancellable) {
+                    state.activeStepId?.let { ledger.updateStep(it, AgentStepStatus.FAILED, error.message ?: "Agent 预算耗尽") }
+                    ledger.appendEvent(
+                        run.id,
+                        "run.budget_exhausted",
+                        error.message.orEmpty(),
+                        RunEventMetadata.Reason(error.message.orEmpty()),
+                    )
+                    ledger.updateRunStatus(run.id, AgentRunStatus.BUDGET_EXHAUSTED, errorMessage = error.message ?: "Agent 预算耗尽")
+                }
+                throw error
+            } catch (error: AgentTimeoutException) {
+                withContext(NonCancellable) {
+                    state.activeStepId?.let { ledger.updateStep(it, AgentStepStatus.FAILED, error.message ?: "Agent 步骤超时") }
+                    ledger.appendEvent(
+                        run.id,
+                        "run.timeout",
+                        error.message.orEmpty(),
+                        RunEventMetadata.Reason(error.message.orEmpty()),
+                    )
+                    ledger.updateRunStatus(run.id, AgentRunStatus.BUDGET_EXHAUSTED, errorMessage = error.message ?: "Agent 步骤超时")
+                }
+                throw error
+            } catch (error: AgentBackgroundApprovalRequiredException) {
+                settleBlockedRun(run.id, state, error)
+                throw error
+            } catch (error: CancellationException) {
+                settleCancelledRun(run.id, state, "用户取消 Agent 任务")
+                throw error
+            } catch (error: Throwable) {
+                if (error is AgentToolRecoveryRequiredException) {
+                    settleDeviceRecoveryRequired(run.id, state, error)
+                } else {
+                    withContext(NonCancellable) {
+                        // long: 失败终态是后续审计和恢复任务的依据，即使上游异常叠加协程取消，也要尽量把当前 step 和 run 写成可追踪的 FAILED。
+                        state.activeStepId?.let { ledger.updateStep(it, AgentStepStatus.FAILED, error.message ?: "Agent 任务失败") }
+                        val reason = error.message ?: "Agent 任务失败"
+                        ledger.appendEvent(run.id, "run.failed", reason, RunEventMetadata.Reason(reason))
+                        ledger.updateRunStatus(run.id, AgentRunStatus.FAILED, errorMessage = error.message ?: "Agent 任务失败")
+                    }
+                }
+                throw error
+            } finally {
+                finishToolRegistryRun(run.id)
             }
-            throw error
-        } finally {
-            finishToolRegistryRun(run.id)
         }
     }
 
@@ -337,68 +347,71 @@ class MinimalAgentRuntime internal constructor(
         state.completedTools += recovery.verifiedPrefix
         state.executedToolCalls = recovery.verifiedPrefix.size
         state.toolCallFingerprints += recovery.verifiedPrefix.map { toolCallFingerprint(it.toolCall) }
-        return try {
-            requireRecoveryCompletionContext(state, invocationSource, workflowDeviceActionContext, detail)
-            persistLegacyExecutionBudgetStart(run.id, restoredBudget, state.executionBudget)
-            // long: 审批请求已经持久化，恢复入口只补写批准审计并从原审批步骤继续，不重新规划工具，避免重复模型决策。
-            ledger.appendEvent(
-                runId = run.id,
-                type = "approval.granted",
-                message = "工具审批通过：${toolCall.name}",
-                metadata = AgentEventMetadata.approval(toolCall, approvalDecision),
-            )
-            state.activeStepId?.let {
-                ledger.updateStep(it, AgentStepStatus.COMPLETED, "已批准：${toolCall.name} · ${approvalDecision.reason}")
-                state.activeStepId = null
-            }
-            executeToolCall(
-                runId = run.id,
-                definition = definition,
-                toolCall = toolCall,
-                executionOrigin = executionOrigin,
-                state = state,
-                recordValidationStep = false,
-                approvalAlreadyGranted = true,
-                reusePersistedEphemeralBusinessValidation = true,
-            )
-            continuePlanning(run, run.goal, executionOrigin, state)
-            completeRun(run, run.goal, state)
-        } catch (error: AgentProcessTerminationSimulation) {
-            throw error
-        } catch (error: AgentBudgetExceededException) {
-            withContext(NonCancellable) {
-                state.activeStepId?.let { ledger.updateStep(it, AgentStepStatus.FAILED, error.message ?: "Agent 预算耗尽") }
-                ledger.appendEvent(run.id, "run.budget_exhausted", error.message.orEmpty(), RunEventMetadata.Reason(error.message.orEmpty()))
-                ledger.updateRunStatus(run.id, AgentRunStatus.BUDGET_EXHAUSTED, errorMessage = error.message ?: "Agent 预算耗尽")
-            }
-            throw error
-        } catch (error: AgentTimeoutException) {
-            withContext(NonCancellable) {
-                state.activeStepId?.let { ledger.updateStep(it, AgentStepStatus.FAILED, error.message ?: "Agent 步骤超时") }
-                ledger.appendEvent(run.id, "run.timeout", error.message.orEmpty(), RunEventMetadata.Reason(error.message.orEmpty()))
-                ledger.updateRunStatus(run.id, AgentRunStatus.BUDGET_EXHAUSTED, errorMessage = error.message ?: "Agent 步骤超时")
-            }
-            throw error
-        } catch (error: AgentBackgroundApprovalRequiredException) {
-            settleBlockedRun(run.id, state, error)
-            throw error
-        } catch (error: CancellationException) {
-            settleCancelledRun(run.id, state, "用户取消 Agent 任务")
-            throw error
-        } catch (error: Throwable) {
-            if (error is AgentToolRecoveryRequiredException) {
-                settleDeviceRecoveryRequired(run.id, state, error)
-            } else {
-                withContext(NonCancellable) {
-                    state.activeStepId?.let { ledger.updateStep(it, AgentStepStatus.FAILED, error.message ?: "Agent 任务失败") }
-                    val reason = error.message ?: "Agent 任务失败"
-                    ledger.appendEvent(run.id, "run.failed", reason, RunEventMetadata.Reason(reason))
-                    ledger.updateRunStatus(run.id, AgentRunStatus.FAILED, errorMessage = reason)
+        return withRunCancellation(run.id, state) {
+            try {
+                requireRunActive(run.id)
+                requireRecoveryCompletionContext(state, invocationSource, workflowDeviceActionContext, detail)
+                persistLegacyExecutionBudgetStart(run.id, restoredBudget, state.executionBudget)
+                // long: 审批请求已经持久化，恢复入口只补写批准审计并从原审批步骤继续，不重新规划工具，避免重复模型决策。
+                ledger.appendEvent(
+                    runId = run.id,
+                    type = "approval.granted",
+                    message = "工具审批通过：${toolCall.name}",
+                    metadata = AgentEventMetadata.approval(toolCall, approvalDecision),
+                )
+                state.activeStepId?.let {
+                    ledger.updateStep(it, AgentStepStatus.COMPLETED, "已批准：${toolCall.name} · ${approvalDecision.reason}")
+                    state.activeStepId = null
                 }
+                executeToolCall(
+                    runId = run.id,
+                    definition = definition,
+                    toolCall = toolCall,
+                    executionOrigin = executionOrigin,
+                    state = state,
+                    recordValidationStep = false,
+                    approvalAlreadyGranted = true,
+                    reusePersistedEphemeralBusinessValidation = true,
+                )
+                continuePlanning(run, run.goal, executionOrigin, state)
+                completeRun(run, run.goal, state)
+            } catch (error: AgentProcessTerminationSimulation) {
+                throw error
+            } catch (error: AgentBudgetExceededException) {
+                withContext(NonCancellable) {
+                    state.activeStepId?.let { ledger.updateStep(it, AgentStepStatus.FAILED, error.message ?: "Agent 预算耗尽") }
+                    ledger.appendEvent(run.id, "run.budget_exhausted", error.message.orEmpty(), RunEventMetadata.Reason(error.message.orEmpty()))
+                    ledger.updateRunStatus(run.id, AgentRunStatus.BUDGET_EXHAUSTED, errorMessage = error.message ?: "Agent 预算耗尽")
+                }
+                throw error
+            } catch (error: AgentTimeoutException) {
+                withContext(NonCancellable) {
+                    state.activeStepId?.let { ledger.updateStep(it, AgentStepStatus.FAILED, error.message ?: "Agent 步骤超时") }
+                    ledger.appendEvent(run.id, "run.timeout", error.message.orEmpty(), RunEventMetadata.Reason(error.message.orEmpty()))
+                    ledger.updateRunStatus(run.id, AgentRunStatus.BUDGET_EXHAUSTED, errorMessage = error.message ?: "Agent 步骤超时")
+                }
+                throw error
+            } catch (error: AgentBackgroundApprovalRequiredException) {
+                settleBlockedRun(run.id, state, error)
+                throw error
+            } catch (error: CancellationException) {
+                settleCancelledRun(run.id, state, "用户取消 Agent 任务")
+                throw error
+            } catch (error: Throwable) {
+                if (error is AgentToolRecoveryRequiredException) {
+                    settleDeviceRecoveryRequired(run.id, state, error)
+                } else {
+                    withContext(NonCancellable) {
+                        state.activeStepId?.let { ledger.updateStep(it, AgentStepStatus.FAILED, error.message ?: "Agent 任务失败") }
+                        val reason = error.message ?: "Agent 任务失败"
+                        ledger.appendEvent(run.id, "run.failed", reason, RunEventMetadata.Reason(reason))
+                        ledger.updateRunStatus(run.id, AgentRunStatus.FAILED, errorMessage = reason)
+                    }
+                }
+                throw error
+            } finally {
+                finishToolRegistryRun(run.id)
             }
-            throw error
-        } finally {
-            finishToolRegistryRun(run.id)
         }
     }
 
@@ -446,98 +459,101 @@ class MinimalAgentRuntime internal constructor(
         )
         // long: 多工具 Run 的前序步骤已由历史 tool.verify 证明完成；恢复总结必须保留这些事实，不能只向用户展示最后一条笔记结果。
         state.completedTools += recovery.verifiedPrefix
-        return try {
-            requireRecoveryCompletionContext(state, invocationSource, workflowDeviceActionContext, detail)
-            persistLegacyExecutionBudgetStart(run.id, restoredBudget, state.executionBudget)
-            val executionStep = detail.snapshot.steps.single { it.id == recovery.executionStepId }
-            if (executionStep.status == AgentStepStatus.RUNNING) {
-                // long: ToolResult 与 COMMITTED 回执已落库时，可以把中断的执行 Step 收敛为完成；这里不再调用 Executor。
-                ledger.updateStep(executionStep.id, AgentStepStatus.COMPLETED, recovery.persistedResult.content)
-            }
-            if (run.status != AgentRunStatus.VERIFYING) {
-                // long: 启动恢复协调器可能已经把 EXECUTING 收敛到 VERIFYING；只有状态仍未切换时才补写一次，避免同一恢复边界产生重复 run.status 事实。
-                ledger.updateRunStatus(run.id, AgentRunStatus.VERIFYING)
-            }
-            val verifyStep = recovery.verificationStepId?.let { stepId ->
-                detail.snapshot.steps.single { it.id == stepId }
-            } ?: ledger.appendStep(
-                runId = run.id,
-                type = AgentStepTypes.TOOL_VERIFY,
-                title = "恢复执行后验证",
-                detail = "只读回读已提交的 ${recovery.toolCall.name} 业务记录。",
-                status = AgentStepStatus.RUNNING,
-            )
-            state.activeStepId = verifyStep.id
-            validateRequiredAndroidPermissions(definition, checkpoint = "恢复验证前")
-            val recoveredResult = toolRegistry.verifyCommittedEffect(recovery.toolCall, receipt)
-                ?: error("工具不支持已提交结果的只读恢复验证：${recovery.toolCall.name}")
-            validateExecutionReceipt(recovery.toolCall, recoveredResult)
-            validateVerificationEvidence(recovery.toolCall, recoveredResult)
-            validateReadableEvidence(recovery.toolCall, recoveredResult)
-            require(recoveredResult.executionReceipt == receipt) { "恢复回读的执行回执与历史证据不一致" }
-            if (!recoveredResult.success) {
-                recoveredResult.recoveryFailure?.let { failure ->
-                    throw ToolRecoveryFailureException(recovery.toolCall.name, failure, recoveredResult.content)
+        return withRunCancellation(run.id, state) {
+            try {
+                requireRunActive(run.id)
+                requireRecoveryCompletionContext(state, invocationSource, workflowDeviceActionContext, detail)
+                persistLegacyExecutionBudgetStart(run.id, restoredBudget, state.executionBudget)
+                val executionStep = detail.snapshot.steps.single { it.id == recovery.executionStepId }
+                if (executionStep.status == AgentStepStatus.RUNNING) {
+                    // long: ToolResult 与 COMMITTED 回执已落库时，可以把中断的执行 Step 收敛为完成；这里不再调用 Executor。
+                    ledger.updateStep(executionStep.id, AgentStepStatus.COMPLETED, recovery.persistedResult.content)
                 }
-                error("已提交工具结果恢复验证失败：${recoveredResult.content}")
-            }
-            when (definition.verificationPolicy) {
-                ToolVerificationPolicy.RESULT_READABLE -> require(recoveredResult.content.isNotBlank()) {
-                    "恢复验证的工具结果为空"
+                if (run.status != AgentRunStatus.VERIFYING) {
+                    // long: 启动恢复协调器可能已经把 EXECUTING 收敛到 VERIFYING；只有状态仍未切换时才补写一次，避免同一恢复边界产生重复 run.status 事实。
+                    ledger.updateRunStatus(run.id, AgentRunStatus.VERIFYING)
                 }
-                ToolVerificationPolicy.EXECUTOR_VERIFIED -> require(recoveredResult.verified == true) {
-                    "已提交工具结果未通过 Executor 回读验证"
+                val verifyStep = recovery.verificationStepId?.let { stepId ->
+                    detail.snapshot.steps.single { it.id == stepId }
+                } ?: ledger.appendStep(
+                    runId = run.id,
+                    type = AgentStepTypes.TOOL_VERIFY,
+                    title = "恢复执行后验证",
+                    detail = "只读回读已提交的 ${recovery.toolCall.name} 业务记录。",
+                    status = AgentStepStatus.RUNNING,
+                )
+                state.activeStepId = verifyStep.id
+                validateRequiredAndroidPermissions(definition, checkpoint = "恢复验证前")
+                val recoveredResult = toolRegistry.verifyCommittedEffect(recovery.toolCall, receipt)
+                    ?: error("工具不支持已提交结果的只读恢复验证：${recovery.toolCall.name}")
+                validateExecutionReceipt(recovery.toolCall, recoveredResult)
+                validateVerificationEvidence(recovery.toolCall, recoveredResult)
+                validateReadableEvidence(recovery.toolCall, recoveredResult)
+                require(recoveredResult.executionReceipt == receipt) { "恢复回读的执行回执与历史证据不一致" }
+                if (!recoveredResult.success) {
+                    recoveredResult.recoveryFailure?.let { failure ->
+                        throw ToolRecoveryFailureException(recovery.toolCall.name, failure, recoveredResult.content)
+                    }
+                    error("已提交工具结果恢复验证失败：${recoveredResult.content}")
                 }
-            }
-            ledger.appendEvent(
-                runId = run.id,
-                type = "tool.verify",
-                message = "进程重建后工具验证通过：${recovery.toolCall.name}",
-                metadata = RunEventMetadata.ToolVerification(
-                    toolName = recovery.toolCall.name,
-                    status = ToolVerificationStatus.PASSED,
-                    toolCallId = recovery.toolCall.id,
-                    reason = recoveredResult.verificationEvidence?.reasonCode,
-                ),
-            )
-            ledger.updateStep(verifyStep.id, AgentStepStatus.COMPLETED, "已只读回读 operation ${receipt.operationId} 并验证通过")
-            state.activeStepId = null
-            state.completedTools += AgentToolExecution(recovery.toolCall, recoveredResult)
-            completeRecoveredRun(run, state)
-        } catch (error: AgentProcessTerminationSimulation) {
-            // long: 故障注入代表进程在控制面写入边界直接消失；不能把模拟的“进程死亡”伪造成业务失败终态，否则下一次恢复看不到真实中断位置。
-            throw error
-        } catch (error: CancellationException) {
-            // long: 用户取消恢复时必须同时关闭活动验证 Step 和原 Run，避免任务中心留下仍在验证的假状态。
-            settleCancelledRun(run.id, state, "用户取消恢复验证")
-            throw error
-        } catch (error: Throwable) {
-            // long: operation 回读或证据核对失败时保留已提交事实，但把验证 Step 与 Run 明确标为失败，后续只能走带确认的新 Run 重试。
-            withContext(NonCancellable) {
-                val reason = error.message ?: "已提交工具结果恢复验证失败"
-                state.activeStepId?.let { ledger.updateStep(it, AgentStepStatus.FAILED, reason) }
-                val recoveryFailure = error as? ToolRecoveryFailureException
-                if (recoveryFailure == null) {
-                    ledger.appendEvent(run.id, "run.failed", reason, RunEventMetadata.Reason(reason))
-                } else {
-                    // long: 恢复失败码和建议动作以 typed event 独立落库，任务中心不需要解析异常文案，也不会因后续措辞调整丢失可操作信息。
-                    ledger.appendEvent(
-                        run.id,
-                        AgentEventTypes.RECOVERY_FAILED,
-                        reason,
-                        RunEventMetadata.RecoveryFailure(
-                            toolName = recoveryFailure.toolName,
-                            code = recoveryFailure.failure.code,
-                            reason = recoveryFailure.failure.reason,
-                            suggestedAction = recoveryFailure.failure.suggestedAction,
-                        ),
-                    )
+                when (definition.verificationPolicy) {
+                    ToolVerificationPolicy.RESULT_READABLE -> require(recoveredResult.content.isNotBlank()) {
+                        "恢复验证的工具结果为空"
+                    }
+                    ToolVerificationPolicy.EXECUTOR_VERIFIED -> require(recoveredResult.verified == true) {
+                        "已提交工具结果未通过 Executor 回读验证"
+                    }
                 }
-                ledger.updateRunStatus(run.id, AgentRunStatus.FAILED, errorMessage = reason)
+                ledger.appendEvent(
+                    runId = run.id,
+                    type = "tool.verify",
+                    message = "进程重建后工具验证通过：${recovery.toolCall.name}",
+                    metadata = RunEventMetadata.ToolVerification(
+                        toolName = recovery.toolCall.name,
+                        status = ToolVerificationStatus.PASSED,
+                        toolCallId = recovery.toolCall.id,
+                        reason = recoveredResult.verificationEvidence?.reasonCode,
+                    ),
+                )
+                ledger.updateStep(verifyStep.id, AgentStepStatus.COMPLETED, "已只读回读 operation ${receipt.operationId} 并验证通过")
+                state.activeStepId = null
+                state.completedTools += AgentToolExecution(recovery.toolCall, recoveredResult)
+                completeRecoveredRun(run, state)
+            } catch (error: AgentProcessTerminationSimulation) {
+                // long: 故障注入代表进程在控制面写入边界直接消失；不能把模拟的“进程死亡”伪造成业务失败终态，否则下一次恢复看不到真实中断位置。
+                throw error
+            } catch (error: CancellationException) {
+                // long: 用户取消恢复时必须同时关闭活动验证 Step 和原 Run，避免任务中心留下仍在验证的假状态。
+                settleCancelledRun(run.id, state, "用户取消恢复验证")
+                throw error
+            } catch (error: Throwable) {
+                // long: operation 回读或证据核对失败时保留已提交事实，但把验证 Step 与 Run 明确标为失败，后续只能走带确认的新 Run 重试。
+                withContext(NonCancellable) {
+                    val reason = error.message ?: "已提交工具结果恢复验证失败"
+                    state.activeStepId?.let { ledger.updateStep(it, AgentStepStatus.FAILED, reason) }
+                    val recoveryFailure = error as? ToolRecoveryFailureException
+                    if (recoveryFailure == null) {
+                        ledger.appendEvent(run.id, "run.failed", reason, RunEventMetadata.Reason(reason))
+                    } else {
+                        // long: 恢复失败码和建议动作以 typed event 独立落库，任务中心不需要解析异常文案，也不会因后续措辞调整丢失可操作信息。
+                        ledger.appendEvent(
+                            run.id,
+                            AgentEventTypes.RECOVERY_FAILED,
+                            reason,
+                            RunEventMetadata.RecoveryFailure(
+                                toolName = recoveryFailure.toolName,
+                                code = recoveryFailure.failure.code,
+                                reason = recoveryFailure.failure.reason,
+                                suggestedAction = recoveryFailure.failure.suggestedAction,
+                            ),
+                        )
+                    }
+                    ledger.updateRunStatus(run.id, AgentRunStatus.FAILED, errorMessage = reason)
+                }
+                throw error
+            } finally {
+                finishToolRegistryRun(run.id)
             }
-            throw error
-        } finally {
-            finishToolRegistryRun(run.id)
         }
     }
 
@@ -561,40 +577,43 @@ class MinimalAgentRuntime internal constructor(
         state.completedTools += recovery.verifiedTools
         state.executedToolCalls = recovery.verifiedTools.size
         state.toolCallFingerprints += recovery.verifiedTools.map { toolCallFingerprint(it.toolCall) }
-        return try {
-            requireRecoveryCompletionContext(state, invocationSource, workflowDeviceActionContext, detail)
-            persistLegacyExecutionBudgetStart(run.id, restoredBudget, state.executionBudget)
-            val verificationStep = detail.snapshot.steps.single { it.id == recovery.lastVerificationStepId }
-            if (verificationStep.status == AgentStepStatus.RUNNING) {
-                // long: tool.verify 已经持久化为 PASSED，进程重建只补齐同一验证 Step 的控制面终态，不能再次执行工具或追加第二条验证事实。
-                ledger.updateStep(
-                    verificationStep.id,
-                    AgentStepStatus.COMPLETED,
-                    "验证结果已在进程终止前持久化",
-                )
-            }
-            state.activeStepId = null
-            completeRecoveredRun(run, state, recovery.recoverySummaryStepId)
-        } catch (error: AgentProcessTerminationSimulation) {
-            // long: 控制面恢复的故障注入必须保留半写入状态，交给下一次启动按 Step/Event 证据幂等收尾，不能提前写 FAILED。
-            throw error
-        } catch (error: CancellationException) {
-            settleCancelledRun(run.id, state, "用户取消已验证结果恢复")
-            throw error
-        } catch (error: Throwable) {
-            if (error is AgentToolRecoveryRequiredException) {
-                settleDeviceRecoveryRequired(run.id, state, error)
-            } else {
-                withContext(NonCancellable) {
-                    val reason = error.message ?: "已验证工具结果恢复失败"
-                    state.activeStepId?.let { ledger.updateStep(it, AgentStepStatus.FAILED, reason) }
-                    ledger.appendEvent(run.id, "run.failed", reason, RunEventMetadata.Reason(reason))
-                    ledger.updateRunStatus(run.id, AgentRunStatus.FAILED, errorMessage = reason)
+        return withRunCancellation(run.id, state) {
+            try {
+                requireRunActive(run.id)
+                requireRecoveryCompletionContext(state, invocationSource, workflowDeviceActionContext, detail)
+                persistLegacyExecutionBudgetStart(run.id, restoredBudget, state.executionBudget)
+                val verificationStep = detail.snapshot.steps.single { it.id == recovery.lastVerificationStepId }
+                if (verificationStep.status == AgentStepStatus.RUNNING) {
+                    // long: tool.verify 已经持久化为 PASSED，进程重建只补齐同一验证 Step 的控制面终态，不能再次执行工具或追加第二条验证事实。
+                    ledger.updateStep(
+                        verificationStep.id,
+                        AgentStepStatus.COMPLETED,
+                        "验证结果已在进程终止前持久化",
+                    )
                 }
+                state.activeStepId = null
+                completeRecoveredRun(run, state, recovery.recoverySummaryStepId)
+            } catch (error: AgentProcessTerminationSimulation) {
+                // long: 控制面恢复的故障注入必须保留半写入状态，交给下一次启动按 Step/Event 证据幂等收尾，不能提前写 FAILED。
+                throw error
+            } catch (error: CancellationException) {
+                settleCancelledRun(run.id, state, "用户取消已验证结果恢复")
+                throw error
+            } catch (error: Throwable) {
+                if (error is AgentToolRecoveryRequiredException) {
+                    settleDeviceRecoveryRequired(run.id, state, error)
+                } else {
+                    withContext(NonCancellable) {
+                        val reason = error.message ?: "已验证工具结果恢复失败"
+                        state.activeStepId?.let { ledger.updateStep(it, AgentStepStatus.FAILED, reason) }
+                        ledger.appendEvent(run.id, "run.failed", reason, RunEventMetadata.Reason(reason))
+                        ledger.updateRunStatus(run.id, AgentRunStatus.FAILED, errorMessage = reason)
+                    }
+                }
+                throw error
+            } finally {
+                finishToolRegistryRun(run.id)
             }
-            throw error
-        } finally {
-            finishToolRegistryRun(run.id)
         }
     }
 
@@ -736,6 +755,7 @@ class MinimalAgentRuntime internal constructor(
         approvalAlreadyGranted: Boolean,
         reusePersistedEphemeralBusinessValidation: Boolean = false,
     ) {
+        requireRunActive(runId)
         var approvalEvidence: AgentToolApprovalEvidence? = null
         val validation = if (recordValidationStep) {
             ledger.appendStep(
@@ -795,6 +815,7 @@ class MinimalAgentRuntime internal constructor(
                 state.activeStepId = approval.id
                 // long: 每一步写操作都独立等待用户决定，前一步获批不代表后续副作用自动继承授权。
                 val decision = approvalGate.requestApproval(runId, toolCall, definition)
+                requireRunActive(runId)
                 ledger.appendEvent(
                     runId = runId,
                     type = if (decision.approved) "approval.granted" else "approval.denied",
@@ -831,7 +852,8 @@ class MinimalAgentRuntime internal constructor(
             status = AgentStepStatus.RUNNING,
         )
         state.activeStepId = execution.id
-        currentCoroutineContext().ensureActive()
+        // long: 审批结束与停止请求可能同时返回；执行前回读持久取消，迟到批准不能启动已停止任务的工具。
+        requireRunActive(runId)
         (toolRegistry as? AgentToolExecutionLifecycleAwareToolRegistry)?.beforeToolExecution(
             call = toolCall,
             approval = approvalEvidence,
@@ -1000,7 +1022,7 @@ class MinimalAgentRuntime internal constructor(
         }
         ledger.updateStep(summaryStep.id, AgentStepStatus.COMPLETED, summaryDetail)
         state.activeStepId = null
-        ledger.updateRunStatus(run.id, AgentRunStatus.COMPLETED, result = response)
+        if (!ledger.completeRun(run.id, response)) throw CancellationException("任务在完成提交前已停止")
         return AgentRunSummary(
             runId = run.id,
             status = AgentRunStatus.COMPLETED,
@@ -1045,7 +1067,7 @@ class MinimalAgentRuntime internal constructor(
             ledger.updateStep(summaryStep.id, AgentStepStatus.COMPLETED, "已生成本地可信总结")
         }
         state.activeStepId = null
-        ledger.updateRunStatus(run.id, AgentRunStatus.COMPLETED, result = response)
+        if (!ledger.completeRun(run.id, response)) throw CancellationException("任务在恢复完成提交前已停止")
         return AgentRunSummary(
             runId = run.id,
             status = AgentRunStatus.COMPLETED,
@@ -1099,6 +1121,43 @@ class MinimalAgentRuntime internal constructor(
                 retryDisposition = retryDisposition,
             ),
         )
+    }
+
+    private suspend fun requireRunActive(runId: String) {
+        currentCoroutineContext().ensureActive()
+        if (ledger.isCancellationRequested(runId)) throw CancellationException("用户停止 Agent 任务")
+        currentCoroutineContext().ensureActive()
+    }
+
+    private suspend fun <T> withRunCancellation(runId: String, state: AgentRuntimeExecutionState, block: suspend () -> T): T = AgentRunExecutionRegistry.track(runId) {
+        try {
+            coroutineScope {
+                val executionJob = currentCoroutineContext().job
+                // long: 每个执行入口只监听自己的 Run；取消检查覆盖模型和审批等待，不触碰其他会话的全局发送 Job。
+                val watcher = launch {
+                    while (true) {
+                        if (ledger.isCancellationRequested(runId)) {
+                            executionJob.cancel(CancellationException("用户停止 Agent 任务"))
+                            return@launch
+                        }
+                        delay(100)
+                    }
+                }
+                try { block() } finally { watcher.cancel() }
+            }
+        } catch (error: Throwable) {
+            if (error is AgentProcessTerminationSimulation) throw error
+            // long: scope 退出也可能收到取消；执行登记移除前补齐残留取消终态，避免已无执行者但 Run 永远显示“正在停止”。
+            val settled = withContext(NonCancellable) {
+                val run = runCatching { ledger.snapshot(runId).run }.getOrNull()
+                if (run != null && !run.status.isTerminal && (error is CancellationException || run.cancelRequestedAt != null)) {
+                    settleCancelledRun(runId, state, "用户停止 Agent 任务")
+                    true
+                } else false
+            }
+            if (settled && error !is CancellationException) throw CancellationException("用户停止 Agent 任务").apply { initCause(error) }
+            throw error
+        }
     }
 
     private suspend fun settleCancelledRun(

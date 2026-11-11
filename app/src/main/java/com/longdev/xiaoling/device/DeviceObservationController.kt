@@ -88,7 +88,9 @@ class DeviceObservationController(
 
     override fun currentWindowGeneration(): Long = gateway.currentWindowGeneration()
 
-    override suspend fun capture(): DeviceSnapshotCapture {
+    override suspend fun capture(): DeviceSnapshotCapture = captureWindow()
+
+    private suspend fun captureWindow(onAvailable: (RawDeviceWindow) -> Unit = {}): DeviceSnapshotCapture {
         when (health()) {
             DeviceAgentHealthState.AGENT_DISABLED -> return failedAndClearReferences(
                 DeviceSnapshotFailure.AGENT_DISABLED,
@@ -133,6 +135,7 @@ class DeviceObservationController(
                 )
                 // long: 引用存储自身负责同步，当前快照用 volatile 发布；避免 UI 的 inspectReference 长时间占住动作执行路径。
                 currentSnapshotCapture = capture
+                onAvailable(rawWindow)
                 capture
             }
         }
@@ -156,16 +159,16 @@ class DeviceObservationController(
             action = "open_app",
             beforeSnapshotId = null,
             beforeGeneration = beforeGeneration,
-            verify = { capture ->
+            verify = { capture, _ ->
                 PostActionVerification(
-                    verified = DeviceActionPolicy.areEquivalentAppPackages(
+                    // long: 系统启动设置时可能恢复已有搜索页；回读接受其已登记伴随窗口，启动请求仍由主应用白名单单独校验。
+                    verified = DeviceActionPolicy.areAllowedInAppFlow(
                         expectedPackageName = packageName,
                         actualPackageName = capture.snapshot.packageName,
                     ),
                 )
             },
             successMessage = "已打开允许列表中的应用，并重新观察到目标前台窗口",
-            expectedPackageName = packageName,
         )
     }
 
@@ -203,7 +206,7 @@ class DeviceObservationController(
             action = action.name.lowercase(),
             beforeSnapshotId = beforeSnapshot?.snapshotId,
             beforeGeneration = beforeGeneration,
-            verify = { capture ->
+            verify = { capture, _ ->
                 val after = capture.snapshot
                 PostActionVerification(
                     verified = when (action) {
@@ -276,7 +279,7 @@ class DeviceObservationController(
             action = action.name.lowercase(),
             beforeSnapshotId = snapshotId,
             beforeGeneration = beforeGeneration,
-            verify = { capture ->
+            verify = { capture, rawWindow ->
                 val after = capture.snapshot
                 when (action) {
                     DeviceNodeAction.TYPE_TEXT -> {
@@ -284,16 +287,21 @@ class DeviceObservationController(
                         val targetReference = capture.references.singleOrNull { reference ->
                             reference.nodePath == current.nodePath
                         }
-                        val targetNode = targetReference?.let { reference ->
-                            after.nodes.singleOrNull { node -> node.ref == reference.ref }
-                        }
+                        val before = beforeSnapshotCapture?.snapshot
+                        val sameWindow = before != null && before.packageName == after.packageName &&
+                            before.windowId == after.windowId
+                        val targetNode = if (sameWindow && targetReference != null &&
+                            DeviceNodeAction.TYPE_TEXT in targetReference.actions) {
+                            rawWindow?.root?.findNodeAtPath(current.nodePath)
+                                ?.takeIf { it.enabled && it.editable && !it.password && it.visibleToUser }
+                        } else null
                         val readBack = targetNode?.let { node ->
                             DeviceTypeTextReadBack(
                                 nodePath = current.nodePath.toList(),
-                                text = node.text,
+                                text = node.text?.takeIf { it.length <= DeviceActionPolicy.MAX_TEXT_LENGTH },
                             )
                         }
-                        // long: 文本输入只能由原节点路径的精确回读证明；页面其他位置出现相同文本不能替代目标输入框的结果。
+                        // long: 展示快照会压缩空白和截断正文；仅在原窗口、未脱敏可编辑原路径上临时回读原文，不能把别的窗口或归一化文本当作输入证据。
                         PostActionVerification(
                             verified = readBack?.text == expected,
                             typeTextReadBack = readBack,
@@ -330,6 +338,9 @@ class DeviceObservationController(
         )
     }
 
+    private fun RawDeviceNode.findNodeAtPath(path: List<Int>): RawDeviceNode? =
+        if (nodePath == path) this else children.firstNotNullOfOrNull { it.findNodeAtPath(path) }
+
     private fun hasObservableTapChange(
         beforeSnapshot: DeviceSnapshot?,
         afterSnapshot: DeviceSnapshot,
@@ -351,47 +362,43 @@ class DeviceObservationController(
         action: String,
         beforeSnapshotId: String?,
         beforeGeneration: Long,
-        verify: (DeviceSnapshotCapture.Success) -> PostActionVerification,
+        verify: (DeviceSnapshotCapture.Success, RawDeviceWindow?) -> PostActionVerification,
         successMessage: String,
-        expectedPackageName: String? = null,
     ): DeviceActionCapture {
         waitForWindowSettled(beforeGeneration)
-        val after = when (val capture = captureAfterWindowTransition(expectedPackageName)) {
-            is DeviceSnapshotCapture.Success -> capture
-            is DeviceSnapshotCapture.Failed -> {
-                return actionFailed(
-                    DeviceActionFailure.POST_ACTION_OBSERVATION_FAILED,
-                    "动作已发送，但后置观察失败：${capture.message}",
-                )
+        val attempts = if (action == "open_app") POST_ACTION_CAPTURE_ATTEMPTS else POST_ACTION_VERIFICATION_ATTEMPTS
+        var transientFailures = 0
+        repeat(attempts) { attempt ->
+            // long: 原始窗口只活在当前验证栈中，不缓存进快照、ref、模型结果或持久化；成功时立即释放。
+            var rawWindow: RawDeviceWindow? = null
+            when (val after = captureWindow { rawWindow = it }) {
+                is DeviceSnapshotCapture.Success -> {
+                    transientFailures = 0
+                    val verification = verify(after, rawWindow)
+                    val observedTransition = after.snapshot.windowGeneration != beforeGeneration
+                    if (verification.verified || attempt == attempts - 1 || (action != "open_app" && observedTransition)) {
+                        return DeviceActionCapture.Success(
+                            DeviceActionOutcome(
+                                action = action,
+                                beforeSnapshotId = beforeSnapshotId,
+                                afterSnapshot = after.snapshot,
+                                verified = verification.verified,
+                                message = if (verification.verified) successMessage else "动作已发送，但后置观察不足以证明界面已按预期变化",
+                                typeTextReadBack = verification.typeTextReadBack,
+                                swipeEvidence = verification.swipeEvidence,
+                            ),
+                        )
+                    }
+                }
+                is DeviceSnapshotCapture.Failed -> {
+                    transientFailures += 1
+                    if (after.reason !in setOf(DeviceSnapshotFailure.NO_ACTIVE_WINDOW, DeviceSnapshotFailure.WINDOW_CHANGED) ||
+                        transientFailures >= POST_ACTION_CAPTURE_ATTEMPTS || attempt == attempts - 1) {
+                        return actionFailed(DeviceActionFailure.POST_ACTION_OBSERVATION_FAILED, "动作已发送，但后置观察失败：${after.message}")
+                    }
+                }
             }
-        }
-        val verification = verify(after)
-        return DeviceActionCapture.Success(
-            DeviceActionOutcome(
-                action = action,
-                beforeSnapshotId = beforeSnapshotId,
-                afterSnapshot = after.snapshot,
-                verified = verification.verified,
-                message = if (verification.verified) successMessage else "动作已发送，但后置观察不足以证明界面已按预期变化",
-                typeTextReadBack = verification.typeTextReadBack,
-                swipeEvidence = verification.swipeEvidence,
-            ),
-        )
-    }
-
-    private suspend fun captureAfterWindowTransition(expectedPackageName: String? = null): DeviceSnapshotCapture {
-        repeat(POST_ACTION_CAPTURE_ATTEMPTS) { attempt ->
-            val capture = capture()
-            val retryable = when (capture) {
-                is DeviceSnapshotCapture.Failed -> capture.reason in setOf(
-                    DeviceSnapshotFailure.NO_ACTIVE_WINDOW,
-                    DeviceSnapshotFailure.WINDOW_CHANGED,
-                )
-                is DeviceSnapshotCapture.Success -> expectedPackageName != null &&
-                    !DeviceActionPolicy.areEquivalentAppPackages(expectedPackageName, capture.snapshot.packageName)
-            }
-            if (!retryable || attempt == POST_ACTION_CAPTURE_ATTEMPTS - 1) return capture
-            // long: 启动目标时旧应用窗口可能先稳定；同一已发送动作只在原预算内继续回读目标包，授权/隐私失败立即拒绝，耗尽也不能伪造成功。
+            // long: 无窗口事件时先检查实际结果；尚未生效才继续有界回读，既不让成功按键固定等待2.5秒，也保留迟到界面的验证机会。
             delay(POST_ACTION_CAPTURE_RETRY_DELAY_MS)
         }
         error("后置观察重试次数必须大于零")
@@ -399,13 +406,11 @@ class DeviceObservationController(
 
     private suspend fun waitForWindowSettled(initialGeneration: Long) {
         var previous = initialGeneration
-        var observedChange = false
         var stablePolls = 0
         repeat(25) {
             delay(100)
             val current = gateway.currentWindowGeneration()
-            if (current != initialGeneration) observedChange = true
-            if (observedChange && current == previous) {
+            if (current == previous) {
                 stablePolls += 1
                 if (stablePolls >= 2) return
             } else {
@@ -447,6 +452,7 @@ class DeviceObservationController(
 
     private companion object {
         const val POST_ACTION_CAPTURE_ATTEMPTS = 6
+        const val POST_ACTION_VERIFICATION_ATTEMPTS = 25
         const val POST_ACTION_CAPTURE_RETRY_DELAY_MS = 100L
     }
 

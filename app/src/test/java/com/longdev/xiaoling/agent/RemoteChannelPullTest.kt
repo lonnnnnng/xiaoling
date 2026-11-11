@@ -98,6 +98,32 @@ class RemoteChannelPullTest {
         assertEquals(2, calls)
     }
 
+    @Test fun rejectedDnsFailsThroughNetworkCallbackWithoutUncaughtPolicyException() = runBlocking {
+        val dns = object : okhttp3.Dns {
+            override fun lookup(hostname: String) = listOf(InetAddress.getByAddress(byteArrayOf(127, 0, 0, 1)))
+        }
+        // long: 使用生产 puller 的异步请求链，私网解析在建连前拒绝，不访问公网或测试设备。
+        val failure = runCatching {
+            withTimeout(2_000) { RemoteChannelHttpsPuller(dns = dns).fetch("https://inbox.example/next") }
+        }.exceptionOrNull()
+        assertTrue(failure.toString(), failure is java.net.UnknownHostException)
+        assertTrue(failure?.message.orEmpty().contains("解析到本机、私有或保留网络"))
+    }
+
+    @Test fun publicDnsPreservesAllowedAddressesAndRejectsEmptyOrMixedAnswers() {
+        val public = InetAddress.getByAddress(byteArrayOf(8, 8, 8, 8))
+        listOf(emptyList(), listOf(public, InetAddress.getLoopbackAddress())).forEach { answer ->
+            val dns = RemoteChannelPublicDns(object : okhttp3.Dns {
+                override fun lookup(hostname: String) = answer
+            })
+            assertTrue(runCatching { dns.lookup("inbox.example") }.exceptionOrNull() is java.net.UnknownHostException)
+        }
+        val dns = RemoteChannelPublicDns(object : okhttp3.Dns {
+            override fun lookup(hostname: String) = listOf(public)
+        })
+        assertEquals(listOf(public), dns.lookup("inbox.example"))
+    }
+
     @Test fun wrongIdentityRedirectAndOversizedResponseNeverEnterInbox() = runBlocking {
         sources.save(peer, "https://inbox.example/next")
         val wrongPeer = fakePuller { request -> jsonResponse(request, envelopeJson(signed("wrong", "other"))) }

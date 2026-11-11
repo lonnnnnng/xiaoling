@@ -472,12 +472,12 @@ class WorkflowDeviceActionSafetyPolicy(
         }
         if (
             evidence.identity.toolName == DEVICE_OPEN_APP_TOOL_NAME &&
-            !DeviceActionPolicy.areEquivalentAppPackages(
+            !DeviceActionPolicy.areAllowedInAppFlow(
                 evidence.identity.arguments["package_name"],
                 evidence.afterPackageName,
             )
         ) {
-            // long: 打开应用只能收敛到本次获批应用族；允许 AOSP/Google 等价实现，但其他包即使声称已验证也必须拒绝。
+            // long: 打开主应用可能恢复其已登记伴随页面；只接受本次获批主应用的流程窗口，其他应用即使声称已验证也必须拒绝。
             return WorkflowDeviceActionSafetyDecision.Denied(
                 WorkflowDeviceActionSafetyFailure.ACTION_RESULT_MISMATCH,
                 "device.open_app 动作后包名与获批目标不一致",

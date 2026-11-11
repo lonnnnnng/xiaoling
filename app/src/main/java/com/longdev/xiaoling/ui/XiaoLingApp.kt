@@ -87,6 +87,9 @@ import com.longdev.xiaoling.ui.mcp.McpServerManagementActions
 import com.longdev.xiaoling.ui.mcp.McpServerManagementPage
 import com.longdev.xiaoling.ui.mcp.McpServerManagementUiState
 import com.longdev.xiaoling.ui.conversation.ConversationActions
+import com.longdev.xiaoling.ui.conversation.PersonalTaskAvailabilityPolicy
+import com.longdev.xiaoling.ui.conversation.PersonalTaskConfigurationTarget
+import com.longdev.xiaoling.ui.conversation.personalTaskPreflightRequest
 import com.longdev.xiaoling.ui.conversation.ConversationPage
 import com.longdev.xiaoling.ui.conversation.PersonalTaskPlanDialog
 import com.longdev.xiaoling.ui.conversation.ConversationProjection
@@ -171,6 +174,7 @@ private fun XiaoLingContent(
                 textToSpeech.stop()
                 speakingMessageId = null
             }
+            if (event == Lifecycle.Event.ON_RESUME) viewModel.refreshPersonalTaskAvailability()
         }
         lifecycleOwner.lifecycle.addObserver(observer)
         onDispose {
@@ -270,6 +274,18 @@ private fun XiaoLingContent(
                 viewModel.requestGenUiAction(messageId, actionId, drafts)
 
             override fun updatePersonalTaskMode(enabled: Boolean) = viewModel.updatePersonalTaskMode(enabled)
+
+            override fun refreshPersonalTaskAvailability() = viewModel.refreshPersonalTaskAvailability()
+
+            override fun selectPersonalTaskTemplate(templateId: String) = viewModel.selectPersonalTaskTemplate(templateId)
+
+            override fun openPersonalTaskConfiguration(target: PersonalTaskConfigurationTarget) = navigation.openSettingsPane(
+                when (target) {
+                    PersonalTaskConfigurationTarget.PROVIDER -> SettingsPane.PROVIDER_MANAGEMENT
+                    PersonalTaskConfigurationTarget.AGENT_PROFILE -> SettingsPane.AGENT_PROFILE_MANAGEMENT
+                    PersonalTaskConfigurationTarget.DEVICE_AGENT -> SettingsPane.DEVICE_AGENT
+                },
+            )
 
             override fun removePendingImage() = viewModel.removePendingImage()
 
@@ -698,7 +714,7 @@ private fun XiaoLingContent(
         androidx.compose.material3.AlertDialog(
             onDismissRequest = { pendingBackupRestoreUri = null },
             title = { Text("恢复本地备份") },
-            text = { Text("这会替换当前 Room 数据库，并要求退出后重新打开应用。Provider API Key 只能在原设备 Keystore 仍存在时解密。") },
+            text = { Text("备份通过检查后，将在下次重新打开应用时替换当前数据；恢复失败会保留原数据。模型密钥仍需要原设备的密钥才能使用。") },
             confirmButton = {
                 Button(
                     onClick = {
@@ -880,6 +896,7 @@ private fun XiaoLingUiState.toConversationUiState(): ConversationUiState {
         personalTaskOperationPhase = personalTaskOperationPhase,
         personalTaskFailure = personalTaskFailure,
         personalTaskCompletion = personalTaskCompletion,
+        personalTaskAvailability = PersonalTaskAvailabilityPolicy.evaluateAll(personalTaskPreflightRequest(), personalTaskEnvironment),
     )
 }
 
@@ -912,6 +929,7 @@ private fun XiaoLingUiState.toAgentTaskCenterUiState(): AgentTaskCenterUiState {
         history = agentRunHistory,
         selectedRunId = selectedAgentRunId,
         retryingRunId = retryingAgentRunId,
+        stoppingRunIds = stoppingAgentRunIds,
         pendingRetryConfirmation = pendingAgentRetryConfirmation,
         childBatchDraftOpen = childBatchDraftOpen,
         childBatchRunning = childBatchRunning,

@@ -4,6 +4,8 @@ internal data class PersonalTaskTemplate(
     val id: String,
     val title: String,
     val goal: String,
+    val targetPackage: String,
+    val requiredToolNames: Set<String>,
 )
 
 // long: 模板只提供已验收动作范围内的目标起点，不提前请求模型、不创建 Workflow，也不绕过用户确认。
@@ -12,20 +14,28 @@ internal val personalTaskTemplates = listOf(
         id = "calculator",
         title = "打开计算器",
         goal = "打开计算器并查看当前界面",
+        targetPackage = "com.google.android.calculator",
+        requiredToolNames = setOf("device.snapshot", "device.open_app"),
     ),
     PersonalTaskTemplate(
         id = "settings",
         title = "搜索系统设置",
         goal = "打开系统设置并搜索 Wi-Fi",
+        targetPackage = "com.android.settings",
+        requiredToolNames = setOf("device.snapshot", "device.open_app", "device.tap_ref", "device.type_text"),
     ),
     PersonalTaskTemplate(
         id = "clock",
         title = "打开时钟",
         goal = "打开时钟并查看当前界面",
+        targetPackage = "com.google.android.deskclock",
+        requiredToolNames = setOf("device.snapshot", "device.open_app"),
     ),
     PersonalTaskTemplate(
         id = "weather",
         title = "查看天气",
         goal = "打开天气并查看当前天气",
+        targetPackage = "com.google.android.apps.weather",
+        requiredToolNames = setOf("device.snapshot", "device.open_app", "app.get_weather"),
     ),
 )

@@ -12,6 +12,7 @@ import java.util.concurrent.TimeUnit
 interface ScheduledTaskScheduler {
     suspend fun enqueue(task: ScheduledTaskRecord): String
     suspend fun cancel(taskId: String)
+    suspend fun activeWorkRequestId(taskId: String): String? = null
 }
 
 class WorkManagerScheduledTaskScheduler(
@@ -42,6 +43,10 @@ class WorkManagerScheduledTaskScheduler(
     override suspend fun cancel(taskId: String) {
         workManager.cancelUniqueWork(uniqueWorkName(taskId)).result.get()
     }
+
+    override suspend fun activeWorkRequestId(taskId: String): String? =
+        workManager.getWorkInfosForUniqueWork(uniqueWorkName(taskId)).get()
+            .firstOrNull { !it.state.isFinished }?.id?.toString()
 
     companion object {
         const val WORKFLOW_SCHEDULE_TAG = "xiaoling-workflow-schedule"

@@ -6,6 +6,10 @@ import com.longdev.xiaoling.agent.AgentRunStatus
 import com.longdev.xiaoling.agent.AgentEventTypes
 import com.longdev.xiaoling.agent.RunEventMetadata
 import com.longdev.xiaoling.agent.AgentTaskRetryEvidenceCode
+import com.longdev.xiaoling.agent.AgentStepRecord
+import com.longdev.xiaoling.agent.AgentStepStatus
+import com.longdev.xiaoling.agent.isTerminal
+import com.longdev.xiaoling.agent.AgentChildLifecyclePolicy
 
 enum class AgentRetryConfirmationKind {
     EVIDENCE_RETRY,
@@ -26,6 +30,8 @@ interface AgentTaskCenterActions {
     fun refreshAgentRunHistory()
 
     fun selectAgentRun(runId: String)
+
+    fun stopAgentRun(runId: String)
 
     fun requestAgentRunRetry(runId: String)
 
@@ -90,6 +96,9 @@ internal data class AgentTaskCenterRunUiState(
     val detail: AgentRunDetailRecord,
     val selected: Boolean,
     val retrying: Boolean,
+    val canStop: Boolean = false,
+    val stopping: Boolean = false,
+    val currentStep: AgentStepRecord? = null,
     val sourceRunNavigationId: String? = null,
     val linkedRetryRunNavigationId: String? = null,
     val parentRunNavigationId: String? = null,
@@ -120,6 +129,7 @@ internal object AgentTaskCenterProjection {
         childBatchRunning: Boolean = false,
         childBatchParentRunId: String? = null,
         childBatchAgentLabel: String = "",
+        stoppingRunIds: Set<String> = emptySet(),
     ): AgentTaskCenterUiState {
         val historyByRunId = history.groupBy { it.snapshot.run.id }
         val retriesBySourceRunId = history
@@ -232,10 +242,24 @@ internal object AgentTaskCenterProjection {
             error = error,
             runs = history.map { detail ->
                 val runId = detail.snapshot.run.id
+                val active = !detail.snapshot.run.status.isTerminal
+                // long: child 批次已有父级停止入口；单个 child 的取消会传播到兄弟，普通任务卡不把它呈现为独立停止。
+                val independent = (detail.snapshot.run.parentRunId == null || detail.snapshot.run.retryOfRunId != null) &&
+                    !AgentChildLifecyclePolicy.isManagedRun(detail) &&
+                    detail.snapshot.events.none { it.metadata is RunEventMetadata.ChildRunExpectation }
+                val stopping = active && (runId in stoppingRunIds || detail.snapshot.run.cancelRequestedAt != null)
                 AgentTaskCenterRunUiState(
                     detail = detail,
                     selected = runId == selectedRunId,
                     retrying = runId == retryingRunId,
+                    canStop = independent && active && !stopping,
+                    stopping = independent && stopping,
+                    // long: 序号来自持久步骤；优先正在执行的步骤，没有运行步骤时才展示下一条待处理步骤。
+                    currentStep = if (active) {
+                        val steps = detail.snapshot.steps.filter { it.runId == runId }
+                        steps.filter { it.status == AgentStepStatus.RUNNING }.maxByOrNull { it.sequence }
+                            ?: steps.filter { it.status == AgentStepStatus.PENDING }.minByOrNull { it.sequence }
+                    } else null,
                     sourceRunNavigationId = detail.snapshot.run.retryOfRunId
                         ?.takeIf { sourceRunId ->
                             sourceRunId != runId && historyByRunId[sourceRunId]?.size == 1

@@ -33,6 +33,21 @@ class OpenAiCompatibleClientTest {
     }
 
     @Test
+    fun nonStreamingPartialBodyCannotOverrideFailedBusinessTerminal() = runTest {
+        listOf(
+            ApiMode.CHAT_COMPLETIONS to """{"choices":[{"message":{"content":"部分正文"},"finish_reason":"length"}]}""",
+            ApiMode.RESPONSES to """{"status":"incomplete","output_text":"部分正文"}""",
+            ApiMode.RESPONSES to """{"status":"failed","output_text":"部分正文","error":{"message":"fixture failed"}}""",
+        ).forEach { (mode, body) ->
+            server.enqueue(MockResponse().setBody(body))
+            val failure = runCatching {
+                OpenAiCompatibleClient().sendMessage(config("fixture", "fixture").copy(apiMode = mode), listOf(RequestMessage("user", "测试")))
+            }.exceptionOrNull()
+            assertTrue(failure is ApiFailure)
+        }
+    }
+
+    @Test
     fun modelRequestUsesConfiguredUserAgent() = runTest {
         server.enqueue(MockResponse().setResponseCode(200).setBody("""{"data":[{"id":"gpt-test"}]}"""))
 
@@ -235,6 +250,8 @@ class OpenAiCompatibleClientTest {
 
                         data: {"type":"response.output_text.done","text":"最终答案"}
 
+                        data: {"type":"response.completed","response":{"status":"completed","output_text":"最终答案"}}
+
                         data: [DONE]
 
                     """.trimIndent(),
@@ -253,6 +270,54 @@ class OpenAiCompatibleClientTest {
         assertEquals("最终答案", result.responseText)
         assertEquals(listOf("先核对事实，再回答。"), result.reasoningSummaries.map { it.text })
         assertEquals(listOf("rs-stream-1"), result.reasoningSummaries.map { it.providerItemId })
+    }
+
+    @Test
+    fun streamingBusinessFailureAndMissingTerminalNeverReturnCompletedPartialAnswer() = runBlocking {
+        val cases = listOf(
+            """{"type":"response.failed","response":{"error":{"message":"fixture generation failed"}}}""",
+            """{"type":"response.incomplete","response":{"incomplete_details":{"reason":"max_output_tokens"}}}""",
+            """{"type":"error","message":"fixture failure"}""",
+            "[DONE]",
+            "",
+        )
+        cases.forEach { terminal ->
+            server.enqueue(MockResponse().setHeader("Content-Type", "text/event-stream").setBody(
+                "data: {\"type\":\"response.output_text.delta\",\"delta\":\"部分答案\"}\n\n" +
+                    terminal.takeIf(String::isNotEmpty)?.let { "data: $it\n\n" }.orEmpty(),
+            ))
+            val updates = mutableListOf<StreamDeltaUpdate>()
+            val failure = runCatching {
+                OpenAiCompatibleClient().sendMessage(
+                    config("Fixture", "gpt-test").copy(apiMode = ApiMode.RESPONSES, streamingEnabled = true),
+                    listOf(RequestMessage("user", "测试")),
+                    onStreamDelta = updates::add,
+                )
+            }.exceptionOrNull()
+            assertTrue("terminal=$terminal, failure=$failure", failure is ApiFailure)
+            assertEquals(FailureKind.RESPONSE, (failure as ApiFailure).kind)
+            assertEquals(listOf("部分答案"), updates.map { it.accumulatedText })
+        }
+    }
+
+    @Test
+    fun chatStreamRequiresStopAndRejectsTruncationOrEmbeddedError() = runBlocking {
+        listOf("stop", "length", "content_filter", "error").forEach { reason ->
+            val terminal = if (reason == "error") """{"error":{"message":"fixture error"}}"""
+                else """{"choices":[{"delta":{},"finish_reason":"$reason"}]}"""
+            server.enqueue(MockResponse().setHeader("Content-Type", "text/event-stream").setBody(
+                "data: {\"choices\":[{\"delta\":{\"content\":\"正文\"}}]}\n\n" +
+                    "data: $terminal\n\ndata: [DONE]\n\n",
+            ))
+            val result = runCatching {
+                OpenAiCompatibleClient().sendMessage(
+                    config("Fixture", "gpt-test").copy(streamingEnabled = true),
+                    listOf(RequestMessage("user", "测试")),
+                )
+            }
+            if (reason == "stop") assertEquals("正文", result.getOrThrow().responseText)
+            else assertTrue("reason=$reason", result.exceptionOrNull() is ApiFailure)
+        }
     }
 
     @Test

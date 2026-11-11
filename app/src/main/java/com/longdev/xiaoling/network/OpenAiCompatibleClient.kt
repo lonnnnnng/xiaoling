@@ -230,6 +230,7 @@ class OpenAiCompatibleClient(
                 var firstTokenLatencyMs: Long? = null
                 var finalTextFromStream: String? = null
                 var actionCompletion: Boolean? = null
+                var terminalStatus: LlmStreamStatus? = null
                 val body = response.body ?: throw ApiFailure(FailureKind.RESPONSE, "服务器没有返回流式响应")
                 // long: 流式响应也要在首个 SSE 字节实际可读后记录 TTFB；已缓冲字节仍由 charStream 消费，不会丢失首个事件。
                 body.source().request(1L)
@@ -241,6 +242,14 @@ class OpenAiCompatibleClient(
                         if (data.isBlank()) return@forEach
                         if (httpDebugLoggingEnabled) NetworkDebugLogger.logStreamEvent(data)
                         val streamEvent = adapter.parseStreamEvent(apiMode, data) ?: return@forEach
+                        if (streamEvent.terminalStatus in setOf(LlmStreamStatus.FAILED, LlmStreamStatus.INCOMPLETE)) {
+                            throw ApiFailure(FailureKind.RESPONSE, streamEvent.failureMessage ?: "流式生成未完整结束")
+                        }
+                        if (terminalStatus != null && (streamEvent.deltaText != null || streamEvent.finalText != null ||
+                            streamEvent.reasoningSummaryDelta != null || streamEvent.reasoningSummaries.isNotEmpty())) {
+                            throw ApiFailure(FailureKind.RESPONSE, "流式响应在完成后继续修改正文")
+                        }
+                        streamEvent.terminalStatus?.let { terminalStatus = it }
                         // long: 正常终态只能确认当时的正文；后续 delta 或 done 覆盖也要撤销，不能借终态给另一份卡片签发引用。
                         if (actionCompletion != null && (streamEvent.deltaText != null || streamEvent.finalText != null)) actionCompletion = false
                         streamEvent.actionCompletionConfirmed?.let { actionCompletion = actionCompletion != false && it }
@@ -274,6 +283,10 @@ class OpenAiCompatibleClient(
                             )
                         }
                     }
+                }
+                // long: 普通 EOF 和 [DONE] 只能说明传输结束；必须收到模型正常终态，才能进入 Completed 并生成记忆候选。
+                if (terminalStatus != LlmStreamStatus.COMPLETED) {
+                    throw ApiFailure(FailureKind.RESPONSE, "流式响应缺少正常完成事件，已保留部分正文")
                 }
                 val completedText = finalTextFromStream ?: builder.toString()
                 return ModelCompletion(

@@ -43,6 +43,14 @@ class DeviceActionPolicyTest {
 
     @Test
     fun settingsIntelligenceIsOnlyAllowedAsTheBoundSettingsFlowCompanion() {
+        assertEquals(
+            listOf("com.android.settings", "com.android.settings.intelligence"),
+            DeviceActionPolicy.appFlowPackageCandidates("com.android.settings"),
+        )
+        assertEquals(
+            listOf("com.android.settings"),
+            DeviceActionPolicy.launchPackageCandidates("com.android.settings"),
+        )
         assertTrue(
             DeviceActionPolicy.areAllowedInAppFlow(
                 "com.android.settings",

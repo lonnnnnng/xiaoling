@@ -180,7 +180,7 @@ internal fun DeviceAgentSettingsContent(
                     Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
                         Text("设备动作免逐次审批", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold)
                         Text(
-                            "开启后，前台工作流在已确认的限定应用内可连续执行打开、点击和普通文本输入，不再等待每步手动批准。仍保留动作审计、隐私过滤和执行后验证；后台任务及其他写入工具不受此授权影响。",
+                            "默认开启。前台任务在已确认的限定应用内连续执行打开、点击和普通文本输入，无需每步批准；关闭后恢复逐次确认。仍保留动作审计、隐私过滤和执行后验证。",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )

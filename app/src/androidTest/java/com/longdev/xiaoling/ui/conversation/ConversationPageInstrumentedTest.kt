@@ -6,6 +6,8 @@ import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.assertIsNotEnabled
+import androidx.compose.ui.test.assertIsDisplayed
 import com.longdev.xiaoling.knowledge.KnowledgeReference
 import com.longdev.xiaoling.agent.AgentVerificationStatus
 import com.longdev.xiaoling.agent.VerifiedToolExecution
@@ -453,6 +455,7 @@ class ConversationPageInstrumentedTest {
                     state = ConversationProjection.project(
                         personalTaskMode = true,
                         enabledModels = listOf("model"),
+                        personalTaskAvailability = listOf(PersonalTaskAvailability("weather", PersonalTaskAvailabilityStatus.READY, "本机条件已就绪")),
                     ),
                     actions = actions,
                     visible = true,
@@ -466,6 +469,32 @@ class ConversationPageInstrumentedTest {
         composeRule.runOnIdle {
             assertEquals("打开天气并查看当前天气", actions.lastPrompt)
             assertEquals(0, actions.sendCount)
+        }
+    }
+
+    @Test
+    fun unavailableTemplateShowsReasonConfigurationAndRefreshWithoutSending() {
+        val actions = FakeConversationActions()
+        composeRule.setContent {
+            MaterialTheme {
+                ConversationPage(
+                    state = ConversationProjection.project(personalTaskMode = true,
+                        personalTaskAvailability = listOf(PersonalTaskAvailability("calculator",
+                            PersonalTaskAvailabilityStatus.NEEDS_CONFIGURATION, "请在系统设置中授权小灵无障碍服务",
+                            PersonalTaskConfigurationTarget.DEVICE_AGENT))),
+                    actions = actions, visible = true,
+                )
+            }
+        }
+        composeRule.onNodeWithTag("personal-task-template-menu").performClick()
+        composeRule.onNodeWithTag("personal-task-template-calculator").assertIsNotEnabled()
+        composeRule.onNodeWithText("请在系统设置中授权小灵无障碍服务").assertIsDisplayed()
+        composeRule.onNodeWithTag("personal-task-configure-DEVICE_AGENT").performClick()
+        composeRule.runOnIdle {
+            assertEquals(PersonalTaskConfigurationTarget.DEVICE_AGENT, actions.lastConfigurationTarget)
+            assertEquals(1, actions.refreshPersonalTaskCount)
+            assertEquals(0, actions.sendCount)
+            assertEquals(null, actions.lastPrompt)
         }
     }
 
@@ -968,6 +997,8 @@ class ConversationPageInstrumentedTest {
         var lastOpenedContactId: String? = null
         var lastRefreshedDirectAgentRunId: String? = null
         var lastPrompt: String? = null
+        var refreshPersonalTaskCount = 0
+        var lastConfigurationTarget: PersonalTaskConfigurationTarget? = null
 
         override fun selectConversation(conversationId: String) = Unit
 
@@ -1000,6 +1031,14 @@ class ConversationPageInstrumentedTest {
         }
 
         override fun updatePersonalTaskMode(enabled: Boolean) = Unit
+
+        override fun selectPersonalTaskTemplate(templateId: String) {
+            lastPrompt = personalTaskTemplates.single { it.id == templateId }.goal
+        }
+
+        override fun refreshPersonalTaskAvailability() { refreshPersonalTaskCount++ }
+
+        override fun openPersonalTaskConfiguration(target: PersonalTaskConfigurationTarget) { lastConfigurationTarget = target }
 
         override fun removePendingImage() = Unit
 

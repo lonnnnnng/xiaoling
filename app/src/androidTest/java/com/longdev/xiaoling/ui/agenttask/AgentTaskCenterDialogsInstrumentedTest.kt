@@ -139,6 +139,8 @@ class AgentTaskCenterDialogsInstrumentedTest {
 
         override fun selectAgentRun(runId: String) = Unit
 
+        override fun stopAgentRun(runId: String) = Unit
+
         override fun requestAgentRunRetry(runId: String) = Unit
         override fun requestReadOnlyChildBatch() = Unit
         override fun confirmReadOnlyChildBatch(goals: List<String>) { batchGoals = goals }

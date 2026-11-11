@@ -53,6 +53,27 @@ class WorkflowDeviceActionDecisionPolicyTest {
     }
 
     @Test
+    fun restoredSettingsSearchEvidenceStaysBoundToApprovedMainPackage() {
+        for (requestedPackage in listOf("com.android.settings", "com.android.calculator2", "com.android.settings.intelligence")) {
+            val resolution = WorkflowDeviceActionDecisionPolicy.evaluate(
+                expectedAgentRunId = "agent-run-current",
+                results = listOf(
+                    actionEvidence(
+                        toolName = "device.open_app",
+                        expectedOpenAppPackageName = requestedPackage,
+                        content = validActionResult(action = "open_app", afterPackageName = "com.android.settings.intelligence"),
+                    ),
+                ),
+            )
+            if (requestedPackage == "com.android.settings") {
+                assertEquals("com.android.settings.intelligence", (resolution as WorkflowDeviceActionResolution.Decided).decisions.single().afterPackageName)
+            } else {
+                assertEquals(WorkflowDeviceActionInsufficientReason.MALFORMED_RESULT, (resolution as WorkflowDeviceActionResolution.InsufficientEvidence).reason)
+            }
+        }
+    }
+
+    @Test
     fun openAppFailsClosedWhenApprovedTargetIsMissingOrDiffersFromResult() {
         listOf(null, "com.android.settings").forEach { expectedPackageName ->
             val resolution = WorkflowDeviceActionDecisionPolicy.evaluate(

@@ -67,6 +67,7 @@ object OpenAiResponseParser {
 
     fun parseChatText(body: String): String {
         val json = JSONObject(body)
+        rejectFailedGeneration(ApiMode.CHAT_COMPLETIONS, json)
         val choices = json.optJSONArray("choices")
         if (choices != null && choices.length() > 0) {
             val choice = choices.optJSONObject(0)
@@ -85,6 +86,7 @@ object OpenAiResponseParser {
 
     fun parseResponsesText(body: String): String {
         val json = JSONObject(body)
+        rejectFailedGeneration(ApiMode.RESPONSES, json)
         json.optString("output_text").takeIf { it.isNotBlank() }?.let { return it }
 
         val output = json.optJSONArray("output")
@@ -108,6 +110,17 @@ object OpenAiResponseParser {
         throw ApiFailure(FailureKind.RESPONSE, "响应中没有 output_text 或 message.output_text")
     }
 
+    private fun rejectFailedGeneration(mode: ApiMode, json: JSONObject) {
+        val reason = json.optJSONArray("choices")?.optJSONObject(0)?.streamString("finish_reason")
+        val error = json.optJSONObject("error")
+        // long: 非流式也会在 HTTP 200 中携带局部正文与失败终态；必须先拒绝业务失败，再读取正文，避免绕过流式终态保护。
+        if (!json.isNull("error") || (mode == ApiMode.RESPONSES && json.optString("status") in setOf("failed", "incomplete", "cancelled")) ||
+            (mode == ApiMode.CHAT_COMPLETIONS && reason != null && reason != "stop")) {
+            throw ApiFailure(FailureKind.RESPONSE, if (reason == "length") "输出被截断，请调高 max tokens"
+                else error?.streamString("message")?.take(300) ?: "模型响应未完整完成")
+        }
+    }
+
     fun parseStreamEvent(apiMode: ApiMode, data: String): LlmStreamEvent? {
         if (data == "[DONE]") return null
         val json = runCatching { com.longdev.xiaoling.json.StrictJsonObject.parse(data) }.getOrNull() ?: return null
@@ -119,6 +132,32 @@ object OpenAiResponseParser {
         val finalText = if (apiMode == ApiMode.RESPONSES) parseResponsesStreamFinalText(json) else null
         val reasoningSummaryDelta = if (apiMode == ApiMode.RESPONSES) parseReasoningSummaryDelta(json) else null
         val reasoningSummaries = if (apiMode == ApiMode.RESPONSES) parseFinalReasoningSummaries(json) else emptyList()
+        // long: HTTP 200 与已收到正文都不证明生成完成；保留业务终态，避免失败和截断正文被当成完整回答或长期记忆来源。
+        val finishReason = json.optJSONArray("choices")?.optJSONObject(0)?.streamString("finish_reason")
+        val response = json.optJSONObject("response")
+        val terminalStatus = when {
+            !json.isNull("error") || json.optString("type") == "error" -> LlmStreamStatus.FAILED
+            apiMode == ApiMode.CHAT_COMPLETIONS && finishReason != null ->
+                if (finishReason == "stop") LlmStreamStatus.COMPLETED else LlmStreamStatus.INCOMPLETE
+            apiMode == ApiMode.RESPONSES -> when (json.optString("type")) {
+                "response.failed" -> LlmStreamStatus.FAILED
+                "response.incomplete" -> LlmStreamStatus.INCOMPLETE
+                "response.completed" -> if (response != null && confirmsActionCompletion(apiMode, response.toString())) {
+                    LlmStreamStatus.COMPLETED
+                } else LlmStreamStatus.FAILED
+                else -> null
+            }
+            else -> null
+        }
+        val failureMessage = when (terminalStatus) {
+            LlmStreamStatus.FAILED -> (json.optJSONObject("error") ?: response?.optJSONObject("error"))
+                ?.streamString("message")?.take(300) ?: "服务端报告流式生成失败"
+            LlmStreamStatus.INCOMPLETE -> if (finishReason == "length" ||
+                response?.optJSONObject("incomplete_details")?.optString("reason") == "max_output_tokens") {
+                "输出被截断，请调高 max tokens"
+            } else "流式生成未完整结束"
+            else -> null
+        }
         val completion = when (apiMode) {
             ApiMode.CHAT_COMPLETIONS -> json.optJSONArray("choices")?.optJSONObject(0)?.let { choice ->
                 if (choice.isNull("finish_reason")) null else choice.opt("finish_reason") == "stop"
@@ -132,7 +171,7 @@ object OpenAiResponseParser {
                 else -> null
             }
         }
-        return if (deltaText == null && finalText == null && reasoningSummaryDelta == null && reasoningSummaries.isEmpty() && completion == null) {
+        return if (deltaText == null && finalText == null && reasoningSummaryDelta == null && reasoningSummaries.isEmpty() && completion == null && terminalStatus == null) {
             null
         } else {
             LlmStreamEvent(
@@ -141,6 +180,8 @@ object OpenAiResponseParser {
                 finalText = finalText,
                 reasoningSummaryDelta = reasoningSummaryDelta,
                 reasoningSummaries = reasoningSummaries,
+                terminalStatus = terminalStatus,
+                failureMessage = failureMessage,
             )
         }
     }

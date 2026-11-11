@@ -489,8 +489,9 @@ class AndroidWorkflowLiveInstrumentedTest {
                         assertEquals(ToolVerificationStatus.PASSED, result.verificationStatus); assertEquals(true, result.executorVerified)
                         val action = requireNotNull(WorkflowStepSnapshotCodec.decodeOutput(detail.steps.single().outputSnapshot)).deviceActionDecisions.single()
                         assertEquals(WorkflowDeviceActionDecisionStatus.VERIFIED, action.status)
-                        assertEquals("open_app", action.action); assertEquals("com.android.settings", action.afterPackageName)
-                        awaitAppWindow(automation, "com.android.settings")
+                        assertEquals("open_app", action.action)
+                        assertTrue(DeviceActionPolicy.areAllowedInAppFlow("com.android.settings", action.afterPackageName))
+                        awaitAppWindow(automation, action.afterPackageName)
                     }
                 }
                 // long: 动作后再回小灵只用于查阅已落库的结果；不在审批/执行期间切窗，避免人为撤销真实窗口许可。

@@ -22,7 +22,7 @@ internal fun androidLiveProvider(stage: Int = 292): ProviderRequestConfig {
             val size = stream.readInt().also { require(it in 1..16_384) }
             val parsed = JSONObject(decodeMcpUtf8(ByteArray(size).also(stream::readFully)))
             require(parsed.keys().asSequence().toSet() == setOf("baseUrl", "apiKey", "model"))
-            require(parsed.getString("model") == "gpt-6-luna")
+            require(parsed.getString("model") == "deepseek-v4.1-flash")
             require(parsed.getString("baseUrl").startsWith("https://") && parsed.getString("apiKey").isNotBlank())
             socket.getOutputStream().write(1)
             parsed
@@ -33,9 +33,9 @@ internal fun androidLiveProvider(stage: Int = 292): ProviderRequestConfig {
 }
 
 internal fun requireAndroidLiveScope(stage: Int = 292) {
-    require(stage in setOf(292, 293, 294, 295, 297, 298, 299, 300))
+    require(stage in setOf(292, 293, 294, 295, 297, 298, 299, 300, 301))
     require(InstrumentationRegistry.getArguments().getString("stage${stage}RealRun") == "true") { "真实验收必须显式选择并提供内存配置" }
-    check(android.os.Build.DEVICE == "begonia" && android.os.Build.VERSION.SDK_INT == 36) { "只允许指定 Redmi/SDK 真机" }
+    check(android.os.Build.DEVICE == "lmi" && android.os.Build.VERSION.SDK_INT == 36) { "只允许指定 POCO/SDK 真机" }
 }
 
 // long: 跨进程以键序、类型和长度计算值摘要，避免 XML 序列化顺序变化掩盖真正的偏好改动。

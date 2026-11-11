@@ -336,6 +336,20 @@ class RoomAgentRunRepository(
         if (status.isTerminal) cancelPreparedChildren(runId, "父 Run 已结束")
     }
 
+    override suspend fun completeRun(runId: String, result: String): Boolean = database.withTransaction {
+        val dao = database.agentRunDao()
+        val now = System.currentTimeMillis()
+        val updated = dao.updateRunStatusIfActive(runId, AgentRunStatus.COMPLETED.name, result, null,
+            now, now, TERMINAL_RUN_STATUS_NAMES)
+        if (updated == 0) {
+            val current = dao.getRun(runId)
+            return@withTransaction current?.status == AgentRunStatus.COMPLETED.name && current.result == result
+        }
+        appendEventInternal(runId, "run.status", AgentRunStatus.COMPLETED.name, metadata = null, allowTerminalRun = true)
+        cancelPreparedChildren(runId, "父 Run 已结束")
+        true
+    }
+
     override suspend fun appendStep(
         runId: String,
         type: String,
@@ -637,6 +651,12 @@ class RoomAgentRunRepository(
             // long: 历史 Step 可已结束，但它仍须属于原 Run 和同一模型阶段；不能靠重算摘要把异 Run/工具 Step 当作模型输入。
             check(step.runId == runId && step.type == expectedType) { "上下文 Step 关联不匹配" }
         }
+    }
+
+    override suspend fun isCancellationRequested(runId: String): Boolean {
+        // long: 等待期间只读取 Run 行，避免轮询时反复加载随执行增长的全部事件和步骤。
+        val run = database.agentRunDao().getRun(runId) ?: error("Agent Run 不存在：$runId")
+        return run.cancelRequestedAt != null || run.status == AgentRunStatus.CANCELLED.name
     }
 
     override suspend fun snapshot(runId: String): AgentRunSnapshot {

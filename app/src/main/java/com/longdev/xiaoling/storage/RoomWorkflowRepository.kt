@@ -829,6 +829,25 @@ class RoomWorkflowRepository(
             .toList()
     }
 
+    suspend fun reconcileScheduledWorkBindings(activeWorkRequestId: suspend (String) -> String?): List<ScheduledTaskRecord> {
+        val dao = database.workflowDao()
+        val waiting = dao.listScheduledTasks().filter { it.status == ScheduledTaskStatus.SCHEDULED.name }
+        val unbound = mutableListOf<ScheduledTaskRecord>()
+        for (observed in waiting) {
+            val actualId = activeWorkRequestId(observed.id)
+            database.withTransaction {
+                val current = dao.getScheduledTask(observed.id) ?: return@withTransaction
+                // long: 查询系统工作项期间任务可能已被 Worker 领取或用户取消；只修正仍等待且绑定未变的同一记录，不能覆盖新执行。
+                if (current.status != ScheduledTaskStatus.SCHEDULED.name || current.workRequestId != observed.workRequestId) return@withTransaction
+                val reconciled = if (current.workRequestId == actualId) current else current.copy(
+                    workRequestId = actualId, updatedAt = System.currentTimeMillis(),
+                ).also { dao.upsertScheduledTask(it) }
+                if (actualId == null) unbound += reconciled.toRecord()
+            }
+        }
+        return unbound
+    }
+
     suspend fun reconcileInterruptedScheduledTasks(taskIds: Set<String>? = null): Int {
         val dao = database.workflowDao()
         var reconciled = 0
@@ -919,6 +938,17 @@ class RoomWorkflowRepository(
             dao.upsertScheduledTask(updated)
             updated.toRecord()
         }
+    }
+
+    suspend fun attachRecoveredWorkRequest(taskId: String, workRequestId: String): Boolean = database.withTransaction {
+        val dao = database.workflowDao()
+        val task = dao.getScheduledTask(taskId) ?: return@withTransaction false
+        // long: 恢复入队后 Worker 可能已领取，或用户已取消；绑定只补写仍等待且未绑定的记录，不能将运行中任务反向改成失败。
+        if (task.status != ScheduledTaskStatus.SCHEDULED.name || (task.workRequestId != null && task.workRequestId != workRequestId)) {
+            return@withTransaction false
+        }
+        dao.upsertScheduledTask(task.copy(workRequestId = workRequestId, updatedAt = System.currentTimeMillis()))
+        true
     }
 
     suspend fun failScheduling(taskId: String, reason: String): ScheduledTaskRecord? {
@@ -1636,6 +1666,19 @@ class RoomWorkflowRepository(
     suspend fun isWorkflowAgentRun(agentRunId: String): Boolean {
         // long: 审批恢复必须从已落库的 Workflow Step 关联还原调用来源，不能把进程重建后的 Run 默认当作前台直接对话并扩大设备动作工具面。
         return database.workflowDao().getRunByAgentRunId(agentRunId) != null
+    }
+
+    suspend fun scheduledTaskIdForAgentRun(agentRunId: String): String? = database.withTransaction {
+        val dao = database.workflowDao()
+        val steps = dao.getStepsByAgentRunId(agentRunId)
+        require(steps.size <= 1) { "Agent Run 关联多个工作流步骤，不能确定停止目标" }
+        val step = steps.singleOrNull() ?: return@withTransaction null
+        val parent = requireNotNull(dao.getRun(step.workflowRunId)) { "关联工作流不存在" }
+        val taskId = parent.scheduledTaskId ?: return@withTransaction null
+        val task = requireNotNull(dao.getScheduledTask(taskId)) { "关联定时任务不存在" }
+        // long: 点击停止期间可能已进入下一步骤；冻结的 Step 仍属于同一 Workflow，停止整个关联 Task 不能依赖会随步骤变化的 header Agent ID。
+        require(task.workflowRunId == parent.id) { "定时任务与工作流关联已变化" }
+        taskId
     }
 
     internal suspend fun recoveryContext(detail: AgentRunDetailRecord): WorkflowDeviceActionRunContext? = database.withTransaction {

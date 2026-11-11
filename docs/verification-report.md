@@ -1,6 +1,14 @@
 # 验证报告
 
-验证日期：2026-10-18（北京时间）
+验证日期：2026-11-11（北京时间）
+
+# 2026-11-11 Android v0.1.24 发布门禁
+
+版本为 `0.1.24 (25)`、Room v44。App JVM 本轮执行 1671/1671、主机测试 67/67；shared allTests 通过且为 UP-TO-DATE（Android Debug/Release 各 118、iOS Simulator 156），不是本轮重跑或 iOS 产品验收。Debug、AndroidTest、正式 Release 构建和 Lint 通过；Debug Lint 为 0 错误、100 警告、3 提示。
+
+唯一当前测试设备为 POCO F2 Pro `31936bb6 / lmi`。正式签名包覆盖安装至 code25，首次安装时间保持；设备 APK 与正式产物 SHA-256 相同，主页面仍显示原设置搜索 4/4 VERIFIED 结果和 DeepSeek 模型选择，进程崩溃 buffer 为空。正式候选此前经手机 FlClash、`deepseek-v4.1-flash` 完成普通对话、SAFE、计算器、拒绝、停止和设置搜索；本轮升级回验不计为全部真实任务重跑。
+
+APK 为 `3,761,614` 字节，最终增量构建 SHA-256 `3ae87d61693952ca85cacc80d02f55b641c7b38c8408edec2ca573fb7be0730d`，固定正式证书与 16 KiB 对齐通过。发布及远端附件校验以[v0.1.24 发布记录](android-v0.1.24-release.md)为准；M1 八类联合清单未全部在该版本独立重跑，M2–M4、跨 Run 输入隐私、自然系统恢复和长期 Remote 仍未结项。
 
 # 2026-10-18 Android v0.1.23 发布门禁
 

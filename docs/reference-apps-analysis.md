@@ -1,5 +1,7 @@
 # `reference-apps` 个人 Agent 实现分析
 
+> **最新源码对照见 [2026-10-18 六仓对照](reference-code-review-2026-10-18.md)**，后续实施以 [Android 路线图](android-product-roadmap.md) 为准。下方旧表格与日期段落为历史快照，不能把当时缺少的 registry/SSE、CAS、child checkpoint 或 DOM/action 再列为当前未实现能力。
+
 ## 2026-10-17：同步后的六仓对照结论
 
 本轮已同步 `refs/rikkahub` `893e83f`、`refs/Operit` `dbf7191`、`refs/OmniBot` `06221df`、`refs/Eta` `213e8ed`、`refs/Aether` `3d782a5`、`refs/ZorvAI` `7e61f9e`。六个参考工作树均干净；以下结论以源码为准，README 只作为候选线索。

@@ -64,9 +64,14 @@ class DeviceActionPolicy(
         }
 
         fun areAllowedInAppFlow(expectedPackageName: String?, actualPackageName: String?): Boolean {
-            if (areEquivalentAppPackages(expectedPackageName, actualPackageName)) return true
+            if (expectedPackageName == null || actualPackageName == null) return false
+            return actualPackageName in appFlowPackageCandidates(expectedPackageName)
+        }
+
+        fun appFlowPackageCandidates(targetPackageName: String): List<String> {
             // long: 系统设置搜索会把输入控件交给受控的 Settings Intelligence 伴随包；它只能作为已确认设置任务的后置窗口，不能成为可打开的目标应用。
-            return actualPackageName in COMPANION_PACKAGES[expectedPackageName].orEmpty()
+            // long: 步骤提示与执行门禁共用流程窗口名单，避免模型因伴随包名不同而退出本来允许继续输入的页面。
+            return (launchPackageCandidates(targetPackageName) + COMPANION_PACKAGES[targetPackageName].orEmpty()).distinct()
         }
 
         private val COMPANION_PACKAGES = mapOf(
