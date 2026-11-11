@@ -10,6 +10,8 @@
 
 APK 为 `3,761,614` 字节，最终增量构建 SHA-256 `3ae87d61693952ca85cacc80d02f55b641c7b38c8408edec2ca573fb7be0730d`，固定正式证书与 16 KiB 对齐通过。发布及远端附件校验以[v0.1.24 发布记录](android-v0.1.24-release.md)为准；M1 八类联合清单未全部在该版本独立重跑，M2–M4、跨 Run 输入隐私、自然系统恢复和长期 Remote 仍未结项。
 
+GitHub 正式 Release 已标记 Latest，发布提交 `b66382716fc5d04e3352b833b19be2c7613caccc` / tag `v0.1.24` 已推送。重新下载 APK 与校验文件，字节、大小、GitHub digest、版本、签名、16 KiB 对齐和远端标签指向全部通过。本条回验独立提交，不移动发布标签。
+
 # 2026-10-18 Android v0.1.23 发布门禁
 
 版本升级至 `0.1.23 (24)`、Room v44；README 从 153 行精简至 53 行，阶段历史留在专项文档。本机 App JVM 1632/1632、主机工具 67/67、shared allTests、Debug/AndroidTest/正式 Release 构建、Debug Lint 与 lintVitalRelease 通过；初次 Debug 打包失败及 2 GiB heap 告警日志保留。

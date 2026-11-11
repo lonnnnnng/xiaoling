@@ -42,6 +42,12 @@ Certificate SHA-256: 23ad3f3662babb32cc0ed98f8d7a6028254fbb2bb3c7c37ba54730bff8a
 
 M1 八类联合清单未全部在 code25 独立重跑；不宣称跨 Run 输入隐私、自然 LMK/Doze/重启、长期 Remote、真实通知或复杂设备任务已验收。M2–M4 仍为路线图计划，本次仅按用户指令发布已完成增量，不自动开展后续阶段。旧模型 `gpt-6-luna` 只保留在历史证据中；当前验收配置不再使用它，不使用 USB 临时代理。
 
-## GitHub 发布
+## GitHub 发布与远端回验
 
-发布入口：[v0.1.24](https://github.com/lonnnnnng/xiaoling/releases/tag/v0.1.24)。提交、标签及附件重新下载结果在发布完成后追加；发布标签不随文档追加移动。
+- 正式 Release：[v0.1.24](https://github.com/lonnnnnng/xiaoling/releases/tag/v0.1.24)，非 draft、非 prerelease，已标记 Latest。
+- 发布提交：`b66382716fc5d04e3352b833b19be2c7613caccc`；main 与 annotated tag `v0.1.24` 已推送，远端标签解引用与发布提交一致。
+- APK 与 `.apk.sha256` 均为 uploaded；重新下载两个资产，与本地逐字节一致，文件大小及 GitHub digest 一致。
+- 远端 APK 再次通过版本、API 26/36、固定正式证书和 16 KiB zipalign 校验；正文回读与发布说明一致。
+- 本条远端回验记录在发布后独立提交；发布标签保持原提交，不随文档追加移动。
+
+首次推送因 GitHub TLS `unexpected eof while reading` 失败，单次使用 `http.version=HTTP/1.1` 后正常推送，没有关闭证书校验或修改全局 Git 配置。原始回验数据见本机证据目录中的 `remote-verification.json`、`github-release.json` 和 `remote-refs.log`。
